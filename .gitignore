@@ -1,0 +1,11 @@
+backups/
+*.backup
+*.tar.gz
+*.zip
+*.log
+.env
+**/.env
+**/secrets.yaml
+**/*password*
+**/*token*
+**/*apikey*

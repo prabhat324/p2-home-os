@@ -1,0 +1,73 @@
+P² Home OS System Snapshot
+Generated: Thu  6 Aug 00:14:57 EDT 2026
+
+Hostname:
+media-server
+
+IP addresses:
+192.168.0.203 100.67.245.78 172.19.0.1 172.20.0.1 172.23.0.1 172.21.0.1 172.22.0.1 172.18.0.1 172.17.0.1 172.24.0.1 172.25.0.1 172.26.0.1 172.27.0.1 172.28.0.1 fdb6:feb1:e752:c823:f8f1:c06:df3:da7b fd7a:115c:a1e0::a901:f5b1 
+
+Operating system:
+PRETTY_NAME="Debian GNU/Linux 13 (trixie)"
+NAME="Debian GNU/Linux"
+VERSION_ID="13"
+VERSION="13 (trixie)"
+VERSION_CODENAME=trixie
+DEBIAN_VERSION_FULL=13.6
+ID=debian
+HOME_URL="https://www.debian.org/"
+SUPPORT_URL="https://www.debian.org/support"
+BUG_REPORT_URL="https://bugs.debian.org/"
+
+Storage:
+Filesystem      Size  Used Avail Use% Mounted on
+udev            3.9G     0  3.9G   0% /dev
+tmpfs           1.6G   21M  1.6G   2% /run
+/dev/mmcblk0p2   59G   20G   37G  36% /
+tmpfs           4.0G     0  4.0G   0% /dev/shm
+tmpfs           5.0M   48K  5.0M   1% /run/lock
+tmpfs           1.0M     0  1.0M   0% /run/credentials/systemd-journald.service
+tmpfs           4.0G  544K  4.0G   1% /tmp
+/dev/mmcblk0p1  505M   67M  438M  14% /boot/firmware
+/dev/sda2       7.3T  717G  6.6T  10% /mnt/media
+tmpfs           1.0M     0  1.0M   0% /run/credentials/getty@tty1.service
+tmpfs           1.0M     0  1.0M   0% /run/credentials/serial-getty@ttyAMA10.service
+tmpfs           807M   32K  807M   1% /run/user/1000
+
+Block devices:
+NAME         SIZE FSTYPE LABEL                   UUID                                 MOUNTPOINTS
+loop0          2G swap   origin:rpi-swap                                              
+sda          7.3T                                                                     
+├─sda1       128M                                                                     
+└─sda2       7.3T ntfs   Seagate Expansion Drive 3C80209F8020621E                     /mnt/media
+mmcblk0     59.6G                                                                     
+├─mmcblk0p1  512M vfat   bootfs                  B2F0-82D2                            /boot/firmware
+└─mmcblk0p2 59.1G ext4   rootfs                  15f4c6be-1102-4331-9904-f78e78afd1fd /
+zram0          2G swap   zram0                   ea1ad527-19ea-4d44-aabd-617b66748142 [SWAP]
+
+Docker containers:
+NAMES           STATUS                       PORTS
+navidrome       Up 58 minutes                0.0.0.0:4533->4533/tcp, [::]:4533->4533/tcp
+homeassistant   Up 13 hours                  
+homepage        Up About an hour (healthy)   0.0.0.0:3000->3000/tcp, [::]:3000->3000/tcp
+glances         Up 14 hours                  0.0.0.0:61208->61208/tcp, [::]:61208->61208/tcp, 61209/tcp
+caddy           Up About an hour             
+adguardhome     Up 15 hours                  80/tcp, 67-68/udp, 0.0.0.0:53->53/tcp, [::]:53->53/tcp, 443/udp, 853/udp, 443/tcp, 3000/udp, 5443/tcp, 0.0.0.0:853->853/tcp, 0.0.0.0:53->53/udp, [::]:853->853/tcp, [::]:53->53/udp, 5443/udp, 6060/tcp, 0.0.0.0:3002->3000/tcp, [::]:3002->3000/tcp
+prowlarr        Up 16 hours                  0.0.0.0:9696->9696/tcp, [::]:9696->9696/tcp
+qbittorrent     Up 13 hours                  0.0.0.0:6881->6881/tcp, [::]:6881->6881/tcp, 0.0.0.0:8080->8080/tcp, 0.0.0.0:6881->6881/udp, [::]:8080->8080/tcp, [::]:6881->6881/udp
+sonarr          Up 24 hours                  0.0.0.0:8989->8989/tcp, [::]:8989->8989/tcp
+radarr          Up 24 hours                  0.0.0.0:7878->7878/tcp, [::]:7878->7878/tcp
+jellyseerr      Up 24 hours                  0.0.0.0:5055->5055/tcp, [::]:5055->5055/tcp
+bazarr          Up 24 hours                  0.0.0.0:6767->6767/tcp, [::]:6767->6767/tcp
+scrypted        Up 24 hours                  
+uptime-kuma     Up 24 hours (healthy)        0.0.0.0:3001->3001/tcp, [::]:3001->3001/tcp
+
+Failed services:
+  UNIT                  LOAD   ACTIVE SUB    DESCRIPTION
+● smartmontools.service loaded failed failed Self Monitoring and Reporting Technology (SMART) Daemon
+
+Legend: LOAD   → Reflects whether the unit definition was properly loaded.
+        ACTIVE → The high-level unit activation state, i.e. generalization of SUB.
+        SUB    → The low-level unit activation state, values depend on unit type.
+
+1 loaded units listed.
