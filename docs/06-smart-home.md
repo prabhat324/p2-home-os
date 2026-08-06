@@ -1,0 +1,3 @@
+# Smart Home
+
+Documentation pending.

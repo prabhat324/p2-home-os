@@ -1,0 +1,62 @@
+site_name: P² Home OS
+site_description: Home server, networking and smart-home operations manual
+site_author: Prabhat
+site_url: http://docs.home.arpa
+
+docs_dir: docs
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+
+  palette:
+    - scheme: slate
+      primary: blue grey
+      accent: light blue
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+    - scheme: default
+      primary: blue grey
+      accent: light blue
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+
+nav:
+  - Home: index.md
+  - System:
+      - Overview: 01-system-overview.md
+      - Hardware Inventory: 02-hardware-inventory.md
+      - Network: 03-network.md
+      - Storage: 04-storage.md
+  - Applications:
+      - Docker Services: 05-services.md
+      - Smart Home: 06-smart-home.md
+  - Operations:
+      - Backup Strategy: 07-backups.md
+      - Maintenance: 08-maintenance.md
+      - Disaster Recovery: 09-recovery.md
+      - Troubleshooting: 10-troubleshooting.md
+  - Roadmap: 11-roadmap.md
+  - Change Log: changelog.md
