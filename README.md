@@ -1,45 +1,31 @@
 # P² Home OS
 
-P² Home OS is a self-hosted media, storage, networking and smart-home platform running on a Raspberry Pi 5.
+P² Home OS is a self-hosted home infrastructure platform.
 
-## Core Services
+## Nodes
 
-- Jellyfin
-- Navidrome
+core-01
+- Raspberry Pi 5
+- Storage
 - Home Assistant
-- Scrypted
 - Homepage
-- AdGuard Home
-- Caddy
-- Tailscale
-- Samba
-- Radarr
-- Sonarr
-- Bazarr
-- Jellyseerr
-- Prowlarr
-- qBittorrent
-- Glances
-- Uptime Kuma
+- AdGuard
+- Monitoring
 
-## Important Locations
+compute-01
+- HP ZBook Fury
+- Ubuntu Server
+- Docker
+- AI
+- Jellyfin
+- GPU Compute
 
-- Docker Compose files: `/opt/docker/compose`
-- Documentation: `/opt/p2-home-os`
-- Media drive: `/mnt/media`
-- Planned Family Vault: `/mnt/family`
-- Planned backup drive: `/mnt/backup`
+## Principles
 
-## Documentation
-
-- `docs/01-system-overview.md`
-- `docs/02-hardware-inventory.md`
-- `docs/03-network.md`
-- `docs/04-storage.md`
-- `docs/05-services.md`
-- `docs/06-smart-home.md`
-- `docs/07-backups.md`
-- `docs/08-maintenance.md`
-- `docs/09-recovery.md`
-- `docs/10-troubleshooting.md`
-- `CHANGELOG.md`
+- Infrastructure as Code
+- Documentation First
+- Version Controlled
+- Reproducible
+- Secure
+- Observable
+- Recoverable
