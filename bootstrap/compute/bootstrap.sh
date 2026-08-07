@@ -1,19 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "P² Home OS Compute Bootstrap"
-echo "============================"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODULE_DIR="$SCRIPT_DIR/modules"
+
+echo "========================================="
+echo " P² Compute OS Bootstrap"
+echo "========================================="
+
+for module in "$MODULE_DIR"/*.sh; do
+    echo
+    echo "Running $(basename "$module")"
+    bash "$module"
+done
+
 echo
-echo "This bootstrap is not active yet."
-echo "It will eventually configure:"
-echo
-echo "- Ubuntu updates"
-echo "- SSH"
-echo "- Docker"
-echo "- NVIDIA drivers"
-echo "- NVIDIA Container Toolkit"
-echo "- Tailscale"
-echo "- P² directory structure"
-echo "- Monitoring"
-echo "- Backups"
-echo "- Compute services"
+echo "P² Compute OS bootstrap completed."
