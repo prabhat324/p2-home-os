@@ -1,0 +1,28 @@
+node-name: compute-01
+
+data-dir: /srv/k3s
+
+node-ip: 192.168.0.31
+advertise-address: 192.168.0.31
+
+tls-san:
+  - compute-01
+  - 192.168.0.31
+  - 100.65.64.4
+
+cluster-init: true
+
+secrets-encryption: true
+
+disable:
+  - traefik
+  - servicelb
+
+node-label:
+  - p2-role=compute
+  - p2-gpu=nvidia
+
+etcd-snapshot-compress: true
+etcd-snapshot-schedule-cron: "0 */12 * * *"
+etcd-snapshot-retention: 7
+etcd-snapshot-dir: /srv/backups/compute-01/k3s-etcd

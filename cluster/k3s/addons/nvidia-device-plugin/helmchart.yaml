@@ -1,0 +1,15 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: nvidia-device-plugin
+  namespace: kube-system
+spec:
+  repo: https://nvidia.github.io/k8s-device-plugin
+  chart: nvidia-device-plugin
+  version: 0.19.3
+  targetNamespace: nvidia-device-plugin
+  createNamespace: true
+  valuesContent: |-
+    runtimeClassName: nvidia
+    migStrategy: none
+    failOnInitError: true
