@@ -1,0 +1,61 @@
+- greeting:
+    text_size: xl
+    text: P² Home Command Center
+
+- glances:
+    label: Raspberry Pi 5
+    url: http://192.168.0.203:61208
+    version: 4
+    cpu: true
+    mem: true
+    cputemp: true
+    uptime: true
+    disk:
+      - /
+      - /mnt/media
+    diskUnits: bytes
+
+- glances:
+    label: compute-01
+    url: http://192.168.0.31:61208
+    version: 4
+    cpu: true
+    mem: true
+    cputemp: true
+    uptime: true
+    disk:
+      - /
+      - /srv
+    diskUnits: bytes
+
+- glances:
+    label: compute-02
+    url: http://192.168.0.88:61208
+    version: 4
+    cpu: true
+    mem: true
+    cputemp: true
+    uptime: true
+    disk:
+      - /
+      - /srv
+    diskUnits: bytes
+
+- glances:
+    label: compute-03
+    url: http://192.168.0.158:61208
+    version: 4
+    cpu: true
+    mem: true
+    uptime: true
+    disk:
+      - /
+      - /srv
+    diskUnits: bytes
+
+- datetime:
+    text_size: xl
+    format:
+      dateStyle: long
+      timeStyle: short
+      hourCycle: h12
