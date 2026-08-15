@@ -12,6 +12,8 @@
         systemctl show osho-autopilot.service -p ActiveState -p SubState -p MainPID --no-pager 2>/dev/null || true
         systemctl show osho-buffer-fill.service -p ActiveState -p SubState -p ExecMainStatus --no-pager 2>/dev/null || true
         systemctl show osho-buffer-fill.timer -p ActiveState -p SubState -p UnitFileState --no-pager 2>/dev/null || true
+        echo '=== UPLOAD REFERENCES ==='
+        grep -n -B 8 -A 28 'upload_to_youtube' /srv/compose/osho-worker/app.py 2>/dev/null || true
         echo '=== UPLOAD FUNCTION STRUCTURE ==='
         python3 - <<'PY'
         from pathlib import Path
