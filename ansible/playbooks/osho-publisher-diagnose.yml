@@ -1,20 +1,52 @@
 ---
-- name: Snapshot Project Osho live upload block
+- name: Diagnose Project Osho idle and publishing gaps
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Read exact app upload block
+    - name: Inspect autopilot progress, source inventory, outputs, and receipts
       ansible.builtin.shell: |
+        set -o pipefail
         cd /srv/compose/osho-worker || exit 1
-        echo '=== APP IMPORTS ==='
-        sed -n '1,90p' app.py
-        echo '=== APP UPLOAD BLOCK ==='
-        sed -n '1855,1920p' app.py
+        echo "NOW=$(date -Ins)"
+        echo '=== AUTOPILOT UNIT ==='
+        systemctl show osho-autopilot.service -p ActiveState -p SubState -p ExecMainStatus -p ExecMainStartTimestamp -p MainPID --no-pager 2>/dev/null || true
+        echo '=== REAL PIPELINE PROCESSES ==='
+        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/ || $0 ~ /boundary_consensus.py/ || $0 ~ /production_renderer.py/) {print}' || true
+        echo '=== GPU COMPUTE01 ==='
+        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu --format=csv,noheader 2>/dev/null || true
+        echo '=== RECENT AUTOPILOT JOURNAL ==='
+        journalctl -u osho-autopilot.service --since '6 hours ago' --no-pager 2>/dev/null | tail -240 || true
+        echo '=== OSHO TOP-LEVEL ==='
+        find /srv/osho -maxdepth 2 -type d -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -50 || true
+        echo '=== SOURCE AUDIO INVENTORY ==='
+        python3 - <<'PY'
+        import pathlib,re
+        root=pathlib.Path('/srv/osho/library/audio')
+        rows=[]
+        for p in root.glob('*') if root.exists() else []:
+            if not p.is_file(): continue
+            m=re.match(r'(\d{6})',p.name)
+            if m: rows.append((int(m.group(1)),p.stat().st_mtime,p.name))
+        rows.sort()
+        print('SOURCE_AUDIO_COUNT='+str(len(rows)))
+        print('SOURCE_MIN='+('%06d'%rows[0][0] if rows else 'none'))
+        print('SOURCE_MAX='+('%06d'%rows[-1][0] if rows else 'none'))
+        for sid,mt,name in rows[-15:]: print(f'SOURCE_AUDIO={sid:06d}|{mt}|{name}')
+        PY
+        echo '=== RECENT CANDIDATES / QA / METADATA ==='
+        find /srv/osho/candidates /srv/osho/metadata /srv/osho/work -type f \( -name '*.json' -o -name '*.mp4' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -80 || true
+        echo '=== RECEIPT DISCOVERY ==='
+        find /srv/osho -type f -name '*.json' 2>/dev/null | grep -Ei 'receipt|publish|upload' | while read -r f; do printf '%s %s\n' "$(stat -c '%Y' "$f" 2>/dev/null || echo 0)" "$f"; done | sort -nr | head -60 || true
+        echo '=== LIKELY QUEUE / STATE FILES ==='
+        find /srv/osho /srv/compose/osho-worker -maxdepth 4 -type f 2>/dev/null | grep -Ei '/(queue|state|pending|source|publish|upload|receipt)[^/]*\.(json|jsonl|txt|csv)$' | head -100 || true
+        echo '=== AUTOPILOT QUEUE/LOOP CODE REFERENCES ==='
+        grep -nEi 'pending|queue|source_id|sleep|publish|interval|while True|for source|processed|receipt' osho_autopilot.py | head -180 || true
       args:
         executable: /bin/bash
       register: diag
       changed_when: false
+      failed_when: false
 
-    - name: Show live upload block
+    - name: Show idle/publishing diagnostic
       ansible.builtin.debug:
         msg: "{{ diag.stdout_lines }}"
