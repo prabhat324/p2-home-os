@@ -18,6 +18,15 @@
         echo "MAVRICK_MIXER_MASTER=$(amixer -c sofhdadsp get Master | awk '/Mono: Playback/{print $4,$5,$6}')"
         echo "MAVRICK_MIXER_HEADPHONE=$(amixer -c sofhdadsp get Headphone | awk '/Front Left: Playback/{print $5,$6,$7}')"
         echo "MAVRICK_MIXER_SPEAKER=$(amixer -c sofhdadsp get Speaker | awk '/Front Left: Playback/{print $5,$6,$7}')"
+        echo "MAVRICK_MODEL_PULL_PID=$(cat /home/p2ops/.local/state/mavrick-model-pull.pid 2>/dev/null || echo missing)"
+        pull_pid="$(cat /home/p2ops/.local/state/mavrick-model-pull.pid 2>/dev/null || true)"
+        if [[ -n "$pull_pid" ]] && kill -0 "$pull_pid" 2>/dev/null; then
+          echo "MAVRICK_MODEL_PULL_PROCESS=running"
+        else
+          echo "MAVRICK_MODEL_PULL_PROCESS=stopped"
+        fi
+        echo "MAVRICK_MODEL_PULL_PROGRESS"
+        tr '\r' '\n' < /home/p2ops/.local/state/mavrick-model-pull.log 2>/dev/null | tail -n 12 || true
         echo "MAVRICK_RECENT_LOGS"
         journalctl -u mavrick.service -n 8 --no-pager 2>/dev/null || true
       args:
