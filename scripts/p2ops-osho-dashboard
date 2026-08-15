@@ -28,7 +28,7 @@ deploy_master() {
 
     local tmp stamp backup
     tmp="$(mktemp -d)"
-    trap 'rm -rf "$tmp"' EXIT
+    trap "rm -rf -- '$tmp'" EXIT
 
     mkdir -p "$tmp/app/static"
 
