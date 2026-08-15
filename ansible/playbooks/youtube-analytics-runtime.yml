@@ -1,0 +1,62 @@
+---
+- name: Inspect Project Osho YouTube analytics runtime
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Inspect collector, reporter, timers, and analytics database
+      ansible.builtin.shell: |
+        set -eu
+        echo "HOST=$(hostname)"
+        for unit in osho-analytics-collector.service osho-analytics-dashboard-reporter.service; do
+          echo "UNIT=$unit"
+          systemctl show "$unit" \
+            -p ActiveState -p SubState -p UnitFileState -p ExecMainStatus -p FragmentPath \
+            --no-pager 2>/dev/null || true
+          systemctl cat "$unit" 2>/dev/null \
+            | grep -E '^(User|WorkingDirectory|ExecStart)=' \
+            | sed -E 's/(token|secret|key)=[^ ]+/\1=[REDACTED]/Ig' || true
+          echo "JOURNAL_BEGIN=$unit"
+          journalctl -u "$unit" -n 12 --no-pager 2>/dev/null \
+            | sed -E 's/(token|secret|key)=([^ ]+)/\1=[REDACTED]/Ig' || true
+          echo "JOURNAL_END=$unit"
+        done
+
+        echo 'TIMERS_BEGIN'
+        systemctl list-timers --all --no-legend 2>/dev/null \
+          | grep -Ei 'analytics|youtube' || true
+        echo 'TIMERS_END'
+
+        db='/srv/osho/analytics/analytics.sqlite'
+        if [ -f "$db" ]; then
+          printf 'DB=%s SIZE=%s MTIME=%s\n' "$db" "$(stat -c '%s' "$db")" "$(stat -c '%y' "$db")"
+          python3 - "$db" <<'PY'
+        import sqlite3, sys
+        path=sys.argv[1]
+        con=sqlite3.connect(path)
+        con.row_factory=sqlite3.Row
+        tables=[r[0] for r in con.execute("select name from sqlite_master where type='table' and name not like 'sqlite_%' order by name")]
+        print('TABLES=' + ','.join(tables))
+        for table in tables:
+            cols=[r[1] for r in con.execute(f'pragma table_info({table})')]
+            count=con.execute(f'select count(*) from {table}').fetchone()[0]
+            print(f'TABLE={table} ROWS={count} COLS=' + ','.join(cols))
+            for candidate in ('updated_at','collected_at','fetched_at','timestamp','published_at','snapshot_at','created_at'):
+                if candidate in cols:
+                    try:
+                        value=con.execute(f'select max({candidate}) from {table}').fetchone()[0]
+                        print(f'TABLE={table} MAX_{candidate}={value}')
+                    except Exception:
+                        pass
+        con.close()
+        PY
+        else
+          echo 'DB=missing'
+        fi
+      args:
+        executable: /bin/bash
+      register: runtime
+      changed_when: false
+
+    - name: Print YouTube analytics runtime diagnostic
+      ansible.builtin.debug:
+        msg: "{{ runtime.stdout_lines }}"
