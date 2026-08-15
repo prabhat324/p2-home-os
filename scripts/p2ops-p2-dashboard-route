@@ -15,7 +15,7 @@ ACTION="${1:-}"
 CADDYFILE="/opt/docker/compose/caddy/Caddyfile"
 BACKUPS="/opt/docker/compose/caddy/config-backups"
 NEW_UPSTREAM="http://192.168.0.88:8787/"
-MARKER="data-p2-command-center=\"v1\""
+MARKER="osho-kpis"
 
 require_files() {
   [[ -f "$CADDYFILE" ]] || { echo "Missing $CADDYFILE" >&2; exit 3; }
