@@ -1,0 +1,84 @@
+/* P² Home Command Center */
+
+body {
+  background-attachment: fixed;
+}
+
+#page_container {
+  max-width: 1850px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.service-card {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition:
+    transform 170ms ease,
+    border-color 170ms ease,
+    box-shadow 170ms ease;
+}
+
+.service-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(56, 189, 248, 0.42);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.34),
+    0 0 28px rgba(56, 189, 248, 0.10);
+}
+
+.service-title {
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.service-description {
+  opacity: 0.72;
+}
+
+.information-widget-resource {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 14px;
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(14px);
+}
+
+h1,
+h2 {
+  letter-spacing: -0.025em;
+}
+
+/* Keep the greeting at top-left and pin Homepage's right-side info widgets
+   (currently the datetime widget) to the top-right, independent of the
+   height of the stacked Glances widgets on the left. */
+#information-widgets {
+  position: relative;
+}
+
+#information-widgets-right {
+  position: absolute !important;
+  top: 0 !important;
+  right: 0 !important;
+  margin: 0 !important;
+  align-self: flex-start !important;
+  z-index: 10;
+}
+
+/* Preserve space for the top-right datetime on normal desktop widths. */
+@media (min-width: 768px) {
+  #widgets-wrap > .information-widget-greeting:first-child {
+    max-width: calc(100% - 34rem);
+  }
+}
+
+/* On narrow screens, return to normal flow so the widget cannot overlap. */
+@media (max-width: 767px) {
+  #information-widgets-right {
+    position: static !important;
+    margin-left: auto !important;
+  }
+}
