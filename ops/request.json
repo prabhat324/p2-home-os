@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-recovery-e2e-20260815-1038",
-  "operation": "osho-publisher-diagnose",
-  "target": "compute-01"
+  "request_id": "home-dashboard-redesign-20260815-1053",
+  "operation": "home-dashboard-deploy",
+  "target": "core-01"
 }
