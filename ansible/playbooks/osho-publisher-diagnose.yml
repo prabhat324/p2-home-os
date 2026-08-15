@@ -12,6 +12,23 @@
         systemctl show osho-autopilot.service -p ActiveState -p SubState -p MainPID --no-pager 2>/dev/null || true
         systemctl show osho-buffer-fill.service -p ActiveState -p SubState -p ExecMainStatus --no-pager 2>/dev/null || true
         systemctl show osho-buffer-fill.timer -p ActiveState -p SubState -p UnitFileState --no-pager 2>/dev/null || true
+        echo '=== UPLOAD FUNCTION STRUCTURE ==='
+        python3 - <<'PY'
+        from pathlib import Path
+        p=Path('/srv/compose/osho-worker/app.py')
+        lines=p.read_text(encoding='utf-8').splitlines()
+        starts=[i for i,line in enumerate(lines) if line.startswith('def upload_to_youtube(')]
+        for start in starts:
+            end=len(lines)
+            for i in range(start+1,len(lines)):
+                if lines[i].startswith('def ') or lines[i].startswith('@app.'):
+                    end=i; break
+            for n,line in enumerate(lines[start:min(end,start+180)],start+1):
+                safe=line
+                if any(word in safe.upper() for word in ('TOKEN','SECRET','PASSWORD','CREDENTIAL')):
+                    safe=' '*(len(line)-len(line.lstrip())) + '# [REDACTED CONFIG LINE]'
+                print(f'{n}:{safe}')
+        PY
         echo '=== PUBLISHER GATE RUNTIME ==='
         grep -n 'OSHO_GLOBAL_UPLOAD_MIN_INTERVAL_V1\|YOUTUBE GLOBAL COOLDOWN' /srv/compose/osho-worker/app.py 2>/dev/null || true
         docker exec osho-worker sh -lc "grep -n 'OSHO_GLOBAL_UPLOAD_MIN_INTERVAL_V1\\|YOUTUBE GLOBAL COOLDOWN' /app/app.py /app/osho_autopilot.py 2>/dev/null || true" 2>/dev/null || true
