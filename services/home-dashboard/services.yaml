@@ -1,10 +1,43 @@
-- Media:
+- Critical Services:
+    - Project Osho:
+        icon: mdi-atom-variant
+        href: http://192.168.0.88:8787/
+        description: Content automation · dashboard
+        siteMonitor: http://192.168.0.88:8787/health
+
     - Jellyfin:
         icon: jellyfin.png
         href: http://jellyfin.home.arpa
-        description: Movies and television
+        description: Movies & television · compute-01
         siteMonitor: http://192.168.0.31:8096
 
+    - Home Assistant:
+        icon: home-assistant.png
+        href: http://192.168.0.203:8123
+        description: Home automation · core-01
+        siteMonitor: http://192.168.0.203:8123
+        server: my-docker
+        container: homeassistant
+
+    - Immich:
+        icon: immich.png
+        href: http://192.168.0.31:2283
+        description: Private photos & videos · compute-01
+        siteMonitor: http://192.168.0.31:2283
+
+    - Ollama · compute-01:
+        icon: mdi-brain
+        href: http://192.168.0.31:11434
+        description: Primary local LLM runtime
+        siteMonitor: http://192.168.0.31:11434
+
+    - Ollama · compute-03:
+        icon: mdi-brain
+        href: http://192.168.0.158:11434
+        description: RTX 2060 LLM runtime · Osho ranking
+        siteMonitor: http://192.168.0.158:11434
+
+- Media:
     - P² Music:
         icon: navidrome.png
         href: http://music.home.arpa
@@ -47,7 +80,6 @@
         server: my-docker
         container: prowlarr
 
-- Downloads:
     - qBittorrent:
         icon: qbittorrent.png
         href: http://downloads.home.arpa
@@ -55,14 +87,50 @@
         server: my-docker
         container: qbittorrent
 
-- Smart Home & Control:
-    - Home Assistant:
-        icon: home-assistant.png
-        href: http://192.168.0.203:8123
-        description: Home automation and device control
-        siteMonitor: http://192.168.0.203:8123
+- Project Osho:
+    - YouTube Analytics:
+        icon: youtube.png
+        href: http://192.168.0.88:8787/analytics
+        description: Shorts/channel performance
+        siteMonitor: http://192.168.0.88:8787/api/analytics
+
+    - Osho Control · n8n:
+        icon: n8n.png
+        href: http://192.168.0.88:5678
+        description: Workflow orchestration · compute-02
+
+    - Worker · compute-01:
+        icon: mdi-cog-transfer
+        href: http://192.168.0.31:8800
+        description: Primary GPU worker API
+        siteMonitor: http://192.168.0.31:8800/health
+
+    - Worker · compute-03:
+        icon: mdi-cog-transfer
+        href: http://192.168.0.158:8800
+        description: RTX 2060 worker API
+        siteMonitor: http://192.168.0.158:8800/health
+
+    - Ollama · compute-02:
+        icon: mdi-brain
+        href: http://192.168.0.88:11434
+        description: Osho control-node LLM runtime
+        siteMonitor: http://192.168.0.88:11434
+
+- Monitoring & Control:
+    - Uptime Kuma:
+        icon: uptime-kuma.png
+        href: http://status.home.arpa
+        description: Availability, outages and alerts
         server: my-docker
-        container: homeassistant
+        container: uptime-kuma
+
+    - Glances · core-01:
+        icon: glances.png
+        href: http://monitor.home.arpa
+        description: Raspberry Pi health and performance
+        server: my-docker
+        container: glances
 
     - P² Control:
         icon: mdi-console
@@ -74,126 +142,27 @@
     - GitHub Control Plane:
         icon: github.png
         href: https://github.com/prabhat324/p2-home-os/actions
-        description: core-01 self-hosted automation runner
-
-- AI & Photos:
-    - Open WebUI:
-        icon: mdi-robot
-        href: http://192.168.0.31:3000
-        description: Local AI chat · compute-01
-        siteMonitor: http://192.168.0.31:3000
-
-    - Immich:
-        icon: immich.png
-        href: http://192.168.0.31:2283
-        description: Private photo and video library · compute-01
-        siteMonitor: http://192.168.0.31:2283
-
-    - Ollama · compute-01:
-        icon: mdi-brain
-        href: http://192.168.0.31:11434
-        description: Primary local LLM runtime
-        siteMonitor: http://192.168.0.31:11434
-
-    - Ollama · compute-02:
-        icon: mdi-brain
-        href: http://192.168.0.88:11434
-        description: Project Osho local LLM runtime
-        siteMonitor: http://192.168.0.88:11434
-
-- Project Osho:
-    - Osho Dashboard:
-        icon: mdi-view-dashboard
-        href: http://192.168.0.88:8787/
-        description: Automation pipeline dashboard · compute-02
-        siteMonitor: http://192.168.0.88:8787/health
-
-    - YouTube Analytics:
-        icon: youtube.png
-        href: http://192.168.0.88:8787/analytics
-        description: Osho channel and Shorts analytics
-        siteMonitor: http://192.168.0.88:8787/api/analytics
-
-    - Osho Control · n8n:
-        icon: n8n.png
-        href: http://192.168.0.88:5678
-        description: Workflow orchestration · compute-02
-
-    - Osho Worker · compute-01:
-        icon: mdi-cog-transfer
-        href: http://192.168.0.31:8800
-        description: Primary Osho worker API
-
-    - Osho Worker · compute-03:
-        icon: mdi-cog-transfer
-        href: http://192.168.0.158:8800
-        description: RTX 2060 Osho worker API
-
-- Voice:
-    - Whisper STT:
-        icon: mdi-microphone
-        description: Wyoming speech-to-text · compute-01:10300
-
-    - Piper TTS:
-        icon: mdi-volume-high
-        description: Wyoming text-to-speech · compute-02:10200
-
-- Monitoring:
-    - Uptime Kuma:
-        icon: uptime-kuma.png
-        href: http://status.home.arpa
-        description: Service availability monitor
-        server: my-docker
-        container: uptime-kuma
-
-    - Glances:
-        icon: glances.png
-        href: http://monitor.home.arpa
-        description: Raspberry Pi performance
-        server: my-docker
-        container: glances
+        description: Automated operations via core-01
 
     - Homepage:
         icon: homepage.png
         href: http://dashboard.home.arpa
-        description: P² Home Server dashboard
+        description: P² Home Command Center
         server: my-docker
         container: homepage
 
-- Compute Monitoring:
-    - compute-01 GPU:
-        icon: nvidia.png
-        description: Quadro RTX 3000 · 6 GB VRAM
-        widget:
-          type: glances
-          url: http://192.168.0.31:61208
-          version: 4
-          metric: gpu:nvidia0
-          chart: true
-          refreshInterval: 5000
-
-    - compute-03 GPU:
-        icon: nvidia.png
-        description: GeForce RTX 2060 · 6 GB VRAM
-        widget:
-          type: glances
-          url: http://192.168.0.158:61208
-          version: 4
-          metric: gpu:nvidia0
-          chart: true
-          refreshInterval: 5000
-
-    - compute-03:
-        icon: mdi-server
-        href: http://192.168.0.158:8800
-        description: RTX 2060 GPU worker · 192.168.0.158
-        siteMonitor: http://192.168.0.158:61208
+    - P² Documentation:
+        icon: mdi-book-open-page-variant
+        href: http://docs.home.arpa
+        description: Home server operations manual
+        server: my-docker
+        container: p2-docs
 
 - Network & Storage:
     - AdGuard Home:
         icon: adguard-home.png
         href: http://adguard.home.arpa
-        description: Network DNS and ad blocking
+        description: LAN DNS and ad blocking
         server: my-docker
         container: adguardhome
 
@@ -208,28 +177,6 @@
         icon: tailscale.png
         href: https://login.tailscale.com/admin/machines
         description: Secure remote-access network
-
-    - Raspberry Pi 5:
-        icon: raspberry-pi.png
-        href: http://monitor.home.arpa
-        description: Infrastructure + storage · 192.168.0.203
-
-    - compute-01:
-        icon: mdi-server
-        href: http://192.168.0.31:3000
-        description: GPU compute · Jellyfin · AI · 192.168.0.31
-        siteMonitor: http://192.168.0.31:8096
-
-    - compute-02:
-        icon: mdi-server-outline
-        description: Compute node · 64 GB RAM · 192.168.0.88
-        siteMonitor: http://192.168.0.88:61208
-
-    - compute-03:
-        icon: mdi-server-outline
-        href: http://192.168.0.158:8800
-        description: GPU worker · RTX 2060 · 192.168.0.158
-        siteMonitor: http://192.168.0.158:61208
 
     - SMB Media Shares:
         icon: mdi-folder-network
@@ -249,14 +196,44 @@
 
     - NFS Media Storage:
         icon: mdi-nas
-        description: /mnt/media exported from core-01 over NFS
+        description: /mnt/media exported from core-01
 
-    - P² Documentation:
-        icon: mdi-book-open-page-variant
-        href: http://docs.home.arpa
-        description: Home server operations manual
-        server: my-docker
-        container: p2-docs
+    - compute-01 GPU:
+        icon: nvidia.png
+        description: Quadro RTX 3000 · 6 GB
+        widget:
+          type: glances
+          url: http://192.168.0.31:61208
+          version: 4
+          metric: gpu:nvidia0
+          chart: true
+          refreshInterval: 5000
+
+    - compute-03 GPU:
+        icon: nvidia.png
+        description: GeForce RTX 2060 · 6 GB
+        widget:
+          type: glances
+          url: http://192.168.0.158:61208
+          version: 4
+          metric: gpu:nvidia0
+          chart: true
+          refreshInterval: 5000
+
+- AI & Tools:
+    - Open WebUI:
+        icon: mdi-robot
+        href: http://192.168.0.31:3000
+        description: Local AI chat · compute-01
+        siteMonitor: http://192.168.0.31:3000
+
+    - Whisper STT:
+        icon: mdi-microphone
+        description: Wyoming speech-to-text · compute-01:10300
+
+    - Piper TTS:
+        icon: mdi-volume-high
+        description: Wyoming text-to-speech · compute-02:10200
 
 - Security:
     - Front Door:
