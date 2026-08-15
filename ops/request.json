@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-remote-ollama-readiness-20260815-0014",
+  "request_id": "osho-ranker-dual-endpoint-structure-20260815-0016",
   "operation": "osho-status",
   "target": "osho_nodes"
 }
