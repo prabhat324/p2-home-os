@@ -20,6 +20,8 @@
         echo "=== USB ==="
         lsusb 2>/dev/null || true
         echo "=== LOCAL AI ==="
+        curl -fsS --max-time 5 http://127.0.0.1:11434/api/version 2>/dev/null || true
+        echo
         curl -fsS --max-time 5 http://127.0.0.1:11434/api/tags 2>/dev/null || true
         echo
         curl -fsS --max-time 5 http://127.0.0.1:11434/api/ps 2>/dev/null || true
