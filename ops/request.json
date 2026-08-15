@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-internal-speaker-baseline-20260815-01",
-  "operation": "mavrick-internal-speaker-test",
+  "request_id": "mavrick-use-internal-speaker-20260815-01",
+  "operation": "mavrick-use-internal-speaker",
   "target": "compute-02"
 }
