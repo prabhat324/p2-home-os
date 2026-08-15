@@ -1,5 +1,5 @@
 {
-  "request_id": "verify-compute03-top-strip-20260814-2313",
-  "operation": "home-dashboard-inventory",
-  "target": "all"
+  "request_id": "homepage-datetime-topright-20260814-2322",
+  "operation": "home-dashboard-deploy",
+  "target": "core-01"
 }
