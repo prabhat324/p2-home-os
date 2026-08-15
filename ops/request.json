@@ -1,5 +1,5 @@
 {
-  "request_id": "compute01-jellyfin-storage-diagnose-20260815",
-  "operation": "status",
+  "request_id": "osho-upload-path-1786811959778",
+  "operation": "osho-publisher-diagnose",
   "target": "compute-01"
 }
