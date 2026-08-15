@@ -1,0 +1,71 @@
+---
+- name: Verify compute-02 built-in speakers with Logitech microphone
+  hosts: compute-02
+  gather_facts: false
+  vars:
+    mic_device: "plughw:CARD=C930e,DEV=0"
+    speaker_device: "plughw:CARD=sofhdadsp,DEV=0"
+    work_dir: "/tmp/mavrick-internal-speaker"
+  tasks:
+    - name: Stop Mavrick for exclusive microphone access
+      ansible.builtin.command: sudo -n /usr/bin/systemctl stop mavrick.service
+      changed_when: true
+
+    - name: Play tone through built-in speakers and measure it
+      ansible.builtin.shell: |
+        set -euo pipefail
+        rm -rf "{{ work_dir }}"
+        mkdir -m 0700 "{{ work_dir }}"
+        /opt/mavrick/venv/bin/python - <<'PY'
+        import math, struct, wave
+        rate=48000
+        with wave.open("{{ work_dir }}/tone.wav","wb") as w:
+            w.setnchannels(2); w.setsampwidth(2); w.setframerate(rate)
+            data=bytearray()
+            for i in range(rate*3):
+                v=int(.22*32767*math.sin(2*math.pi*1000*i/rate))
+                data += struct.pack("<hh",v,v)
+            w.writeframes(data)
+        PY
+
+        amixer -c sofhdadsp set Master 100% unmute >/dev/null
+        amixer -c sofhdadsp set Headphone 0% mute >/dev/null
+        amixer -c sofhdadsp set Speaker 100% unmute >/dev/null
+        amixer -c sofhdadsp set 'Auto-Mute Mode' Disabled >/dev/null
+
+        timeout 7 arecord -q -D "{{ mic_device }}" -f S16_LE -r 48000 -c 1 -d 6           "{{ work_dir }}/internal.wav" &
+        recorder=$!
+        sleep 1
+        timeout 5 aplay -q -D "{{ speaker_device }}" "{{ work_dir }}/tone.wav"
+        wait "$recorder"
+
+        /opt/mavrick/venv/bin/python - "{{ work_dir }}/internal.wav" <<'PY'
+        import math, struct, sys, wave
+        with wave.open(sys.argv[1],"rb") as w:
+            rate=w.getframerate(); raw=w.readframes(w.getnframes())
+        x=struct.unpack("<"+"h"*(len(raw)//2),raw)[rate:]
+        n=max(1,len(x))
+        rms=math.sqrt(sum(v*v for v in x)/n)/32768
+        c=sum(v*math.cos(2*math.pi*1000*i/rate) for i,v in enumerate(x))
+        s=sum(v*math.sin(2*math.pi*1000*i/rate) for i,v in enumerate(x))
+        amp=2*math.sqrt(c*c+s*s)/n/32768
+        db=lambda v:20*math.log10(max(v,1e-12))
+        print(f"MAVRICK_INTERNAL_SPEAKER rms_dbfs={db(rms):.2f} tone_1khz_dbfs={db(amp):.2f}")
+        PY
+        echo "MAVRICK_INTERNAL_SPEAKER_TEST=completed"
+
+        amixer -c sofhdadsp set Speaker 0% mute >/dev/null || true
+        amixer -c sofhdadsp set Headphone 100% unmute >/dev/null
+        amixer -c sofhdadsp set 'Auto-Mute Mode' Enabled >/dev/null || true
+      args:
+        executable: /bin/bash
+      register: internal_test
+      changed_when: true
+
+    - name: Restart Mavrick
+      ansible.builtin.command: sudo -n /usr/bin/systemctl start mavrick.service
+      changed_when: true
+
+    - name: Show built-in speaker measurement
+      ansible.builtin.debug:
+        msg: "{{ internal_test.stdout_lines }}"
