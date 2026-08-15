@@ -1,25 +1,16 @@
 # Storage Layout
 
-## Logical Storage Names
+The authoritative current storage documentation is [Storage Architecture](../04-storage.md).
 
-| Logical Name | Purpose | Physical Location |
-|---|---|---|
-| `media-01` | Movies, TV shows, music | 8 TB Seagate on core-01 |
-| `family-01` | Primary family photos | Planned 3 TB WD drive |
-| `backup-01` | Family-photo backup | Planned 2 TB WD drive |
-| `compute-os` | Ubuntu Server and system files | 512 GB NVMe on compute-01 |
-| `compute-cache` | AI models, transcodes, containers | 1 TB NVMe on compute-01 |
+## Current roles
 
-## Current Mount Points
+```text
+core-01:/mnt/media          8 TB media source
+compute-01:/mnt/media       read-only NFS view of media
+Immich:/mnt/photos-primary  read-only 3 TB private photo library
+/srv/osho                   durable Project Osho state
+```
 
-- `/mnt/media`
-- `/mnt/family`
-- `/mnt/backup`
+The 2 TB private-photo backup target remains designated but should not be described as active until its mount and successful backup job are re-verified.
 
-## Storage Principles
-
-- Replaceable media is separated from irreplaceable family data.
-- Family data must exist on at least two physical drives.
-- Compute cache and transcode data are not treated as primary backups.
-- Services must not start against empty mount-point directories.
-- Storage health must be monitored before dependent services start.
+This page is intentionally concise to avoid maintaining a conflicting duplicate of the main storage document.
