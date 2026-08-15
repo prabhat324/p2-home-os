@@ -71,3 +71,60 @@
     - name: Show Growth V1 verification
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
+
+    - name: Diagnose dashboard current-job telemetry source
+      ansible.builtin.shell: |
+        set -o pipefail
+        db=/srv/osho/library/catalog/catalog.sqlite
+        echo '=== HEARTBEAT SERVICE ==='
+        systemctl is-active osho-dashboard-heartbeat.service 2>/dev/null || true
+        systemctl show osho-dashboard-heartbeat.service -p MainPID -p ActiveEnterTimestamp --no-pager 2>/dev/null || true
+        echo '=== HEARTBEAT / AUTOPILOT PROCESSES ==='
+        pgrep -af 'osho-dashboard-heartbeat|osho_autopilot|dashboard.*heartbeat' || true
+        echo '=== DISCOURSES PROCESSING COLUMNS / ROWS ==='
+        python3 - <<'PY'
+        import sqlite3, pathlib
+        p=pathlib.Path('/srv/osho/library/catalog/catalog.sqlite')
+        if not p.exists():
+            print('CATALOG=missing'); raise SystemExit
+        conn=sqlite3.connect(f'file:{p}?mode=ro', uri=True)
+        conn.row_factory=sqlite3.Row
+        cols=[r['name'] for r in conn.execute('PRAGMA table_info(discourses)')]
+        wanted=['source_id','title','processing_status','processing_phase','processing_worker','processing_job_id','processing_started_at']
+        print('DISCOURSE_COLUMNS='+','.join(c for c in wanted if c in cols))
+        present=[c for c in wanted if c in cols]
+        if 'processing_status' in cols:
+            q='SELECT '+','.join(present)+' FROM discourses WHERE lower(coalesce(processing_status,\'\'))=\'processing\' ORDER BY source_id LIMIT 10'
+            rows=conn.execute(q).fetchall()
+            print('DISCOURSE_PROCESSING_ROWS='+str(len(rows)))
+            for r in rows: print('DISCOURSE_PROCESSING='+repr(dict(r)))
+        print('=== AUTOPILOT STATE SCHEMA / ACTIVE ROWS ===')
+        acols=[r['name'] for r in conn.execute('PRAGMA table_info(osho_autopilot_state)')]
+        print('AUTOPILOT_COLUMNS='+','.join(acols))
+        candidates=[c for c in ['source_id','status','stage','phase','progress','worker','job_id','updated_at','started_at','notes'] if c in acols]
+        if candidates:
+            where="lower(coalesce(status,'')) not in ('published','uploaded','failed','skipped','done','completed','complete')" if 'status' in acols else '1=1'
+            q='SELECT '+','.join(candidates)+' FROM osho_autopilot_state WHERE '+where+' ORDER BY source_id LIMIT 15'
+            rows=conn.execute(q).fetchall()
+            print('AUTOPILOT_ACTIVE_ROWS='+str(len(rows)))
+            for r in rows: print('AUTOPILOT_ACTIVE='+repr(dict(r)))
+        conn.close()
+        PY
+        echo '=== DASHBOARD VIEW FROM COMPUTE-01 ==='
+        curl -fsS --max-time 5 http://192.168.0.88:8787/api/dashboard 2>/dev/null | python3 -c '
+        import json,sys
+        try:d=json.load(sys.stdin)
+        except Exception as e: print("DASHBOARD_PARSE_ERROR="+str(e)); raise SystemExit
+        print("SUMMARY="+repr(d.get("summary")))
+        print("CURRENT_JOB="+repr(d.get("current_job")))
+        print("WORKERS="+repr([(w.get("name"),w.get("current_job"),w.get("stage"),w.get("progress"),w.get("telemetry_state")) for w in d.get("workers",[])]))
+        '
+      args:
+        executable: /bin/bash
+      register: progress_diag
+      changed_when: false
+      failed_when: false
+
+    - name: Show dashboard current-job telemetry diagnosis
+      ansible.builtin.debug:
+        msg: "{{ progress_diag.stdout_lines }}"
