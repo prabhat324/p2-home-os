@@ -1,59 +1,23 @@
 ---
-- name: Diagnose Project Osho continuous source feeder
+- name: Inspect Project Osho buffer manager CLI
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect catalog supply and feeder services/scripts
+    - name: Inspect buffer manager without modifying state
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker || exit 1
         echo "NOW=$(date -Ins)"
-        echo '=== PIPELINE ==='
-        systemctl show osho-autopilot.service -p ActiveState -p SubState -p MainPID --no-pager 2>/dev/null || true
-        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/ || $0 ~ /boundary_consensus.py/ || $0 ~ /production_renderer.py/) {print}' || true
-        echo '=== OSHO SYSTEMD UNITS/TIMERS ==='
-        systemctl list-unit-files --no-legend 2>/dev/null | grep -Ei 'osho|catalog|buffer|ingest|download' || true
-        systemctl list-timers --all --no-legend 2>/dev/null | grep -Ei 'osho|catalog|buffer|ingest|download' || true
-
-        echo '=== CATALOG SCHEMA / COUNTS / NEXT SOURCES ==='
-        python3 - <<'PY'
-        import json, sqlite3
-        p='/srv/osho/library/catalog/catalog.sqlite'
-        con=sqlite3.connect(p); con.row_factory=sqlite3.Row
-        cols=[r[1] for r in con.execute('pragma table_info(discourses)')]
-        print('DISCOURSE_COLS='+','.join(cols))
-        print('DISCOURSE_TOTAL='+str(con.execute('select count(*) from discourses').fetchone()[0]))
-        if 'rights_confirmed' in cols:
-            for r,n in con.execute('select rights_confirmed,count(*) from discourses group by rights_confirmed order by rights_confirmed'):
-                print(f'RIGHTS_COUNT={r}|{n}')
-        if 'download_status' in cols:
-            for s,n in con.execute('select coalesce(download_status,"<null>"),count(*) from discourses group by download_status order by count(*) desc'):
-                print(f'DOWNLOAD_STATUS_COUNT={s}|{n}')
-        if 'local_file' in cols:
-            print('LOCAL_FILE_PRESENT='+str(con.execute("select count(*) from discourses where local_file is not null and local_file<>''").fetchone()[0]))
-        wanted=[c for c in ('source_number','source_id','title','rights_confirmed','download_status','local_file','source_url','audio_url','url','download_url') if c in cols]
-        rows=con.execute('select '+','.join(wanted)+' from discourses where source_number>=30 order by source_number limit 30').fetchall()
-        for row in rows: print('NEXT_SOURCE='+json.dumps(dict(row),ensure_ascii=False,sort_keys=True))
-        # Eligible-but-unbuffered summary
-        wh=[]
-        if 'rights_confirmed' in cols: wh.append('rights_confirmed=1')
-        if 'download_status' in cols: wh.append("coalesce(download_status,'')<>'buffered'")
-        if wh:
-            q='select count(*) from discourses where '+' and '.join(wh)
-            print('RIGHTS_CONFIRMED_NOT_BUFFERED='+str(con.execute(q).fetchone()[0]))
-        con.close()
-        PY
-
-        echo '=== FEEDER-LIKE FILES ==='
-        find /srv/compose/osho-worker /srv/osho -maxdepth 4 -type f 2>/dev/null | grep -Ei '(catalog|buffer|ingest|download|source).*(py|sh|service|timer|json|yaml|yml)$' | head -200 || true
-        echo '=== CODE REFERENCES TO DOWNLOAD/CATALOG ==='
-        grep -RniE 'download_status|rights_confirmed|catalog.sqlite|yt-dlp|youtube_dl|local_file|buffered' /srv/compose/osho-worker --include='*.py' --include='*.sh' 2>/dev/null | head -260 || true
+        echo '=== BUFFER MANAGER HELP ==='
+        python3 buffer_manager.py --help 2>&1 || true
+        echo '=== BUFFER MANAGER SOURCE ==='
+        sed -n '1,140p;200,380p;430,620p' buffer_manager.py
       args:
         executable: /bin/bash
       register: diag
       changed_when: false
       failed_when: false
 
-    - name: Show continuous-source diagnostic
+    - name: Show buffer manager inspection
       ansible.builtin.debug:
         msg: "{{ diag.stdout_lines }}"
