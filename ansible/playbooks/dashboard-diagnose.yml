@@ -26,6 +26,20 @@
           fi
         done
 
+        echo 'DEPLOYED_DOCKERFILE_BEGIN'
+        grep -E '^(FROM|COPY|ADD|CMD|ENTRYPOINT)' /srv/compose/osho-dashboard/Dockerfile 2>/dev/null || true
+        echo 'DEPLOYED_DOCKERFILE_END'
+
+        helper='/usr/local/sbin/p2ops-osho-dashboard'
+        if [ -r "$helper" ]; then
+          echo 'HELPER_DOWNLOAD_LINES_BEGIN'
+          grep -En 'raw.githubusercontent|curl|wget|Dockerfile|main.py|index.html|server.py|analytics.html' "$helper" 2>/dev/null \
+            | sed -E 's/(token|secret|key)=([^ ]+)/\1=[REDACTED]/Ig' | head -80 || true
+          echo 'HELPER_DOWNLOAD_LINES_END'
+        else
+          echo 'HELPER_READABLE=no'
+        fi
+
         payload="$(curl -fsS "${base}/api/analytics" 2>/dev/null || true)"
         if [ -n "$payload" ]; then
           ANALYTICS_PAYLOAD="$payload" python3 - <<'PY'
@@ -43,16 +57,7 @@
         print('CHANNEL_VIDEOS=' + str(channel.get('video_count') or a.get('video_count') or a.get('channel_video_count') or ''))
         print('TRACKED_VIDEOS=' + str(len(videos)))
         for i,v in enumerate(sorted(videos, key=lambda x: float(x.get('public_views') or 0), reverse=True)[:10], 1):
-            safe={
-              'rank': i,
-              'video_id': v.get('video_id') or v.get('youtube_id'),
-              'title': v.get('title') or v.get('reel_id'),
-              'public_views': v.get('public_views'),
-              'engaged_views': v.get('engaged_views'),
-              'watch_minutes': v.get('estimated_minutes_watched'),
-              'average_view_percentage': v.get('average_view_percentage'),
-              'subscribers_gained': v.get('subscribers_gained'),
-            }
+            safe={'rank':i,'video_id':v.get('video_id') or v.get('youtube_id'),'title':v.get('title') or v.get('reel_id'),'public_views':v.get('public_views'),'engaged_views':v.get('engaged_views'),'watch_minutes':v.get('estimated_minutes_watched'),'average_view_percentage':v.get('average_view_percentage'),'subscribers_gained':v.get('subscribers_gained')}
             print('VIDEO=' + json.dumps(safe, separators=(',',':')))
         PY
         fi
