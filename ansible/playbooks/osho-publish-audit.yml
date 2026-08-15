@@ -83,6 +83,29 @@
       ansible.builtin.debug:
         msg: "{{ receipts.stdout_lines }}"
 
+    - name: Inspect sanitized recent receipt schema
+      ansible.builtin.shell: |
+        set -euo pipefail
+        python3 - <<'PY'
+        import json
+        from pathlib import Path
+        root = Path('/srv/osho/youtube/receipts')
+        paths = sorted(root.glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True)[:5]
+        for path in paths:
+            data = json.loads(path.read_text(encoding='utf-8'))
+            print(path.name, 'keys=' + ','.join(sorted(data)),
+                  'privacy=' + repr(data.get('privacy')),
+                  'privacy_status=' + repr(data.get('privacy_status')))
+        PY
+      args:
+        executable: /bin/bash
+      register: receipt_schema
+      changed_when: false
+
+    - name: Show sanitized recent receipt schema
+      ansible.builtin.debug:
+        msg: "{{ receipt_schema.stdout_lines }}"
+
     - name: Read current reconciled dashboard summary
       ansible.builtin.uri:
         url: http://192.168.0.88:8787/api/dashboard
