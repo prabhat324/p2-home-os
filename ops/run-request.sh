@@ -70,6 +70,9 @@ case "${operation}" in
   osho-buffer)
     [[ "${target}" == "compute-01" ]] || { echo "osho-buffer is restricted to compute-01" >&2; exit 2; }
     playbook="playbooks/osho-buffer.yml" ;;
+  osho-progress-deploy)
+    [[ "${target}" == "compute-01" ]] || { echo "osho-progress-deploy is restricted to compute-01" >&2; exit 2; }
+    playbook="playbooks/osho-progress-deploy.yml" ;;
   osho-publish-audit)
     [[ "${target}" == "compute-01" ]] || { echo "osho-publish-audit is restricted to compute-01" >&2; exit 2; }
     playbook="playbooks/osho-publish-audit.yml" ;;
