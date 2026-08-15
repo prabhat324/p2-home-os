@@ -12,10 +12,14 @@ import time
 import urllib.error
 import urllib.request
 
-TELEMETRY_VERSION = "1.1.0"
+TELEMETRY_VERSION = "1.2.0"
 DASHBOARD_URL = os.environ.get(
     "OSHO_DASHBOARD_URL",
-    "http://compute-02:8787/api/worker/heartbeat",
+    "http://192.168.0.88:8787/api/worker/heartbeat",
+)
+STATE_URL = os.environ.get(
+    "OSHO_STATE_URL",
+    "http://192.168.0.88:8787/api/state/reconcile",
 )
 INTERVAL = float(os.environ.get("OSHO_HEARTBEAT_INTERVAL", "10"))
 WORKER_PORT = int(os.environ.get("OSHO_WORKER_PORT", "8800"))
@@ -29,6 +33,12 @@ CATALOG_DB = Path(
         "/srv/osho/library/catalog/catalog.sqlite",
     )
 )
+RECEIPT_DIR = Path(
+    os.environ.get(
+        "OSHO_RECEIPT_DIR",
+        "/srv/osho/youtube/receipts",
+    )
+)
 
 ROLE_BY_HOST = {
     "compute-01": "Primary GPU worker / autopilot",
@@ -39,6 +49,26 @@ ROLE_BY_HOST = {
 # current_job/stage/progress. compute-03 does not, so this telemetry agent also
 # emits the compatible basic heartbeat for compute-03 using Osho's catalog DB.
 CATALOG_OPERATIONAL_HOSTS = {"compute-03"}
+
+PROCESSING_STATES = {
+    "downloading",
+    "transcribing",
+    "analyzing",
+    "candidate_extraction",
+    "ranking",
+    "hook_ranking",
+    "retention_qa",
+    "generating_visuals",
+    "rendering",
+    "rendering_approved_clips",
+    "quality_check",
+    "metadata",
+    "uploading",
+    "retrying",
+    "processing",
+    "running",
+    "remote_qa",
+}
 
 
 def run(*args, timeout=4):
@@ -249,10 +279,168 @@ def operational_payload(hostname, health):
     }
 
 
-def post(data):
+def autopilot_status_counts():
+    if not CATALOG_DB.exists():
+        return None
+
+    try:
+        conn = sqlite3.connect(
+            f"file:{CATALOG_DB}?mode=ro",
+            uri=True,
+            timeout=2,
+        )
+        rows = conn.execute(
+            """
+            SELECT lower(trim(status)) AS status, COUNT(*)
+            FROM osho_autopilot_state
+            WHERE status IS NOT NULL AND trim(status) <> ''
+            GROUP BY lower(trim(status))
+            """
+        ).fetchall()
+        conn.close()
+        return {str(status): int(count) for status, count in rows}
+    except (sqlite3.Error, OSError):
+        return None
+
+
+def receipt_records():
+    if not RECEIPT_DIR.exists():
+        return []
+
+    records = []
+    for path in RECEIPT_DIR.rglob("*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                continue
+
+            video_id = data.get("video_id")
+            youtube_url = data.get("youtube_url")
+            if not youtube_url and video_id:
+                youtube_url = f"https://www.youtube.com/watch?v={video_id}"
+
+            timestamp = (
+                data.get("uploaded_at")
+                or data.get("published_at")
+                or data.get("created_at")
+            )
+            if not timestamp:
+                timestamp = time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ",
+                    time.gmtime(path.stat().st_mtime),
+                )
+
+            identity = (
+                str(video_id)
+                if video_id
+                else str(data.get("job_id") or data.get("source_id") or path)
+            )
+
+            records.append({
+                "identity": identity,
+                "timestamp": str(timestamp),
+                "job_id": data.get("job_id"),
+                "source_id": data.get("source_id"),
+                "video_id": video_id,
+                "youtube_url": youtube_url,
+                "title": data.get("title"),
+            })
+        except (OSError, ValueError, TypeError):
+            continue
+
+    deduped = {}
+    for record in records:
+        prior = deduped.get(record["identity"])
+        if prior is None or record["timestamp"] > prior["timestamp"]:
+            deduped[record["identity"]] = record
+
+    return list(deduped.values())
+
+
+def state_reconcile_payload(hostname):
+    if hostname != "compute-01":
+        return None
+
+    status_counts = autopilot_status_counts()
+    if status_counts is None:
+        return None
+
+    receipts = receipt_records()
+    upload_state_keys = {"published", "uploaded"}.intersection(status_counts)
+    uploaded_from_state = (
+        sum(status_counts.get(status, 0) for status in upload_state_keys)
+        if upload_state_keys
+        else None
+    )
+    uploaded = len(receipts) if receipts else uploaded_from_state
+
+    processing_keys = PROCESSING_STATES.intersection(status_counts)
+    processing = (
+        sum(status_counts.get(status, 0) for status in processing_keys)
+        if processing_keys
+        else None
+    )
+
+    ready_keys = {"ready_to_upload", "ready"}.intersection(status_counts)
+    ready = (
+        sum(status_counts.get(status, 0) for status in ready_keys)
+        if ready_keys
+        else None
+    )
+
+    queued_keys = {"queued", "pending"}.intersection(status_counts)
+    queued = (
+        sum(status_counts.get(status, 0) for status in queued_keys)
+        if queued_keys
+        else None
+    )
+
+    skipped = status_counts.get("skipped", 0)
+
+    failed_keys = {"failed", "error"}.intersection(status_counts)
+    failed = (
+        sum(status_counts.get(status, 0) for status in failed_keys)
+        if failed_keys
+        else None
+    )
+
+    latest_upload = None
+    if receipts:
+        latest = max(receipts, key=lambda item: item["timestamp"])
+        latest_upload = {
+            "id": latest.get("job_id") or latest.get("video_id") or latest.get("source_id"),
+            "status": "published",
+            "stage": "published",
+            "title": latest.get("title") or (
+                f"Source {latest.get('source_id')}" if latest.get("source_id") else "YouTube upload"
+            ),
+            "progress": 100,
+            "worker": "compute-01",
+            "created_at": None,
+            "updated_at": latest.get("timestamp"),
+            "published_at": latest.get("timestamp"),
+            "youtube_url": latest.get("youtube_url"),
+            "error": None,
+        }
+
+    return {
+        "source": hostname,
+        "uploaded": uploaded,
+        "processing": processing,
+        "ready": ready,
+        "queued": queued,
+        "skipped": skipped,
+        "failed": failed,
+        "latest_upload": latest_upload,
+        "status_counts": status_counts,
+        "notes": "Read-only reconciliation from osho_autopilot_state and durable YouTube receipts.",
+    }
+
+
+def post(url, data):
     body = json.dumps(data).encode("utf-8")
     req = urllib.request.Request(
-        DASHBOARD_URL,
+        url,
         data=body,
         headers={
             "Content-Type": "application/json",
@@ -270,14 +458,25 @@ def main():
     while True:
         try:
             health = worker_health()
-            post(telemetry_payload(hostname, health))
+            post(DASHBOARD_URL, telemetry_payload(hostname, health))
 
             if hostname in CATALOG_OPERATIONAL_HOSTS:
-                post(operational_payload(hostname, health))
+                post(DASHBOARD_URL, operational_payload(hostname, health))
         except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
             print(f"heartbeat failed: {exc}", flush=True)
         except Exception as exc:
             print(f"heartbeat unexpected error: {exc}", flush=True)
+
+        if hostname == "compute-01":
+            try:
+                snapshot = state_reconcile_payload(hostname)
+                if snapshot:
+                    post(STATE_URL, snapshot)
+            except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+                print(f"state reconciliation failed: {exc}", flush=True)
+            except Exception as exc:
+                print(f"state reconciliation unexpected error: {exc}", flush=True)
+
         time.sleep(INTERVAL)
 
 
