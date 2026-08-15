@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-v055-storage-cleanup-deploy-20260815",
-  "operation": "dashboard-deploy",
+  "request_id": "mavrick-audio-inventory-20260815-01",
+  "operation": "mavrick-inventory",
   "target": "compute-02"
 }
