@@ -20,6 +20,10 @@
         executable: /bin/bash
       changed_when: false
 
+    - name: Stop Mavrick while exclusively testing its microphone
+      ansible.builtin.command: sudo -n /usr/bin/systemctl stop mavrick.service
+      changed_when: true
+
     - name: Measure baseline and playback through the external speaker
       ansible.builtin.shell: |
         set -euo pipefail
@@ -53,7 +57,10 @@
         executable: /bin/bash
       register: loopback
       changed_when: true
-      always_run: false
+
+    - name: Restart Mavrick after the loopback test
+      ansible.builtin.command: sudo -n /usr/bin/systemctl start mavrick.service
+      changed_when: true
 
     - name: Show microphone-measured playback result
       ansible.builtin.debug:
