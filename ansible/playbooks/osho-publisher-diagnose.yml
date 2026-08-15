@@ -1,80 +1,31 @@
 ---
-- name: Diagnose Project Osho publisher state on compute-01
+- name: Diagnose Project Osho publisher privilege boundary
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect live publisher code, jobs, receipts, and logs
+    - name: Inspect sudo allowlist and Osho maintenance helper
       ansible.builtin.shell: |
         set -o pipefail
-        cd /srv/compose/osho-worker || exit 1
-        echo "NOW=$(date -Ins)"
-        echo '=== SERVICE ==='
-        systemctl is-active osho-autopilot.service 2>/dev/null || true
-        pgrep -af 'osho_autopilot.py|youtube_uploader.py|uvicorn|app.py' 2>/dev/null || true
-
-        echo '=== PUBLISHER CODE MARKERS ==='
-        grep -nEi '29|minute|cooldown|last_publish|last_upload|timedelta|upload_to_youtube|PUBLIC UPLOAD|AUTO_UPLOAD|receipt' osho_autopilot.py youtube_uploader.py app.py 2>/dev/null | head -260 || true
-
-        echo '=== AUTOPILOT PUBLISH SECTION ==='
-        sed -n '1380,1615p' osho_autopilot.py 2>/dev/null || true
-        echo '=== AUTOPILOT MAIN LOOP ==='
-        sed -n '1760,1925p' osho_autopilot.py 2>/dev/null || true
-        echo '=== YOUTUBE UPLOADER ==='
-        sed -n '150,420p' youtube_uploader.py 2>/dev/null || true
-        echo '=== APP AUTO-UPLOAD SECTION ==='
-        sed -n '1840,1925p' app.py 2>/dev/null || true
-
-        echo '=== RECENT AUTOPILOT PUBLISH EVENTS ==='
-        journalctl -u osho-autopilot.service --since '2026-08-15 00:00:00' --no-pager 2>/dev/null \
-          | grep -Ei 'publish|upload|receipt|ready|cooldown|wait|skip|approval|error|exception|traceback' \
-          | tail -220 || true
-
-        echo '=== WORKER API JOB SUMMARY ==='
-        python3 - <<'PY'
-        import json, urllib.request
-        urls = [
-            'http://127.0.0.1:8800/jobs',
-            'http://127.0.0.1:8800/api/jobs',
-            'http://127.0.0.1:8787/jobs',
-        ]
-        for url in urls:
-            try:
-                with urllib.request.urlopen(url, timeout=3) as r:
-                    body = r.read().decode('utf-8', 'replace')
-                print('URL=', url, 'STATUS=ok')
-                try:
-                    data = json.loads(body)
-                    if isinstance(data, list):
-                        print('JOB_COUNT=', len(data))
-                        for item in data[-30:]:
-                            if isinstance(item, dict):
-                                slim = {k:item.get(k) for k in ('job_id','id','source_id','status','stage','created_at','updated_at','reels','outputs','youtube') if k in item}
-                                print('JOB=', repr(slim))
-                    else:
-                        print('BODY=', repr(data)[:12000])
-                except Exception:
-                    print('BODY=', body[:12000])
-                break
-            except Exception as exc:
-                print('URL=', url, 'ERROR=', type(exc).__name__, str(exc))
-        PY
-
-        echo '=== RECEIPT SUMMARY ==='
-        python3 - <<'PY'
-        import json
-        from pathlib import Path
-        root=Path('/srv/osho/youtube/receipts')
-        for p in sorted(root.glob('*.json')):
-            try: d=json.loads(p.read_text())
-            except Exception: continue
-            print(p.name, d.get('video_id'), d.get('uploaded_at') or d.get('published_at'), d.get('privacy_status'))
-        PY
+        echo '=== ID ==='
+        id
+        echo '=== SUDO ALLOWLIST ==='
+        sudo -n -l 2>&1 || true
+        echo '=== HELPER METADATA ==='
+        ls -l /usr/local/sbin/p2ops-osho-maintenance 2>&1 || true
+        echo '=== HELPER CONTENT ==='
+        if [ -r /usr/local/sbin/p2ops-osho-maintenance ]; then
+          sed -n '1,320p' /usr/local/sbin/p2ops-osho-maintenance
+        else
+          echo 'HELPER_READABLE=no'
+        fi
+        echo '=== WORKER OWNERSHIP ==='
+        stat -c '%U:%G %a %n' /srv/compose/osho-worker /srv/compose/osho-worker/youtube_uploader.py 2>&1 || true
       args:
         executable: /bin/bash
       register: diag
       changed_when: false
       failed_when: false
 
-    - name: Show publisher diagnostic
+    - name: Show privilege diagnostic
       ansible.builtin.debug:
         msg: "{{ diag.stdout_lines }}"
