@@ -12,7 +12,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
 apt-get install -y --no-install-recommends \
-  python3-venv python3-pip ffmpeg v4l-utils alsa-utils libportaudio2 \
+  python3-venv python3-pip ffmpeg v4l-utils alsa-utils libportaudio2 libgomp1 \
   curl ca-certificates
 
 if ! id mavrick >/dev/null 2>&1; then
@@ -36,9 +36,9 @@ python3 -m venv /opt/mavrick/venv
 /opt/mavrick/venv/bin/pip install --upgrade pip wheel
 /opt/mavrick/venv/bin/pip install -r /opt/mavrick/requirements.txt
 
-sudo -u mavrick /opt/mavrick/venv/bin/python -m piper.download_voices \
+runuser -u mavrick -- /opt/mavrick/venv/bin/python -m piper.download_voices \
   --data-dir /var/lib/mavrick/models/piper en_US-lessac-medium
-sudo -u mavrick /opt/mavrick/venv/bin/python - <<'PY'
+runuser -u mavrick -- /opt/mavrick/venv/bin/python - <<'PY'
 from faster_whisper import WhisperModel
 WhisperModel("tiny.en", device="cpu", compute_type="int8", download_root="/var/lib/mavrick/models/whisper")
 print("WHISPER_MODEL=ready")
