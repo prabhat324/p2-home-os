@@ -1,5 +1,5 @@
 {
-  "request_id": "ollama-lan-fix-20260815-1033",
-  "operation": "ollama-lan-fix",
-  "target": "all"
+  "request_id": "osho-resume-verify-20260815-1034",
+  "operation": "osho-publisher-diagnose",
+  "target": "compute-01"
 }
