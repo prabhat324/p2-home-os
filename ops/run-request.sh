@@ -73,6 +73,9 @@ case "${operation}" in
   osho-notifications-diagnose)
     [[ "${target}" == "compute-01" ]] || { echo "osho-notifications-diagnose is restricted to compute-01" >&2; exit 2; }
     playbook="playbooks/osho-notifications-diagnose.yml" ;;
+  osho-discord-deploy)
+    [[ "${target}" == "compute-01" ]] || { echo "osho-discord-deploy is restricted to compute-01" >&2; exit 2; }
+    playbook="playbooks/osho-discord-deploy.yml" ;;
   osho-publisher-fix)
     [[ "${target}" == "compute-01" ]] || { echo "osho-publisher-fix is restricted to compute-01" >&2; exit 2; }
     playbook="playbooks/osho-publisher-fix.yml" ;;
