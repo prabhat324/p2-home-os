@@ -1,123 +1,42 @@
 ---
-- name: Verify Project Osho pipeline health
+- name: Inspect Project Osho rendering and growth-editing pipeline
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Collect pipeline, inference, log, and receipt evidence
+    - name: Inspect live renderer, captions, reframing, audio, metadata, and upload code
       ansible.builtin.shell: |
         set -o pipefail
-        echo "NOW=$(date -Ins)"
         cd /srv/compose/osho-worker
+        echo "NOW=$(date -Ins)"
+        echo '=== PIPELINE FILES ==='
+        find . -maxdepth 2 -type f \( -name '*.py' -o -name '*.sh' \) -printf '%p\n' | sort
 
-        echo '=== PATCH STATUS ==='
-        sudo -n /usr/local/sbin/p2ops-osho-managed-patch status 2>&1 || true
+        echo '=== RENDER / CAPTION / EDIT REFERENCES ==='
+        grep -RniE --include='*.py' --include='*.sh' \
+          'ffmpeg|subtitle|caption|ass|drawtext|crop|scale|1080|1920|reel|render|zoom|loudnorm|audio|fade|overlay|font|vertical' . \
+          | head -260 || true
 
-        echo '=== REAL PIPELINE ==='
-        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && $4=="python3" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/ || $0 ~ /boundary_consensus.py/ || $0 ~ /transcript_stability.py/) {print}' || true
+        echo '=== AUTOPILOT RENDER CALLS ==='
+        grep -nE 'render|reel|caption|subtitle|metadata|title|upload|ffmpeg' osho_autopilot.py | head -180 || true
 
-        echo '=== LOCAL GPU ==='
-        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu --format=csv,noheader 2>/dev/null || true
-
-        echo '=== REMOTE GPU/OLLAMA ==='
-        if curl -fsS --max-time 3 http://192.168.0.158:11434/api/ps >/tmp/osho-remote-ps.$$ 2>/dev/null; then
-          echo 'REMOTE_REACHABLE=yes'
-          python3 - /tmp/osho-remote-ps.$$ <<'PY'
-        import json,sys
-        with open(sys.argv[1], encoding='utf-8') as f:
-            d=json.load(f)
-        print('REMOTE_MODELS=' + json.dumps([{"name":x.get("name"),"vram":x.get("size_vram")} for x in d.get("models",[])]))
-        PY
-        else
-          echo 'REMOTE_REACHABLE=no'
-        fi
-        rm -f /tmp/osho-remote-ps.$$
-
-        echo '=== COMPUTE-03 GPU UTILIZATION ==='
-        if curl -fsS --max-time 3 http://192.168.0.158:61208/api/4/gpu >/tmp/osho-remote-gpu.$$ 2>/dev/null; then
-          python3 - /tmp/osho-remote-gpu.$$ <<'PY'
-        import json,sys
-        try:
-            with open(sys.argv[1], encoding='utf-8') as f:
-                data=json.load(f)
-        except Exception as exc:
-            print('COMPUTE03_GPU_PARSE_ERROR=' + str(exc))
-            raise SystemExit
-        rows=data if isinstance(data,list) else [data]
-        matches=[]
-        for r in rows:
-            if not isinstance(r,dict):
-                continue
-            text=' '.join(str(r.get(k,'')) for k in ('gpu_id','name','model','vendor')).lower()
-            if 'nvidia' in text or '2060' in text:
-                matches.append(r)
-        print('COMPUTE03_GPU=' + json.dumps(matches or rows[:2], sort_keys=True))
-        PY
-        else
-          echo 'COMPUTE03_GPU=unreachable'
-        fi
-        rm -f /tmp/osho-remote-gpu.$$
-
-        echo '=== LATEST RANKER LOGS ==='
-        for rank in $(find /srv/osho/logs/autopilot -maxdepth 1 -type f -name '*-hook-v5.log' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -5 | cut -d' ' -f2-); do
-          echo "RANK_LOG=$rank MTIME=$(stat -c '%y' "$rank") SIZE=$(stat -c '%s' "$rank")"
-          echo "LOCAL_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-01$' "$rank" 2>/dev/null || true)"
-          echo "REMOTE_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-03$' "$rank" 2>/dev/null || true)"
-          echo "RETRIES=$(grep -c 'MODEL RETRY' "$rank" 2>/dev/null || true)"
-          echo "TIMEOUTS=$(grep -Eic 'timed out|timeout' "$rank" 2>/dev/null || true)"
-          echo "MODEL_FAILURES=$(grep -Ec 'HOOK MODEL FAILURE|CLIP MODEL FAILURE' "$rank" 2>/dev/null || true)"
-          echo "FAILOVERS=$(grep -c 'MODEL ENDPOINT FAILOVER' "$rank" 2>/dev/null || true)"
-          tail -8 "$rank" 2>/dev/null || true
+        echo '=== CANDIDATE RENDERER FILES ==='
+        for f in $(grep -RIlE --include='*.py' 'ffmpeg|drawtext|subtitles|1080:1920|1920|render' . | head -12); do
+          echo "----- FILE: $f -----"
+          sed -n '1,260p' "$f" | head -260
         done
 
-        echo '=== LATEST QA ENDPOINT EVIDENCE ==='
-        for qlog in $(find /srv/osho/logs/autopilot -maxdepth 1 -type f -name '*-qa-v4.log' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -5 | cut -d' ' -f2-); do
-          echo "QA_LOG=$qlog MTIME=$(stat -c '%y' "$qlog") SIZE=$(stat -c '%s' "$qlog")"
-          echo "QA_ERRORS=$(grep -Eic 'ERROR:|Traceback|timed out|timeout|MODEL ENDPOINT FALLBACK' "$qlog" 2>/dev/null || true)"
-          grep -E 'MODEL: qwen3:4b-instruct|MODEL: llama3.1:8b|MODEL ENDPOINT:|MODEL ENDPOINT FALLBACK:|FINAL CONSENSUS|BOUNDARY CONSENSUS:|RESULT:' "$qlog" 2>/dev/null | tail -40 || true
-        done
-
-        echo '=== RECEIPT SAFETY ==='
-        python3 - <<'PY'
-        import json
-        from pathlib import Path
-        root=Path('/srv/osho/youtube/receipts')
-        files=sorted(root.glob('*.json')) if root.exists() else []
-        print(f'RECEIPT_DIR_EXISTS={"yes" if root.exists() else "no"}')
-        print(f'RECEIPT_FILES={len(files)}')
-        malformed=[]; rows=[]
-        for p in files:
-            try:
-                d=json.loads(p.read_text(encoding='utf-8'))
-            except Exception as exc:
-                malformed.append((p.name,str(exc)))
-                continue
-            rows.append((p.name,str(d.get('source_id') or ''),str(d.get('job_id') or ''),str(d.get('video_id') or ''),str(d.get('uploaded_at') or '')))
-        print(f'RECEIPT_MALFORMED={len(malformed)}')
-        for name,err in malformed[:5]: print(f'MALFORMED={name}:{err}')
-        for field,idx in [('source_id',1),('job_id',2),('video_id',3)]:
-            seen={}; dup=[]
-            for row in rows:
-                value=row[idx]
-                if not value: continue
-                seen.setdefault(value,[]).append(row[0])
-            for value,names in seen.items():
-                if len(names)>1: dup.append((value,names))
-            print(f'DUPLICATE_{field.upper()}={len(dup)}')
-            for value,names in dup[:5]: print(f'DUP_{field.upper()}={value}:{",".join(names)}')
-        missing_video=[r[0] for r in rows if not r[3]]
-        print(f'RECEIPTS_MISSING_VIDEO_ID={len(missing_video)}')
-        for row in rows[-8:]:
-            print('RECEIPT=' + '|'.join(row))
-        PY
-
-        echo '=== RECENT AUTOPILOT EVENTS ==='
-        journalctl -u osho-autopilot.service -n 35 --no-pager 2>/dev/null | tail -35 || true
+        echo '=== RECENT OUTPUT PROBE ==='
+        latest=$(find /srv/osho -type f -name '*.mp4' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)
+        if [ -n "$latest" ]; then
+          echo "LATEST_MP4=$latest"
+          ffprobe -v error -show_entries format=duration:stream=index,codec_type,codec_name,width,height,r_frame_rate,bit_rate -of json "$latest" 2>/dev/null || true
+        fi
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show pipeline health evidence
+    - name: Show render-growth inspection
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
