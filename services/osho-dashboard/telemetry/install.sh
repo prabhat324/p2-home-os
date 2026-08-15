@@ -21,7 +21,8 @@ sudo install -m 0644 \
     /etc/systemd/system/osho-dashboard-heartbeat.service
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now osho-dashboard-heartbeat.service
+sudo systemctl enable osho-dashboard-heartbeat.service >/dev/null
+sudo systemctl restart osho-dashboard-heartbeat.service
 
 sleep 2
 sudo systemctl --no-pager --full status osho-dashboard-heartbeat.service || true
