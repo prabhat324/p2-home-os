@@ -28,6 +28,9 @@ case "${operation}" in
   status) playbook="playbooks/status.yml" ;;
   gpu-status) playbook="playbooks/gpu-status.yml" ;;
   osho-status) playbook="playbooks/osho-status.yml" ;;
+  ollama-status)
+    [[ "${target}" == "compute-01" ]] || { echo "ollama-status is restricted to compute-01" >&2; exit 2; }
+    playbook="playbooks/ollama-status.yml" ;;
   home-dashboard-inventory)
     [[ "${target}" == "all" ]] || { echo "home-dashboard-inventory is restricted to all" >&2; exit 2; }
     playbook="playbooks/home-dashboard-inventory.yml" ;;
