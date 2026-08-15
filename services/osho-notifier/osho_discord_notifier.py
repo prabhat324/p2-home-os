@@ -119,6 +119,66 @@ def scan_receipts(state: dict) -> None:
         state["receipts"] = sorted(seen)[-2000:]
         save_state(state)
 
+
+def worker_healthy() -> bool:
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8800/health", timeout=5) as response:
+            return 200 <= response.status < 300
+    except Exception:
+        return False
+
+def critical_conditions() -> dict[str, str]:
+    conditions: dict[str, str] = {}
+    autopilot = command(["systemctl", "is-active", "osho-autopilot.service"])
+    if autopilot != "active":
+        conditions["autopilot"] = f"Autopilot service is {autopilot}"
+    if not worker_healthy():
+        conditions["worker"] = "Primary Osho worker health check failed"
+    disk = shutil.disk_usage("/srv/osho")
+    free_pct = disk.free * 100 / disk.total if disk.total else 0
+    if free_pct < 10 or disk.free < 100 * 2**30:
+        conditions["disk"] = (
+            f"Osho storage is low: {disk.free / 2**30:.1f} GiB free "
+            f"({free_pct:.1f}%)"
+        )
+    gpu_raw = command([
+        "nvidia-smi", "--query-gpu=temperature.gpu",
+        "--format=csv,noheader,nounits",
+    ])
+    try:
+        temperatures = [int(v.strip()) for v in gpu_raw.splitlines() if v.strip()]
+        hottest = max(temperatures)
+        if hottest >= 85:
+            conditions["gpu_temperature"] = f"GPU temperature is critical: {hottest}°C"
+    except Exception:
+        pass
+    return conditions
+
+def monitor_health(state: dict, now_epoch: float) -> None:
+    previous = state.setdefault("critical_alerts", {})
+    current = critical_conditions()
+    changed = False
+    for key, message in current.items():
+        prior = previous.get(key, {})
+        last_sent = float(prior.get("last_sent", 0)) if isinstance(prior, dict) else 0
+        if not prior or now_epoch - last_sent >= 3600:
+            post(f"🚨 **CRITICAL — Project Osho**\n{message}\nHost: compute-01")
+            previous[key] = {"message": message, "last_sent": now_epoch}
+            changed = True
+    for key in list(previous):
+        if key not in current:
+            old = previous.pop(key)
+            message = old.get("message", key) if isinstance(old, dict) else key
+            post(f"✅ **RECOVERED — Project Osho**\n{message}\nHost: compute-01")
+            changed = True
+    last_summary = float(state.get("last_health_summary", 0))
+    if now_epoch - last_summary >= 6 * 3600:
+        post(resource_snapshot())
+        state["last_health_summary"] = now_epoch
+        changed = True
+    if changed:
+        save_state(state)
+
 def journal_process() -> subprocess.Popen[str]:
     return subprocess.Popen(
         ["journalctl", "-u", "osho-autopilot.service", "-f", "-n", "0", "-o", "cat"],
@@ -180,6 +240,7 @@ def main() -> int:
     post("🟢 **Project Osho Discord notifier online**\nWatching autopilot events and YouTube uploads on compute-01.")
     proc = journal_process()
     last_receipt_scan = 0.0
+    last_health_check = 0.0
     try:
         while True:
             if proc.poll() is not None:
@@ -198,6 +259,9 @@ def main() -> int:
             if now - last_receipt_scan >= 15:
                 scan_receipts(state)
                 last_receipt_scan = now
+            if now - last_health_check >= 60:
+                monitor_health(state, time.time())
+                last_health_check = now
             if not line:
                 time.sleep(0.5)
     except KeyboardInterrupt:
