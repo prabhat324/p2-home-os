@@ -48,10 +48,12 @@ The deploy script:
 
 1. creates a timestamped backup of the currently deployed dashboard source/config;
 2. does **not** replace `data/osho.db`;
-3. copies v0.4 source files;
-4. validates `docker compose config`;
-5. rebuilds/restarts the dashboard container;
-6. checks `/health` and `/api/dashboard`.
+3. preserves an existing compute-02 `compose.yml` so host-specific settings are not lost;
+4. installs the repository baseline Compose file only when compute-02 has no existing Compose file;
+5. copies the v0.4 application/build files;
+6. validates `docker compose config`;
+7. rebuilds/restarts the dashboard container;
+8. checks `/health` and `/api/dashboard`.
 
 The v0.4 backend migrates the existing SQLite schema forward with `ALTER TABLE` for missing columns. The database does not need to be deleted or recreated.
 
