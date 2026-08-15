@@ -1,0 +1,103 @@
+---
+- name: Deploy Project Osho Discord notifier
+  hosts: compute-01
+  gather_facts: false
+  vars:
+    discord_webhook_url: "{{ lookup('env', 'DISCORD_WEBHOOK_URL') }}"
+    notifier_bin: /home/p2ops/.local/bin/osho-discord-notifier.py
+    notifier_config: /home/p2ops/.config/osho-discord.env
+    notifier_state: /home/p2ops/.local/state
+  tasks:
+    - name: Validate injected Discord webhook
+      ansible.builtin.assert:
+        that:
+          - discord_webhook_url | length > 50
+          - discord_webhook_url is match('^https://(discord(app)?\\.com)/api/webhooks/')
+        fail_msg: DISCORD_WEBHOOK_URL secret is missing or invalid
+      no_log: true
+
+    - name: Create notifier directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: p2ops
+        group: p2ops
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "/home/p2ops/.local/bin", mode: "0755" }
+        - { path: "/home/p2ops/.local/state", mode: "0700" }
+        - { path: "/home/p2ops/.config", mode: "0700" }
+
+    - name: Install notifier
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../services/osho-notifier/osho_discord_notifier.py"
+        dest: "{{ notifier_bin }}"
+        owner: p2ops
+        group: p2ops
+        mode: "0755"
+
+    - name: Install webhook secret
+      ansible.builtin.copy:
+        content: "DISCORD_WEBHOOK_URL={{ discord_webhook_url }}\n"
+        dest: "{{ notifier_config }}"
+        owner: p2ops
+        group: p2ops
+        mode: "0600"
+      no_log: true
+
+    - name: Validate notifier Python syntax
+      ansible.builtin.command:
+        argv: [python3, -m, py_compile, "{{ notifier_bin }}"]
+      changed_when: false
+
+    - name: Keep notifier running after reboot
+      ansible.builtin.cron:
+        name: Project Osho Discord notifier
+        special_time: reboot
+        user: p2ops
+        job: "/usr/bin/nohup {{ notifier_bin }} >> {{ notifier_state }}/osho-discord-notifier.log 2>&1 &"
+
+    - name: Restart notifier process
+      ansible.builtin.shell: |
+        set -eu
+        pidfile="{{ notifier_state }}/osho-discord-notifier.pid"
+        if [ -s "$pidfile" ]; then
+          oldpid="$(cat "$pidfile")"
+          if kill -0 "$oldpid" 2>/dev/null; then
+            kill "$oldpid"
+            for n in 1 2 3 4 5; do
+              kill -0 "$oldpid" 2>/dev/null || break
+              sleep 1
+            done
+          fi
+        fi
+        nohup "{{ notifier_bin }}" >> "{{ notifier_state }}/osho-discord-notifier.log" 2>&1 </dev/null &
+        newpid=$!
+        echo "$newpid" > "$pidfile"
+        sleep 3
+        kill -0 "$newpid"
+        echo "NOTIFIER_PID=$newpid"
+      args:
+        executable: /bin/bash
+      register: notifier_start
+      changed_when: true
+
+    - name: Verify notifier without exposing secret
+      ansible.builtin.shell: |
+        set -eu
+        pidfile="{{ notifier_state }}/osho-discord-notifier.pid"
+        pid="$(cat "$pidfile")"
+        kill -0 "$pid"
+        echo "STATUS=running"
+        echo "PID=$pid"
+        echo "CONFIG_MODE=$(stat -c %a "{{ notifier_config }}")"
+        echo "AUTOPILOT=$(systemctl is-active osho-autopilot.service)"
+        tail -n 8 "{{ notifier_state }}/osho-discord-notifier.log" 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      register: notifier_verify
+      changed_when: false
+
+    - name: Show notifier status
+      ansible.builtin.debug:
+        msg: "{{ notifier_verify.stdout_lines }}"
