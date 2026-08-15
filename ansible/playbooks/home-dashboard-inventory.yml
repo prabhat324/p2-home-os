@@ -16,18 +16,6 @@
         if command -v curl >/dev/null 2>&1; then
           code="$(curl -sS -o /tmp/p2-home-dashboard.$$.html -w '%{http_code}' --max-time 3 http://dashboard.home.arpa/ 2>/dev/null || true)"
           echo "HTTP_CODE=${code:-unavailable}"
-          if [ -s /tmp/p2-home-dashboard.$$.html ]; then
-            python3 - /tmp/p2-home-dashboard.$$.html <<'PY'
-        from pathlib import Path
-        import re, sys
-        text=Path(sys.argv[1]).read_text(errors='replace')
-        m=re.search(r'<title[^>]*>(.*?)</title>', text, re.I|re.S)
-        print('TITLE=' + (re.sub(r'\s+',' ',m.group(1)).strip() if m else ''))
-        for marker in ('Homepage','Homarr','Dashy','Homer'):
-            if marker.lower() in text.lower():
-                print('DASHBOARD_PRODUCT_HINT=' + marker)
-        PY
-          fi
           rm -f /tmp/p2-home-dashboard.$$.html
         fi
         echo 'DASHBOARD_HTTP_END'
@@ -43,46 +31,62 @@
           | sort -u || true
         echo 'RUNNING_RELEVANT_SERVICES_END'
 
-        echo 'DOCKER_CONTAINERS_BEGIN'
-        if command -v docker >/dev/null 2>&1; then
-          docker ps --format '{{"{{"}}.Names{{"}}"}}|{{"{{"}}.Image{{"}}"}}|{{"{{"}}.Ports{{"}}"}}' 2>/dev/null | head -100 || echo 'docker-list-unavailable'
-        fi
-        echo 'DOCKER_CONTAINERS_END'
-
         echo 'COMPOSE_FILES_BEGIN'
         find /srv/compose /opt /home -maxdepth 5 -type f \( -name 'compose.yml' -o -name 'compose.yaml' -o -name 'docker-compose.yml' -o -name 'docker-compose.yaml' \) 2>/dev/null \
           | sort | head -120 || true
         echo 'COMPOSE_FILES_END'
 
-        echo 'DASHBOARD_CONFIG_CANDIDATES_BEGIN'
-        find /srv/compose /opt /home /etc -maxdepth 6 -type f \
-          \( -name 'services.yaml' -o -name 'services.yml' -o -name 'settings.yaml' -o -name 'settings.yml' -o -name 'widgets.yaml' -o -name 'widgets.yml' -o -name 'bookmarks.yaml' -o -name 'bookmarks.yml' -o -name 'config.yml' -o -name 'config.yaml' \) 2>/dev/null \
-          | grep -Ei 'homepage|homarr|dashy|homer|dashboard' \
-          | sort | head -120 || true
-        echo 'DASHBOARD_CONFIG_CANDIDATES_END'
-
         homepage='/opt/docker/compose/homepage/config/services.yaml'
-        echo 'HOMEPAGE_VISIBLE_BEGIN'
+        echo 'HOMEPAGE_CONFIG_BEGIN'
         if [ -f "$homepage" ]; then
           stat -c 'CONFIG_OWNER=%U CONFIG_GROUP=%G CONFIG_MODE=%a' "$homepage" 2>/dev/null || true
           [ -w "$homepage" ] && echo 'CONFIG_WRITABLE=yes' || echo 'CONFIG_WRITABLE=no'
           python3 - "$homepage" <<'PY'
         from pathlib import Path
         import re, sys
-        lines=Path(sys.argv[1]).read_text(errors='replace').splitlines()
-        for line in lines:
-            m=re.match(r'^-\s+([^:#][^:]*):\s*$', line)
-            if m:
-                print('GROUP=' + m.group(1).strip())
-                continue
-            m=re.match(r'^\s{2}-\s+([^:#][^:]*):\s*$', line)
-            if m:
-                print('SERVICE=' + m.group(1).strip())
+        p=Path(sys.argv[1])
+        secret_key=re.compile(r'(password|passwd|secret|token|api[_-]?key|apikey|authorization|bearer|username|credential)', re.I)
+        for raw in p.read_text(errors='replace').splitlines():
+            stripped=raw.lstrip()
+            key=stripped.split(':',1)[0] if ':' in stripped else ''
+            if secret_key.search(key):
+                indent=raw[:len(raw)-len(stripped)]
+                print(indent + key + ': [REDACTED]')
+            else:
+                print(raw)
         PY
         else
           echo 'CONFIG_MISSING=yes'
         fi
-        echo 'HOMEPAGE_VISIBLE_END'
+        echo 'HOMEPAGE_CONFIG_END'
+
+        if [ "$(hostname)" = "media-server" ]; then
+          echo 'CADDY_ROUTES_BEGIN'
+          for f in /opt/docker/compose/caddy/Caddyfile /opt/docker/compose/caddy/config/Caddyfile; do
+            if [ -f "$f" ]; then
+              echo "CADDYFILE=$f"
+              python3 - "$f" <<'PY'
+        from pathlib import Path
+        import re, sys
+        secret=re.compile(r'(password|secret|token|api[_-]?key|authorization|bearer|basic_auth)', re.I)
+        for line in Path(sys.argv[1]).read_text(errors='replace').splitlines():
+            if secret.search(line):
+                print('[REDACTED SENSITIVE CADDY LINE]')
+            else:
+                print(line)
+        PY
+            fi
+          done
+          echo 'CADDY_ROUTES_END'
+
+          echo 'CORE_COMPOSE_SUMMARY_BEGIN'
+          for f in /opt/docker/compose/*/docker-compose.y*ml /opt/docker/compose/*/compose.y*ml; do
+            [ -f "$f" ] || continue
+            echo "FILE=$f"
+            grep -E '^[[:space:]]*(image:|container_name:|-[[:space:]]*"?[0-9]+:[0-9]+|-[[:space:]]*[0-9]+:[0-9]+)' "$f" 2>/dev/null | head -30 || true
+          done
+          echo 'CORE_COMPOSE_SUMMARY_END'
+        fi
       args:
         executable: /bin/bash
       register: inventory
