@@ -1,0 +1,60 @@
+---
+- name: Diagnose Mavrick speaker output using Logitech microphone feedback
+  hosts: compute-02
+  gather_facts: false
+  vars:
+    mic_device: "plughw:CARD=C930e,DEV=0"
+    speaker_device: "plughw:CARD=sofhdadsp,DEV=0"
+    work_dir: "/tmp/mavrick-audio-loopback"
+  tasks:
+    - name: Verify Ansible audio access
+      ansible.builtin.shell: |
+        set -o pipefail
+        id
+        test -r /dev/snd/controlC0
+        test -w /dev/snd/pcmC0D0p
+        test -r /dev/snd/pcmC1D0c
+        aplay -l
+        arecord -l
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Measure baseline and playback through the external speaker
+      ansible.builtin.shell: |
+        set -euo pipefail
+        rm -rf "{{ work_dir }}"
+        mkdir -m 0700 "{{ work_dir }}"
+
+        amixer -c sofhdadsp set Master 60% unmute >/dev/null
+        amixer -c sofhdadsp set Headphone 60% unmute >/dev/null
+        amixer -c sofhdadsp set Speaker 0% mute >/dev/null || true
+        amixer -c sofhdadsp set 'Auto-Mute Mode' Enabled >/dev/null || true
+
+        timeout 4 arecord -q -D "{{ mic_device }}" -f S16_LE -r 48000 -c 1 -d 3           "{{ work_dir }}/baseline.wav"
+
+        timeout 9 arecord -q -D "{{ mic_device }}" -f S16_LE -r 48000 -c 1 -d 8           "{{ work_dir }}/playback.wav" &
+        recorder_pid=$!
+        sleep 2
+        timeout 4 speaker-test -q -D "{{ speaker_device }}" -c 2 -t sine -f 1000 -l 1 || true
+        wait "$recorder_pid"
+
+        metric() {
+          ffmpeg -hide_banner -nostats -i "$1"             -af astats=metadata=1:reset=0 -f null - 2>&1             | awk -F': ' '/RMS level dB/ {r=$2} /Peak level dB/ {p=$2} END {printf "rms_db=%s peak_db=%s",r,p}'
+        }
+
+        echo "MAVRICK_AUDIO_BASELINE $(metric "{{ work_dir }}/baseline.wav")"
+        echo "MAVRICK_AUDIO_PLAYBACK $(metric "{{ work_dir }}/playback.wav")"
+        echo "MAVRICK_AUDIO_MIXER"
+        amixer -c sofhdadsp get Master
+        amixer -c sofhdadsp get Headphone
+        echo "MAVRICK_AUDIO_LOOPBACK=completed"
+      args:
+        executable: /bin/bash
+      register: loopback
+      changed_when: true
+      always_run: false
+
+    - name: Show microphone-measured playback result
+      ansible.builtin.debug:
+        msg: "{{ loopback.stdout_lines }}"
