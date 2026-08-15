@@ -1,38 +1,72 @@
 # Network Architecture
 
-## Primary Addresses
+## LAN addressing
 
-| Service | Direct Address | Friendly Address |
-|---|---|---|
-| Homepage | `http://192.168.0.203:3000` | `http://dashboard.home.arpa` |
-| Jellyfin | `http://192.168.0.203:8096` | `http://jellyfin.home.arpa` |
-| Jellyseerr | `http://192.168.0.203:5055` | `http://requests.home.arpa` |
-| Radarr | `http://192.168.0.203:7878` | `http://radarr.home.arpa` |
-| Sonarr | `http://192.168.0.203:8989` | `http://sonarr.home.arpa` |
-| Bazarr | `http://192.168.0.203:6767` | `http://bazarr.home.arpa` |
-| Prowlarr | `http://192.168.0.203:9696` | `http://prowlarr.home.arpa` |
-| qBittorrent | `http://192.168.0.203:8080` | `http://downloads.home.arpa` |
-| Uptime Kuma | `http://192.168.0.203:3001` | `http://status.home.arpa` |
-| Glances | `http://192.168.0.203:61208` | `http://monitor.home.arpa` |
-| AdGuard Home | `http://192.168.0.203:3002` | `http://adguard.home.arpa` |
-| Scrypted | `https://192.168.0.203:10443` | `http://cameras.home.arpa` |
-| Home Assistant | `http://192.168.0.203:8123` | Planned: `http://home.home.arpa` |
-| Navidrome | `http://192.168.0.203:4533` | `http://music.home.arpa` |
+| Host | LAN address | Notes |
+|---|---:|---|
+| `core-01` / `media-server` | `192.168.0.203` | Storage/infrastructure |
+| `compute-01` | `192.168.0.31` | Primary GPU/application node |
+| `compute-02` | `192.168.0.88` | Osho control plane / Piper |
+| `compute-03` | `192.168.0.158` wired | Secondary GPU worker |
 
-## DNS
+compute-03 has also been observed on Wi-Fi at `192.168.0.150`, but wired Ethernet has the preferred route metric and should be treated as the production path.
 
-- AdGuard Home runs on the Raspberry Pi.
-- DNS server address: `192.168.0.203`
-- Internal wildcard domain: `*.home.arpa`
-- Internal names resolve to `192.168.0.203`.
-- Caddy selects the destination service based on hostname.
+## Hostname resolution
 
-## Remote Access
+Every cluster node should resolve:
 
-- Tailscale is installed on the Raspberry Pi.
-- Server Tailscale address: `100.67.245.78`
-- Remote services should be accessed through Tailscale rather than exposed directly to the public internet.
+```text
+core-01
+media-server
+compute-01
+compute-02
+compute-03
+```
 
-## Important Note
+The cluster has used consistent `/etc/hosts` entries where local DNS did not yet provide these names.
 
-Devices must use AdGuard Home as their DNS server to resolve `*.home.arpa` names.
+Validation:
+
+```bash
+getent hosts compute-01 compute-02 compute-03 media-server
+ping -c 2 compute-03
+ssh compute-03
+```
+
+A hostname-resolution failure can look like an application outage. Fix resolution before changing services.
+
+## Key service ports
+
+| Service | Host | Port |
+|---|---|---:|
+| Jellyfin | compute-01 | 8096 |
+| Open WebUI | compute-01 | 3000 |
+| Wyoming Whisper | compute-01 | 10300 |
+| Project Osho dashboard | compute-02 | 8787 |
+| Wyoming Piper | compute-02 | 10200 |
+| Project Osho worker API | compute-03 | 8800 |
+
+## Storage network
+
+The 8 TB media drive is physically hosted by core-01 and exported to compute-01 via NFSv4.2:
+
+```text
+192.168.0.203:/mnt/media -> /mnt/media
+```
+
+The compute-01 mount is read-only.
+
+## Remote access
+
+Tailscale is the preferred remote-access mechanism.
+
+Confirmed addresses include:
+
+- core-01: `100.67.245.78`
+- compute-01: `100.65.64.4`
+
+Avoid direct public port forwarding for internal dashboards and storage services.
+
+## Wired switching
+
+A Cisco SG350-10MP is used in the wired network path. Consistent DNS/hosts configuration matters more than hard-coding DHCP addresses into application configs.
