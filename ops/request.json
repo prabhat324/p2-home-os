@@ -1,5 +1,5 @@
 {
-  "request_id": "youtube-analytics-stale-check-20260815-1228",
-  "operation": "youtube-analytics-runtime",
-  "target": "compute-01"
+  "request_id": "youtube-analyst-freshness-deploy-20260815-1233",
+  "operation": "dashboard-deploy",
+  "target": "compute-02"
 }
