@@ -1,9 +1,9 @@
 ---
-- name: Verify Project Osho dual GPU boundary runtime
+- name: Verify Project Osho pipeline health
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Collect immediate runtime evidence
+    - name: Collect pipeline, inference, log, and receipt evidence
       ansible.builtin.shell: |
         set -o pipefail
         echo "NOW=$(date -Ins)"
@@ -19,29 +19,80 @@
         nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu --format=csv,noheader 2>/dev/null || true
 
         echo '=== REMOTE GPU/OLLAMA ==='
-        curl -fsS --max-time 3 http://192.168.0.158:11434/api/ps 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print([{"name":x.get("name"),"vram":x.get("size_vram")} for x in d.get("models",[])])' 2>/dev/null || true
+        if curl -fsS --max-time 3 http://192.168.0.158:11434/api/ps >/tmp/osho-remote-ps.$$ 2>/dev/null; then
+          echo 'REMOTE_REACHABLE=yes'
+          python3 - /tmp/osho-remote-ps.$$ <<'PY'
+        import json,sys
+        with open(sys.argv[1], encoding='utf-8') as f:
+            d=json.load(f)
+        print('REMOTE_MODELS=' + json.dumps([{"name":x.get("name"),"vram":x.get("size_vram")} for x in d.get("models",[])]))
+        PY
+        else
+          echo 'REMOTE_REACHABLE=no'
+        fi
+        rm -f /tmp/osho-remote-ps.$$
 
-        echo '=== 000013 RANK SUMMARY ==='
-        rank=/srv/osho/logs/autopilot/000013-hook-v5.log
-        if [ -f "$rank" ]; then
+        echo '=== LATEST RANKER LOGS ==='
+        for rank in $(find /srv/osho/logs/autopilot -maxdepth 1 -type f -name '*-hook-v5.log' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -5 | cut -d' ' -f2-); do
+          echo "RANK_LOG=$rank MTIME=$(stat -c '%y' "$rank") SIZE=$(stat -c '%s' "$rank")"
           echo "LOCAL_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-01$' "$rank" 2>/dev/null || true)"
           echo "REMOTE_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-03$' "$rank" 2>/dev/null || true)"
           echo "RETRIES=$(grep -c 'MODEL RETRY' "$rank" 2>/dev/null || true)"
+          echo "TIMEOUTS=$(grep -Eic 'timed out|timeout' "$rank" 2>/dev/null || true)"
           echo "MODEL_FAILURES=$(grep -Ec 'HOOK MODEL FAILURE|CLIP MODEL FAILURE' "$rank" 2>/dev/null || true)"
-          tail -25 "$rank"
-        fi
+          echo "FAILOVERS=$(grep -c 'MODEL ENDPOINT FAILOVER' "$rank" 2>/dev/null || true)"
+          tail -8 "$rank" 2>/dev/null || true
+        done
 
         echo '=== LATEST QA ENDPOINT EVIDENCE ==='
-        for qlog in $(find /srv/osho/logs/autopilot -maxdepth 1 -type f -name '*-qa-v4.log' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -3 | cut -d' ' -f2-); do
-          echo "QA_LOG=$qlog"
-          grep -E 'MODEL: qwen3:4b-instruct|MODEL: llama3.1:8b|MODEL ENDPOINT:|MODEL ENDPOINT FALLBACK:|FINAL CONSENSUS|BOUNDARY CONSENSUS:' "$qlog" 2>/dev/null | tail -30 || true
+        for qlog in $(find /srv/osho/logs/autopilot -maxdepth 1 -type f -name '*-qa-v4.log' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -5 | cut -d' ' -f2-); do
+          echo "QA_LOG=$qlog MTIME=$(stat -c '%y' "$qlog") SIZE=$(stat -c '%s' "$qlog")"
+          echo "QA_ERRORS=$(grep -Eic 'ERROR:|Traceback|timed out|timeout|MODEL ENDPOINT FALLBACK' "$qlog" 2>/dev/null || true)"
+          grep -E 'MODEL: qwen3:4b-instruct|MODEL: llama3.1:8b|MODEL ENDPOINT:|MODEL ENDPOINT FALLBACK:|FINAL CONSENSUS|BOUNDARY CONSENSUS:|RESULT:' "$qlog" 2>/dev/null | tail -40 || true
         done
+
+        echo '=== RECEIPT SAFETY ==='
+        python3 - <<'PY'
+        import json
+        from pathlib import Path
+        root=Path('/srv/osho/youtube/receipts')
+        files=sorted(root.glob('*.json')) if root.exists() else []
+        print(f'RECEIPT_DIR_EXISTS={"yes" if root.exists() else "no"}')
+        print(f'RECEIPT_FILES={len(files)}')
+        malformed=[]; rows=[]
+        for p in files:
+            try:
+                d=json.loads(p.read_text(encoding='utf-8'))
+            except Exception as exc:
+                malformed.append((p.name,str(exc)))
+                continue
+            rows.append((p.name,str(d.get('source_id') or ''),str(d.get('job_id') or ''),str(d.get('video_id') or ''),str(d.get('uploaded_at') or '')))
+        print(f'RECEIPT_MALFORMED={len(malformed)}')
+        for name,err in malformed[:5]: print(f'MALFORMED={name}:{err}')
+        for field,idx in [('source_id',1),('job_id',2),('video_id',3)]:
+            seen={}; dup=[]
+            for row in rows:
+                value=row[idx]
+                if not value: continue
+                seen.setdefault(value,[]).append(row[0])
+            for value,names in seen.items():
+                if len(names)>1: dup.append((value,names))
+            print(f'DUPLICATE_{field.upper()}={len(dup)}')
+            for value,names in dup[:5]: print(f'DUP_{field.upper()}={value}:{",".join(names)}')
+        missing_video=[r[0] for r in rows if not r[3]]
+        print(f'RECEIPTS_MISSING_VIDEO_ID={len(missing_video)}')
+        for row in rows[-8:]:
+            print('RECEIPT=' + '|'.join(row))
+        PY
+
+        echo '=== RECENT AUTOPILOT EVENTS ==='
+        journalctl -u osho-autopilot.service -n 35 --no-pager 2>/dev/null | tail -35 || true
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show dual GPU boundary runtime
+    - name: Show pipeline health evidence
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
