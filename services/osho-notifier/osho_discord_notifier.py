@@ -7,6 +7,7 @@ import os
 import pathlib
 import re
 import select
+import shutil
 import subprocess
 import sys
 import time
@@ -124,6 +125,54 @@ def journal_process() -> subprocess.Popen[str]:
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
     )
 
+
+def command(args: list[str]) -> str:
+    try:
+        return subprocess.check_output(args, text=True, stderr=subprocess.DEVNULL, timeout=10).strip()
+    except Exception:
+        return "unavailable"
+
+def resource_snapshot() -> str:
+    load = pathlib.Path("/proc/loadavg").read_text(encoding="utf-8").split()[:3]
+    mem = {}
+    for line in pathlib.Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+        key, value = line.split(":", 1)
+        mem[key] = int(value.strip().split()[0])
+    mem_total = mem.get("MemTotal", 0) / 1024 / 1024
+    mem_avail = mem.get("MemAvailable", 0) / 1024 / 1024
+    mem_used = max(mem_total - mem_avail, 0)
+    disk = shutil.disk_usage("/srv/osho")
+    gpu = command([
+        "nvidia-smi",
+        "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
+        "--format=csv,noheader,nounits",
+    ])
+    autopilot = command(["systemctl", "is-active", "osho-autopilot.service"])
+    worker = "unavailable"
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8800/health", timeout=5) as response:
+            worker_data = json.loads(response.read().decode("utf-8"))
+            worker = str(worker_data.get("status") or worker_data.get("ok") or "healthy")
+    except Exception:
+        pass
+    pending = len(list(pathlib.Path("/srv/osho/renders/pending").glob("*"))) if pathlib.Path("/srv/osho/renders/pending").is_dir() else 0
+    receipts = len(list(RECEIPTS.glob("*.json"))) if RECEIPTS.is_dir() else 0
+    uptime = command(["uptime", "-p"])
+    return (
+        "📊 **Project Osho resource snapshot — compute-01**\n"
+        f"**Time:** {time.strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
+        f"**Uptime:** {uptime}\n"
+        f"**Load (1/5/15m):** {' / '.join(load)}\n"
+        f"**RAM:** {mem_used:.1f} / {mem_total:.1f} GiB used\n"
+        f"**Osho disk:** {disk.used / 2**30:.1f} / {disk.total / 2**30:.1f} GiB used "
+        f"({disk.free / 2**30:.1f} GiB free)\n"
+        f"**GPU:** {gpu}\n"
+        f"**Autopilot:** {autopilot}\n"
+        f"**Worker health:** {worker}\n"
+        f"**Pending renders:** {pending}\n"
+        f"**YouTube receipts:** {receipts}"
+    )
+
 def main() -> int:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     state = load_state()
@@ -158,4 +207,6 @@ def main() -> int:
     return 0
 
 if __name__ == "__main__":
+    if "--snapshot" in sys.argv:
+        raise SystemExit(0 if post(resource_snapshot()) else 1)
     raise SystemExit(main())
