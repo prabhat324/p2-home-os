@@ -54,10 +54,17 @@ patch_buffer_manager() {
   local stamp backup tmp
   stamp="$(date +%Y%m%d-%H%M%S)"
   backup="$BACKUPS/buffer-manager-$stamp.py"
-  tmp="$(mktemp)"
+  tmp="$BACKUPS/.buffer-manager-$stamp.$$.tmp.py"
+
   cp -a "$BUFFER" "$backup"
   chown psquare:psquare "$backup"
-  cp -a "$BUFFER" "$tmp"
+
+  # Use a root-owned staging file inside the Osho code tree.  This avoids
+  # environment-specific /tmp ownership/permission behaviour when the helper
+  # is invoked through nested sudo from the p2ops automation account.
+  install -o root -g root -m 0600 /dev/null "$tmp"
+  cat "$BUFFER" > "$tmp"
+  trap 'rm -f "$tmp"' RETURN
 
   python3 - "$tmp" <<'PY'
 from pathlib import Path
@@ -117,6 +124,7 @@ PY
   /usr/bin/python3 -m py_compile "$tmp"
   install -o psquare -g psquare -m 0664 "$tmp" "$BUFFER"
   rm -f "$tmp"
+  trap - RETURN
   log "patched buffer accounting; backup=$backup"
 }
 
