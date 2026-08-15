@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-ranker-patch-anchors-20260815-0019",
+  "request_id": "osho-dual-gpu-live-verify-20260815-0028",
   "operation": "osho-status",
-  "target": "compute-01"
+  "target": "osho_nodes"
 }
