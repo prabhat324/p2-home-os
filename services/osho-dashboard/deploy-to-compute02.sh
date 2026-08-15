@@ -5,18 +5,22 @@ TARGET="${1:-compute-02}"
 REMOTE_DIR="${OSHO_DASHBOARD_REMOTE_DIR:-/srv/compose/osho-dashboard}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STAMP="$(date +%Y%m%d-%H%M%S)"
+BACKUP_DIR="$REMOTE_DIR/backups/$STAMP"
 
 printf 'Deploying Project Osho Dashboard v0.4 to %s:%s\n' "$TARGET" "$REMOTE_DIR"
 
-ssh "$TARGET" "mkdir -p '$REMOTE_DIR/app/static' '$REMOTE_DIR/data' '$REMOTE_DIR/backups/$STAMP'"
+ssh "$TARGET" "mkdir -p '$REMOTE_DIR/app/static' '$REMOTE_DIR/data' '$BACKUP_DIR'"
 
 # Preserve the currently deployed source/config before replacement. Runtime DB remains in ./data.
 ssh "$TARGET" "
-    cd '$REMOTE_DIR'
+    set -e
+    REMOTE_DIR='$REMOTE_DIR'
+    BACKUP_DIR='$BACKUP_DIR'
+    cd \"\$REMOTE_DIR\"
     for item in Dockerfile requirements.txt compose.yml app/main.py app/static/index.html; do
         if [ -f \"\$item\" ]; then
-            mkdir -p \"'$REMOTE_DIR'/backups/$STAMP/\$(dirname \"\$item\")\"
-            cp -a \"\$item\" \"'$REMOTE_DIR'/backups/$STAMP/\$item\"
+            mkdir -p \"\$BACKUP_DIR/\$(dirname \"\$item\")\"
+            cp -a \"\$item\" \"\$BACKUP_DIR/\$item\"
         fi
     done
 "
@@ -43,8 +47,9 @@ ssh "$TARGET" "
     sleep 3
     curl -fsS http://127.0.0.1:8787/health | python3 -m json.tool
     echo
-    curl -fsS http://127.0.0.1:8787/api/dashboard | python3 -m json.tool | head -100
+    curl -fsS http://127.0.0.1:8787/api/dashboard | python3 -m json.tool | head -120
 "
 
 echo
 echo "Dashboard deployment complete. Existing database preserved at $REMOTE_DIR/data/osho.db"
+echo "Previous source/config backup: $BACKUP_DIR"
