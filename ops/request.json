@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-productivity-sla-20260815-1317",
-  "operation": "osho-status",
-  "target": "osho_nodes"
+  "request_id": "osho-productivity-dashboard-20260815-1318",
+  "operation": "dashboard-diagnose",
+  "target": "compute-02"
 }
