@@ -1,59 +1,47 @@
 ---
-- name: Diagnose Project Osho dashboard ready-count semantics
+- name: Diagnose Project Osho dashboard navigation and YouTube analyst
   hosts: compute-02
   gather_facts: false
   tasks:
-    - name: Inspect live dashboard payload and ready-count implementation
+    - name: Inspect live dashboard frontend, routes and analyst references
       ansible.builtin.shell: |
         set -o pipefail
         base='http://127.0.0.1:8787'
+        root='/srv/compose/osho-dashboard'
 
-        echo '=== DASHBOARD HEALTH ==='
+        echo '=== HEALTH ==='
         curl -fsS "${base}/health" 2>/dev/null || true
         echo
+        echo '=== HTTP ROUTES ==='
+        for p in / /youtube /analytics /analyst /api/dashboard /api/analytics; do
+          code=$(curl -sS -o /tmp/osho-dash-body -w '%{http_code}' "${base}${p}" 2>/dev/null || true)
+          echo "$p HTTP=$code SIZE=$(wc -c </tmp/osho-dash-body 2>/dev/null || echo 0)"
+        done
+        rm -f /tmp/osho-dash-body
 
-        echo '=== DASHBOARD API SAFE SUMMARY ==='
-        payload="$(curl -fsS "${base}/api/dashboard" 2>/dev/null || true)"
-        if [ -n "$payload" ]; then
-          DASHBOARD_PAYLOAD="$payload" python3 - <<'PY'
-        import json, os
-        d=json.loads(os.environ['DASHBOARD_PAYLOAD'])
-        def walk(obj, path=''):
-            if isinstance(obj, dict):
-                for k,v in obj.items():
-                    p=f'{path}.{k}' if path else k
-                    if any(x in k.lower() for x in ('ready','publish','upload','skip','pending','queue','source','receipt')):
-                        if isinstance(v,(str,int,float,bool)) or v is None:
-                            print(f'{p}={v}')
-                        elif isinstance(v,(list,dict)):
-                            print(f'{p}_TYPE={type(v).__name__} SIZE={len(v)}')
-                    walk(v,p)
-            elif isinstance(obj,list):
-                for i,v in enumerate(obj[:50]):
-                    walk(v,f'{path}[{i}]')
-        walk(d)
-        PY
-        fi
+        echo '=== FILES ==='
+        find "$root" -maxdepth 4 -type f \( -name '*.py' -o -name '*.html' -o -name '*.js' -o -name '*.css' \) -print 2>/dev/null | sort
 
-        echo '=== DEPLOYED FILES ==='
-        find /srv/compose/osho-dashboard -maxdepth 3 -type f \
-          \( -name '*.py' -o -name '*.html' -o -name '*.js' \) -print 2>/dev/null | sort
+        echo '=== NAV / ANALYTICS REFERENCES ==='
+        grep -RniE 'YouTube|Analyst|Analytics|sidebar|nav|href=|scroll|section|tab|dashboard' "$root" \
+          --include='*.html' --include='*.js' --include='*.py' --include='*.css' 2>/dev/null | head -500 || true
 
-        echo '=== READY REFERENCES ==='
-        grep -RniE 'ready|published|uploaded|skipped|pending|receipts|state_reconciliation|summary' \
-          /srv/compose/osho-dashboard/app /srv/compose/osho-dashboard 2>/dev/null \
-          | head -320 || true
-
-        echo '=== SERVER CONTEXT ==='
-        for f in /srv/compose/osho-dashboard/app/server.py /srv/compose/osho-dashboard/server.py; do
-          [ -f "$f" ] || continue
+        echo '=== FRONTEND CONTENT ==='
+        for f in $(find "$root" -maxdepth 4 -type f \( -name '*.html' -o -name '*.js' \) 2>/dev/null | sort); do
           echo "--- $f ---"
-          grep -nEi 'ready|summary|dashboard|published|uploaded|skipped|pending' "$f" | head -120 || true
+          sed -n '1,320p' "$f"
+        done
+
+        echo '=== SERVER ROUTES ==='
+        for f in $(find "$root" -maxdepth 4 -type f -name '*.py' 2>/dev/null | sort); do
+          echo "--- $f ---"
+          grep -nE '@app\.|@router\.|def .*dashboard|def .*analytics|youtube|analyst|HTMLResponse|FileResponse|StaticFiles' "$f" | head -240 || true
         done
       args:
         executable: /bin/bash
       register: dashboard_diag
       changed_when: false
+      failed_when: false
 
     - name: Print dashboard diagnostic
       ansible.builtin.debug:
