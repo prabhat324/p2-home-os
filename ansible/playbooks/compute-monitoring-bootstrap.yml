@@ -6,29 +6,29 @@
     - name: Install and start Glances under p2ops
       ansible.builtin.shell: |
         set -euo pipefail
-        base="$HOME/.local/opt/glances-monitor"
-        venv="$base/venv"
         bin="$HOME/.local/bin"
+        state="$HOME/.local/state"
         start="$bin/start-glances-web"
-        log="$HOME/.local/state/glances-web.log"
-        mkdir -p "$base" "$bin" "$HOME/.local/state"
+        glances="$bin/glances"
+        mkdir -p "$bin" "$state" "$HOME/.local/opt/glances-monitor"
 
-        if [ ! -x "$venv/bin/python" ]; then
-          python3 -m venv "$venv"
+        if ! python3 -m pip --version >/dev/null 2>&1; then
+          curl -fsSL https://bootstrap.pypa.io/get-pip.py -o "$HOME/.local/opt/glances-monitor/get-pip.py"
+          python3 "$HOME/.local/opt/glances-monitor/get-pip.py" --user --break-system-packages
         fi
 
-        "$venv/bin/python" -m pip install --upgrade pip setuptools wheel
-        "$venv/bin/python" -m pip install --upgrade 'glances[web,gpu]'
+        python3 -m pip install --user --break-system-packages --upgrade 'glances[web,gpu]'
+        test -x "$glances"
 
         cat > "$start" <<'SH'
         #!/usr/bin/env bash
         set -euo pipefail
-        VENV="$HOME/.local/opt/glances-monitor/venv"
+        GLANCES="$HOME/.local/bin/glances"
         LOG="$HOME/.local/state/glances-web.log"
-        if pgrep -u "$(id -u)" -f "$VENV/bin/glances.*-w.*61208" >/dev/null 2>&1; then
+        if pgrep -u "$(id -u)" -f "$GLANCES.*-w.*61208" >/dev/null 2>&1; then
           exit 0
         fi
-        nohup "$VENV/bin/glances" -w -B 0.0.0.0 -p 61208 >>"$LOG" 2>&1 </dev/null &
+        nohup "$GLANCES" -w -B 0.0.0.0 -p 61208 >>"$LOG" 2>&1 </dev/null &
         SH
         chmod 0755 "$start"
 
@@ -38,7 +38,7 @@
 
         "$start"
 
-        for i in $(seq 1 30); do
+        for i in $(seq 1 45); do
           if curl -fsS --max-time 2 http://127.0.0.1:61208/api/4/status >/dev/null 2>&1; then
             break
           fi
