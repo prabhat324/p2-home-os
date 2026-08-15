@@ -1,0 +1,62 @@
+---
+- name: Pause heat-producing Project Osho workloads without shutting down hosts
+  hosts: compute_nodes
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Stop Osho autopilot on compute-01
+      ansible.builtin.systemd_service:
+        name: osho-autopilot.service
+        state: stopped
+      when: inventory_hostname == 'compute-01'
+      failed_when: false
+
+    - name: Stop Ollama service where present
+      ansible.builtin.systemd_service:
+        name: ollama.service
+        state: stopped
+      failed_when: false
+
+    - name: Stop only known heat-producing containers
+      ansible.builtin.shell: |
+        set -o pipefail
+        if ! command -v docker >/dev/null 2>&1; then
+          exit 0
+        fi
+        for name in osho-ollama ollama immich_machine_learning immich-machine-learning; do
+          if docker ps --format '{{"{{"}}.Names{{"}}"}}' | grep -Fxq "$name"; then
+            docker stop --time 30 "$name"
+          fi
+        done
+      args:
+        executable: /bin/bash
+      register: stopped_containers
+      changed_when: stopped_containers.stdout | length > 0
+      failed_when: false
+
+    - name: Allow temperatures to begin falling
+      ansible.builtin.pause:
+        seconds: 30
+
+    - name: Report services, GPU and CPU temperatures
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "HOST=$(hostname)"
+        echo "OSHO_AUTOPILOT=$(systemctl is-active osho-autopilot.service 2>/dev/null || true)"
+        echo "OLLAMA=$(systemctl is-active ollama.service 2>/dev/null || true)"
+        echo '=== GPU ==='
+        nvidia-smi --query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw --format=csv,noheader 2>/dev/null || true
+        echo '=== CPU/SYSTEM ==='
+        sensors 2>/dev/null || true
+        echo '=== REMAINING CONTAINERS ==='
+        docker ps --format '{{"{{"}}.Names{{"}}"}}' 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      register: thermal_report
+      changed_when: false
+      failed_when: false
+
+    - name: Print thermal report
+      ansible.builtin.debug:
+        msg: "{{"{{"}} thermal_report.stdout_lines {{"}}"}}"
