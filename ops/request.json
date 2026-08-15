@@ -1,5 +1,5 @@
 {
-  "request_id": "youtube-analyst-freshness-verify-20260815-1237",
-  "operation": "dashboard-diagnose",
-  "target": "compute-02"
+  "request_id": "osho-receipt-schema-1786811888236",
+  "operation": "osho-publish-audit",
+  "target": "compute-01"
 }
