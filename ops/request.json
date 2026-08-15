@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-v053-storage-proxy-deploy-20260815",
-  "operation": "dashboard-deploy",
-  "target": "compute-02"
+  "request_id": "osho-publisher-gate-v2-retry-1786812343329",
+  "operation": "osho-publisher-fix",
+  "target": "compute-01"
 }
