@@ -30,8 +30,8 @@
         rm -rf "{{ work_dir }}"
         mkdir -m 0700 "{{ work_dir }}"
 
-        amixer -c sofhdadsp set Master 60% unmute >/dev/null
-        amixer -c sofhdadsp set Headphone 60% unmute >/dev/null
+        amixer -c sofhdadsp set Master 100% unmute >/dev/null
+        amixer -c sofhdadsp set Headphone 100% unmute >/dev/null
         amixer -c sofhdadsp set Speaker 0% mute >/dev/null || true
         amixer -c sofhdadsp set 'Auto-Mute Mode' Enabled >/dev/null || true
 
