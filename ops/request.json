@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-status-gpu-distribution-20260815-0005",
+  "request_id": "osho-worker-routing-20260815-0007",
   "operation": "osho-status",
   "target": "osho_nodes"
 }
