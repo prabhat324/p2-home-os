@@ -1,38 +1,73 @@
 ---
-- name: Verify Project Osho worker job-file host path
+- name: Verify Project Osho Growth V1 deployment
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect WORK constant and persisted job states
+    - name: Inspect growth renderer and first artifact
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker
         echo "NOW=$(date -Ins)"
-        echo '=== WORK CONSTANT ==='
-        grep -nE '^WORK[[:space:]]*=|OSHO.*WORK|/data/work|/srv/osho/work' app.py | head -40 || true
-        echo '=== HOST JOB FILES ==='
+        echo '=== RENDER HELPER STATUS ==='
+        if [ -x /usr/local/sbin/p2ops-osho-render-patch ]; then
+          sudo -n /usr/local/sbin/p2ops-osho-render-patch status 2>&1 || true
+        else
+          echo 'RENDER_HELPER=missing'
+        fi
+        echo '=== LIVE GROWTH MARKERS ==='
+        grep -nE 'OSHO_GROWTH_TEMPLATE_V1|osho-growth-v1|CAPTION_SIZE =|CTA_DURATION =|Roughly one new visual' production_renderer.py app.py | head -80 || true
+        echo '=== PIPELINE ==='
+        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && $4=="python3" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/) {print}' || true
+        echo '=== ACTIVE WORKER JOBS ==='
         python3 - <<'PY'
-        import json, pathlib
-        roots=[pathlib.Path('/srv/osho/work'), pathlib.Path('/srv/compose/osho-worker/work')]
+        import json,pathlib
+        root=pathlib.Path('/srv/osho/work')
         terminal={'complete','completed','failed','cancelled','canceled','published','done'}
-        for root in roots:
-            files=sorted(root.glob('*/job.json'), key=lambda p:p.stat().st_mtime, reverse=True) if root.exists() else []
-            print(f'ROOT={root} EXISTS={root.exists()} JOB_FILES={len(files)}')
-            active=[]
-            for p in files[:20]:
-                try: d=json.loads(p.read_text())
-                except Exception: continue
-                status=str(d.get('status') or d.get('stage') or '').lower()
-                print(f'JOB={p.parent.name}|status={status}|mtime={p.stat().st_mtime}')
-                if status and status not in terminal: active.append(p.parent.name+':'+status)
-            print('ACTIVE=' + (','.join(active) if active else 'none'))
+        active=[]
+        for p in root.glob('*/job.json') if root.exists() else []:
+            try: d=json.loads(p.read_text())
+            except Exception: continue
+            s=str(d.get('status') or d.get('stage') or '').lower()
+            if s and s not in terminal: active.append((p.parent.name,s,d.get('source_id')))
+        print('ACTIVE_COUNT='+str(len(active)))
+        for row in active[:10]: print('ACTIVE_JOB='+'|'.join(str(x or '') for x in row))
         PY
+        echo '=== FIRST GROWTH METADATA ==='
+        python3 - <<'PY'
+        import json,pathlib
+        roots=[pathlib.Path('/srv/osho/metadata'),pathlib.Path('/srv/osho/work')]
+        hits=[]
+        for root in roots:
+            if not root.exists(): continue
+            for p in root.rglob('*.json'):
+                try:
+                    txt=p.read_text(errors='ignore')
+                except Exception:
+                    continue
+                if 'osho-growth-v1' not in txt and 'OSHO_GROWTH_TEMPLATE_V1' not in txt:
+                    continue
+                try: d=json.loads(txt)
+                except Exception: d={}
+                hits.append((p.stat().st_mtime,p,d))
+        hits.sort(key=lambda x:x[0])
+        print('GROWTH_ARTIFACT_COUNT='+str(len(hits)))
+        if hits:
+            m,p,d=hits[0]
+            print('FIRST_PATH='+str(p))
+            print('FIRST_MTIME='+str(m))
+            for k in ('source_id','reel_id','id','title','youtube_video_id','youtube_url','growth_template','production_profile','output'):
+                if k in d: print(f'FIRST_{k.upper()}={d.get(k)}')
+        for m,p,d in hits[-5:]:
+            print('RECENT_GROWTH='+str(p))
+        PY
+        echo '=== RECENT PUBLISHED RECEIPTS ==='
+        find /srv/osho -type f \( -iname '*receipt*.json' -o -path '*/published/*.json' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -12 || true
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show worker job-file state
+    - name: Show Growth V1 verification
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
