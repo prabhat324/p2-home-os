@@ -12,7 +12,6 @@
         echo '=== 000011 LOG SUMMARY ==='
         log=/srv/osho/logs/autopilot/000011-hook-v5.log
         if [ -f "$log" ]; then
-          echo "FIRST=$(head -1 "$log" 2>/dev/null)"
           echo "DUAL_MARKERS=$(grep -c 'DUAL GPU ENDPOINTS' "$log" 2>/dev/null || true)"
           echo "LOCAL_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-01$' "$log" 2>/dev/null || true)"
           echo "REMOTE_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-03$' "$log" 2>/dev/null || true)"
@@ -22,20 +21,13 @@
           echo "FAILOVERS=$(grep -c 'MODEL ENDPOINT FAILOVER' "$log" 2>/dev/null || true)"
           echo "MODEL_FAILURES=$(grep -Ec 'HOOK MODEL FAILURE|CLIP MODEL FAILURE' "$log" 2>/dev/null || true)"
           echo '=== TAIL ==='
-          tail -90 "$log"
+          tail -70 "$log"
         else
           echo MISSING_000011_LOG
         fi
         echo '=== OUTPUT ==='
         if [ -f /srv/osho/candidates/000011.hook-ranked-v5.json ]; then
-          python3 - <<'PY'
-import json
-p='/srv/osho/candidates/000011.hook-ranked-v5.json'
-d=json.load(open(p, encoding='utf-8'))
-for k in ('anchors_model_scored','anchor_survivors','full_clips_model_scored'):
-    print(f'{k.upper()}={d.get(k)}')
-print('RANKED_CANDIDATES='+str(len(d.get('ranked_candidates',[]))))
-PY
+          python3 -c 'import json; p="/srv/osho/candidates/000011.hook-ranked-v5.json"; d=json.load(open(p,encoding="utf-8")); print("ANCHORS_MODEL_SCORED="+str(d.get("anchors_model_scored"))); print("ANCHOR_SURVIVORS="+str(d.get("anchor_survivors"))); print("FULL_CLIPS_MODEL_SCORED="+str(d.get("full_clips_model_scored"))); print("RANKED_CANDIDATES="+str(len(d.get("ranked_candidates",[]))))'
         else
           echo OUTPUT_NOT_YET_WRITTEN
         fi
