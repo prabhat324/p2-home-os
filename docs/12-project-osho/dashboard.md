@@ -2,128 +2,217 @@
 
 ## Purpose
 
-The Project Osho dashboard is the human-visible surface for a zero-touch system. It should answer three questions immediately:
+The Project Osho dashboard is the human-visible surface for the zero-touch pipeline. It should answer immediately:
 
 1. What is Osho doing right now?
 2. Is every worker healthy?
-3. What happened to recent jobs and uploads?
+3. Which node owns the work?
+4. What happened to recent jobs and uploads?
 
 The dashboard backend runs on `compute-02`, keeping UI/control-plane responsibilities separate from GPU-heavy processing.
 
-## Observed API shape
+## Version 0.4
 
-The dashboard API has returned JSON structured like:
+As of 2026-08-14, dashboard v0.4 is source-controlled under:
 
-```json
-{
-  "timestamp": "2026-08-14T01:54:33.664603+00:00",
-  "summary": {
-    "uploaded": 0,
-    "processing": 0,
-    "queued": 15,
-    "failed": 1
-  },
-  "current_job": {
-    "id": "OSHO-20260813-200537-fc38cb",
-    "status": "ready_to_upload",
-    "stage": "ready_to_upload",
-    "title": "A Bird on the Wing 09",
-    "progress": 100.0,
-    "created_at": "2026-08-13T20:05:37.918243+00:00",
-    "updated_at": "2026-08-13T20:06:51.134561+00:00",
-    "published_at": null,
-    "youtube_url": null,
-    "error": null
-  },
-  "latest_upload": null,
-  "workers": []
-}
+```text
+services/osho-dashboard/
 ```
 
-The exact implementation may evolve, but this schema captures the important control-plane concepts.
+The production dashboard remains on compute-02 at:
 
-## Summary counters
+```text
+http://compute-02:8787
+```
 
-Recommended counters:
+v0.4 is designed as an in-place upgrade of the existing v0.3 SQLite-backed dashboard. Its schema migration adds columns with `ALTER TABLE` and preserves the current `/data/osho.db` database.
 
-- `uploaded` — successfully published jobs with durable receipts.
-- `processing` — jobs actively owned by a worker.
-- `queued` — jobs waiting for work.
-- `failed` — jobs that need intervention or retry.
-- `skipped` — useful future addition for sources intentionally rejected by QA.
+## v0.4 summary counters
 
-Skipped and failed must not be combined. A healthy zero-touch pipeline will intentionally skip some sources.
+```text
+Uploaded
+Processing
+Ready
+Queued
+Skipped
+Failed
+```
+
+`Skipped` is intentionally separate from `Failed`. Project Osho can reject a source because it has no safe V5 candidate or no genuine retention approval; that is healthy pipeline behavior, not a failure.
 
 ## Current job
 
-The dashboard should expose:
+The dashboard supports:
 
 ```text
 job ID
-source ID/title
+source title
 status
 stage
 progress
 assigned worker
-created timestamp
-last updated timestamp
+created / updated timestamps
 published timestamp
-YouTube URL/video ID
+YouTube URL
 error
 ```
 
-A job at `progress: 100` is not necessarily published. For example, `ready_to_upload` means production is complete but the upload still needs to succeed and be recorded.
+The `/api/jobs/update` payload now accepts an optional `worker` field. Controllers should populate it whenever work is assigned to `compute-01` or `compute-03`.
 
-## Worker status
+## Latest upload
 
-Each worker entry should include at least:
+The latest successful upload card shows:
+
+- title / job ID;
+- publish/update timestamp;
+- clickable YouTube URL when present.
+
+A local `ready_to_upload` state is not considered published until the publishing layer succeeds and durable upload evidence is recorded.
+
+## Systems view
+
+### compute-02
+
+The control plane is displayed explicitly with:
 
 ```text
-name
-status
-current_job
-stage
-progress
-last_seen
-age_seconds
+compute-02
+192.168.0.88:8787  dashboard/controller
+Piper :10200
 ```
 
-Recommended extensions:
+### compute-01 and compute-03
+
+GPU workers register dynamically through:
 
 ```text
+POST /api/worker/heartbeat
+```
+
+The v0.4 telemetry agent reports every 10 seconds and can expose:
+
+```text
+hostname / role
+LAN IP / worker port
+worker API health
+worker version
+current worker stage/job when supplied
+heartbeat age
 GPU model
 GPU utilization
 VRAM used / total
 GPU temperature
-power draw
-CPU load
-free disk
-Ollama model loaded
-worker version
+GPU power draw
+1-minute system load
+free space on /srv (or / fallback)
+active Ollama model
+Whisper model
+CUDA/device type
+Whisper compute type
+compute-01 autopilot systemd state
+telemetry-agent version
 ```
 
-Worker state should be derived from recent heartbeats, not merely whether the host responds to ping.
+This is particularly important for `compute-03`, which was previously invisible because the v0.3 dashboard only displayed workers that explicitly posted basic heartbeats.
 
-Suggested health interpretation:
+## Verified compute-03 capabilities
+
+compute-03 has a healthy Project Osho Worker API on TCP 8800 and has reported:
+
+```json
+{
+  "status": "ok",
+  "service": "Project Osho Worker",
+  "version": "0.6.2",
+  "whisper_model": "medium",
+  "device": "cuda",
+  "compute_type": "int8_float16"
+}
+```
+
+compute-03 has also successfully completed an isolated distributed job through transcription and `rendering_approved_clips`, producing a 1080x1920 H.264/AAC reel. It is therefore a proven processing worker, not merely a standby host.
+
+## Heartbeat health interpretation
 
 ```text
-online     heartbeat fresh
-stale      heartbeat delayed beyond normal processing interval
-offline    heartbeat exceeded failure threshold
-drain      intentionally accepting no new jobs
+online    heartbeat <= 30 seconds old and worker API healthy
+stale     heartbeat > 30 seconds old
+ offline   heartbeat > 90 seconds old
+degraded  telemetry agent is alive but local worker API is unavailable
+unknown   heartbeat timestamp/state cannot be interpreted
 ```
+
+The dashboard refreshes every 3 seconds; telemetry agents post every 10 seconds.
+
+## Telemetry deployment
+
+Agent source:
+
+```text
+services/osho-dashboard/telemetry/osho-dashboard-heartbeat.py
+```
+
+systemd unit:
+
+```text
+osho-dashboard-heartbeat.service
+```
+
+The service is intended to run on both compute-01 and compute-03 as user `psquare` and starts automatically at boot.
+
+Default destination:
+
+```text
+http://compute-02:8787/api/worker/heartbeat
+```
+
+## Database schema migration
+
+The v0.4 backend retains the existing `jobs` and `workers` tables and adds missing fields automatically. Important new worker columns include:
+
+```text
+role
+ip
+service
+service_version
+worker_port
+gpu_name
+gpu_utilization
+vram_used_mb
+vram_total_mb
+gpu_temperature_c
+gpu_power_w
+ollama_model
+whisper_model
+device
+compute_type
+load_1m
+disk_free_gb
+autopilot_status
+telemetry_version
+```
+
+The `jobs` table adds:
+
+```text
+worker
+```
+
+Runtime database files are ignored by Git and must not be committed.
 
 ## Stage vocabulary
 
-Keep stage names stable and machine-friendly. Example lifecycle:
+Keep machine-readable stage names stable. Current/recommended vocabulary includes:
 
 ```text
 queued
+downloading
 transcribing
 candidate_extraction
 hook_ranking
 retention_qa
 rendering
+rendering_approved_clips
 metadata
 ready_to_upload
 uploading
@@ -132,120 +221,70 @@ skipped
 failed
 ```
 
-If the implementation currently uses different labels, document them rather than silently renaming live states.
+## Important events
 
-## Production status events
-
-Important autopilot events should appear on the dashboard or event log, including:
+Meaningful zero-touch events include:
 
 ```text
 NO SAFE V5 CANDIDATES
 0 GENUINE APPROVALS — SKIPPED
 RECONCILED AS PUBLISHED
-worker offline / stale
+worker stale / offline / degraded
 upload started
 upload succeeded
 upload failed
 ```
 
-These status updates were specifically identified as useful dashboard information during Project Osho development.
+A future activity/event stream should persist these as structured events rather than scrape terminal logs.
 
-## Test mode
+## Deployment safety
 
-The dashboard/control-plane needs a test mode that exercises the real data shape without touching production publishing.
-
-Recommended fixture:
+The repository includes:
 
 ```text
-test_transcript.json
+services/osho-dashboard/deploy-to-compute02.sh
 ```
 
-Requirements:
+The deployment script:
 
-- same schema as a real transcript;
-- enough timestamps/text to run candidate extraction and ranking;
-- unmistakably marked as test data;
-- cannot accidentally trigger public upload;
-- produces the same dashboard state transitions as a normal job wherever practical.
+1. backs up the currently deployed source/config on compute-02;
+2. preserves `data/osho.db`;
+3. validates Docker Compose;
+4. rebuilds the container;
+5. checks `/health` and `/api/dashboard`.
+
+Detailed deployment instructions are in `services/osho-dashboard/README.md`.
 
 ## Hostname failure mode
 
-A previous dashboard check failed with:
+A previous dashboard outage was caused by cluster name resolution:
 
 ```text
 curl: (6) Could not resolve host: compute-02
-ssh: Could not resolve hostname compute-02: Temporary failure in name resolution
+ssh: Could not resolve hostname compute-02
 ```
 
-This was a cluster name-resolution problem, not proof of a broken dashboard backend.
-
-Troubleshooting order:
+Troubleshoot in this order:
 
 ```bash
 getent hosts compute-02
 ping -c 2 compute-02
 ssh compute-02
-ss -lntp
-curl -v http://compute-02:<port>/<route>
+curl -fsS http://compute-02:8787/health
 ```
 
-Do not restart or rewrite application code before confirming that DNS/hosts resolution and the TCP listener work.
+Do not rewrite application code until name resolution and TCP reachability have been verified.
 
-## Dashboard design priorities
+## Future improvements
 
-A dedicated phone/tablet dashboard should favor status at a glance:
+Useful next dashboard features include:
 
-### Top row
-
-```text
-AUTOPILOT: RUNNING / STOPPED
-CURRENT SOURCE
-CURRENT STAGE
-PROGRESS
-```
-
-### Queue summary
-
-```text
-Queued | Processing | Uploaded | Skipped | Failed
-```
-
-### Workers
-
-One compact card per worker showing:
-
-```text
-compute-01  ONLINE  ranking  66% GPU  74°C
-compute-03  ONLINE  idle     17% GPU  57°C
-```
-
-### Activity log
-
-Latest meaningful events, newest first.
-
-### Publishing
-
-Latest upload title, timestamp, and YouTube link/video ID.
-
-## API durability
-
-The dashboard should read durable state from the controller/job store. It should not depend on scraping terminal output as its primary data source.
-
-Terminal/process inspection is excellent for diagnostics, but the control plane should expose stable structured data directly.
-
-## Future metrics
-
-Persist metrics that can answer:
-
-- average time per source;
-- time spent per stage;
-- jobs per day;
-- skip rate;
-- failure rate;
-- average candidates generated;
-- average candidates surviving QA;
-- worker utilization;
+- durable activity/event timeline;
+- per-stage elapsed time;
+- historical GPU/worker utilization charts;
+- jobs processed per worker;
+- skip/failure rates by ranker/QA version;
 - uploads per day/week;
-- ranker version vs resulting YouTube retention/performance.
-
-This turns the dashboard from a status screen into the feedback system used to improve Osho itself.
+- YouTube performance feedback correlated with candidate/ranker versions;
+- worker drain/maintenance mode;
+- alerts for stale workers, low disk, overheating, or repeated failures.
