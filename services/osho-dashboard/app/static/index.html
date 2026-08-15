@@ -21,10 +21,11 @@
         .live { display:flex; align-items:center; gap:7px; padding:7px 10px; background:rgba(67,209,122,.08); border:1px solid rgba(67,209,122,.25); border-radius:999px; font-size:12px; color:var(--green); white-space:nowrap; }
         .dot { width:8px; height:8px; border-radius:50%; background:currentColor; }
         .mode { margin:-8px 0 18px; color:var(--blue); font-size:12px; font-weight:700; letter-spacing:.5px; }
-        .metrics { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:20px; }
+        .metrics { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:10px; }
         .metric { padding:14px; background:var(--card); border:1px solid var(--border); border-radius:16px; }
         .metric-value { font-size:28px; font-weight:700; }
         .metric-label { margin-top:4px; color:var(--muted); font-size:12px; }
+        .evidence { min-height:16px; margin:0 2px 20px; color:var(--muted); font-size:11px; }
         section { margin-bottom:14px; padding:17px; background:var(--card); border:1px solid var(--border); border-radius:16px; }
         .section-title { margin-bottom:13px; color:var(--muted); font-size:12px; font-weight:700; letter-spacing:1px; }
         .big { font-size:18px; font-weight:650; }
@@ -64,13 +65,14 @@
     <div class="mode" id="mode">ZERO-TOUCH V5</div>
 
     <div class="metrics">
-        <div class="metric"><div class="metric-value" id="uploaded">0</div><div class="metric-label">Uploaded</div></div>
+        <div class="metric"><div class="metric-value" id="uploaded">0</div><div class="metric-label">YouTube videos</div></div>
         <div class="metric"><div class="metric-value" id="processing">0</div><div class="metric-label">Processing</div></div>
         <div class="metric"><div class="metric-value" id="ready">0</div><div class="metric-label">Ready</div></div>
         <div class="metric"><div class="metric-value" id="queued">0</div><div class="metric-label">Queued</div></div>
         <div class="metric"><div class="metric-value" id="skipped">0</div><div class="metric-label">Skipped</div></div>
         <div class="metric"><div class="metric-value" id="failed">0</div><div class="metric-label">Failed</div></div>
     </div>
+    <div class="evidence" id="upload-evidence"></div>
 
     <section>
         <div class="section-title">CURRENT JOB</div>
@@ -199,6 +201,18 @@ async function refreshDashboard() {
         document.getElementById("failed").textContent = data.summary.failed ?? 0;
         document.getElementById("mode").textContent = (data.mode || "Zero-Touch V5").toUpperCase();
         document.getElementById("api-version").textContent = data.dashboard_version || "?";
+
+        const sourceStates = data.state_reconciliation?.status_counts || {};
+        const publishedSources = Number(sourceStates.published);
+        const uploadedVideos = Number(data.summary.uploaded);
+        const evidence = document.getElementById("upload-evidence");
+        if (Number.isFinite(uploadedVideos) && Number.isFinite(publishedSources)) {
+            evidence.textContent = `${uploadedVideos} receipt-backed YouTube video${uploadedVideos === 1 ? "" : "s"} · ${publishedSources} published source state${publishedSources === 1 ? "" : "s"}`;
+        } else if (Number.isFinite(uploadedVideos)) {
+            evidence.textContent = `${uploadedVideos} reconciled YouTube video${uploadedVideos === 1 ? "" : "s"}`;
+        } else {
+            evidence.textContent = "";
+        }
 
         const current = data.current_job;
         if (current) {
