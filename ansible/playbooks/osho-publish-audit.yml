@@ -11,7 +11,7 @@
         from pathlib import Path
 
         db = Path('/srv/osho/library/catalog/catalog.sqlite')
-        conn = sqlite3.connect(f'file:{db}?mode=ro', uri=True, timeout=2)
+        conn = sqlite3.connect(f'file:{db}?mode=ro&immutable=1', uri=True, timeout=2)
         rows = conn.execute(
             """
             SELECT lower(trim(status)) AS status, COUNT(*) AS count
