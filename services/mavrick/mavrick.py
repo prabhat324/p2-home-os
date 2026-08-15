@@ -9,6 +9,7 @@ import json
 import os
 import pathlib
 import queue
+import resource
 import signal
 import subprocess
 import threading
@@ -25,6 +26,8 @@ VISION_MODEL = os.getenv("MAVRICK_VISION_MODEL", "qwen3-vl:4b")
 CAMERA_HINT = os.getenv("MAVRICK_CAMERA_HINT", "C930e")
 MIC_DEVICE = os.getenv("MAVRICK_MIC_DEVICE", "plughw:CARD=C930e,DEV=0")
 SPEAKER_DEVICE = os.getenv("MAVRICK_SPEAKER_DEVICE", "plughw:CARD=sofhdadsp,DEV=0")
+SPEAKER_ROUTE = os.getenv("MAVRICK_SPEAKER_ROUTE", "internal_speaker")
+TELEMETRY_URL = os.getenv("MAVRICK_TELEMETRY_URL", "http://127.0.0.1:8787/api/mavrick/update")
 WHISPER_MODEL = os.getenv("MAVRICK_WHISPER_MODEL", "tiny.en")
 WHISPER_ROOT = os.getenv("MAVRICK_WHISPER_ROOT", "/var/lib/mavrick/models/whisper")
 PIPER_VOICE = os.getenv("MAVRICK_PIPER_VOICE", "en_US-lessac-medium")
@@ -32,6 +35,12 @@ PIPER_DATA = os.getenv("MAVRICK_PIPER_DATA", "/var/lib/mavrick/models/piper")
 AMBIENT_INTERVAL = int(os.getenv("MAVRICK_AMBIENT_INTERVAL", "45"))
 COMMENT_COOLDOWN = int(os.getenv("MAVRICK_COMMENT_COOLDOWN", "180"))
 STATUS_FILE = pathlib.Path("/run/mavrick/status.json")
+STATE_LOCK = threading.Lock()
+CURRENT_STATE: dict[str, object] = {"state": "starting"}
+METRICS: dict[str, object] = {
+    "stt_ms": None, "vision_ms": None, "tts_ms": None, "total_ms": None,
+    "last_error": None, "last_error_at": None,
+}
 
 STOP = threading.Event()
 SPEAKING = threading.Event()
@@ -58,12 +67,55 @@ SCHEMA = {
 def log(event: str, **fields: object) -> None:
     safe = " ".join(f"{k}={v}" for k, v in fields.items())
     print(f"MAVRICK event={event} {safe}".strip(), flush=True)
+    if event.endswith(("_failed", "_retry")):
+        with STATE_LOCK:
+            METRICS["last_error"] = event
+            METRICS["last_error_at"] = time.time()
 
 def status(state: str, **fields: object) -> None:
     data = {"state": state, "at": time.time(), **fields}
+    with STATE_LOCK:
+        CURRENT_STATE.clear()
+        CURRENT_STATE.update(data)
     tmp = STATUS_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps(data), encoding="utf-8")
     os.replace(tmp, STATUS_FILE)
+
+def telemetry_loop() -> None:
+    while not STOP.is_set():
+        model_ready = False
+        try:
+            tags = requests.get(f"{OLLAMA_URL}/api/tags", timeout=3).json()
+            model_ready = any(
+                str(item.get("name") or item.get("model") or "") == VISION_MODEL
+                for item in tags.get("models", [])
+                if isinstance(item, dict)
+            )
+        except Exception:
+            pass
+        with STATE_LOCK:
+            snapshot = dict(CURRENT_STATE)
+            metrics = dict(METRICS)
+        payload = {
+            "state": snapshot.get("state", "unknown"),
+            "service": "active",
+            "camera": camera_path() is not None,
+            "microphone": any(t.name == "microphone" and t.is_alive() for t in threading.enumerate()),
+            "model": VISION_MODEL,
+            "model_ready": model_ready,
+            "speaker_route": SPEAKER_ROUTE,
+            "output_device": SPEAKER_DEVICE,
+            "rss_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
+            "load_1m": round(os.getloadavg()[0], 2),
+            "privacy": "operational_only_no_retained_media_or_content",
+            "updated_at": time.time(),
+            **metrics,
+        }
+        try:
+            requests.post(TELEMETRY_URL, json=payload, timeout=3).raise_for_status()
+        except Exception:
+            pass
+        STOP.wait(10)
 
 def camera_path() -> pathlib.Path | None:
     roots = [pathlib.Path("/dev/v4l/by-id"), pathlib.Path("/dev")]
@@ -101,6 +153,7 @@ def scene_change(previous: bytes | None, current: bytes) -> float:
     return float(ImageStat.Stat(ImageChops.difference(a, b)).mean[0])
 
 def ollama(messages: list[dict], image: bytes | None = None) -> dict:
+    started = time.monotonic()
     content = messages[-1]["content"]
     user = {"role": "user", "content": content}
     if image is not None:
@@ -116,9 +169,12 @@ def ollama(messages: list[dict], image: bytes | None = None) -> dict:
     response = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=180)
     response.raise_for_status()
     text = response.json()["message"]["content"]
+    with STATE_LOCK:
+        METRICS["vision_ms"] = round((time.monotonic() - started) * 1000)
     return json.loads(text)
 
 def speak(text: str) -> None:
+    started = time.monotonic()
     text = " ".join(text.strip().split())[:300]
     if not text:
         return
@@ -137,6 +193,8 @@ def speak(text: str) -> None:
             ["aplay", "-q", "-D", SPEAKER_DEVICE, str(wav)],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60, check=True,
         )
+        with STATE_LOCK:
+            METRICS["tts_ms"] = round((time.monotonic() - started) * 1000)
         log("spoke", characters=len(text))
     except Exception as exc:
         log("speech_failed", error=type(exc).__name__)
@@ -211,17 +269,22 @@ def transcriber_loop() -> None:
         except queue.Empty:
             continue
         try:
+            started = time.monotonic()
             segments, _ = model.transcribe(
                 audio, language="en", beam_size=1, vad_filter=True,
                 condition_on_previous_text=False,
             )
             text = " ".join(segment.text.strip() for segment in segments).strip()
+            with STATE_LOCK:
+                METRICS["stt_ms"] = round((time.monotonic() - started) * 1000)
             if len(text) >= 2:
                 handle_question(text)
         except Exception as exc:
             log("transcription_failed", error=type(exc).__name__)
 
 def handle_question(text: str) -> None:
+    started = time.monotonic()
+    status("answering_question", retention="ram_only")
     device = camera_path()
     frame = None
     if device:
@@ -237,6 +300,9 @@ def handle_question(text: str) -> None:
         reply = str(result.get("reply", "")).strip()
         if reply:
             speak(reply)
+        with STATE_LOCK:
+            METRICS["total_ms"] = round((time.monotonic() - started) * 1000)
+        status("ambient_ready", camera=str(device) if device else None, retention="ram_only")
     except Exception as exc:
         log("question_failed", error=type(exc).__name__)
 
@@ -293,6 +359,7 @@ def main() -> int:
         threading.Thread(target=microphone_loop, name="microphone", daemon=True),
         threading.Thread(target=transcriber_loop, name="transcriber", daemon=True),
         threading.Thread(target=ambient_loop, name="ambient", daemon=True),
+        threading.Thread(target=telemetry_loop, name="telemetry", daemon=True),
     ]
     for thread in threads:
         thread.start()
