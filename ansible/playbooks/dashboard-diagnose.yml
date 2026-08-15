@@ -1,51 +1,41 @@
 ---
-- name: Verify restored Project Osho live processing view
+- name: Verify YouTube Analyst freshness badge semantics
   hosts: compute-02
   gather_facts: false
   tasks:
-    - name: Verify live progress page and API fields
+    - name: Verify Analyst page and cadence-aware status
       ansible.builtin.shell: |
         set -o pipefail
         base='http://127.0.0.1:8787'
-        echo '=== HEALTH ==='
-        curl -fsS "${base}/health"
-        echo
-        echo '=== OSHO PAGE ==='
         body="$(mktemp)"
-        code=$(curl -sS -o "$body" -w '%{http_code}' "${base}/osho")
-        echo "HTTP=$code"
-        printf 'LIVE_PROCESSING_PANEL=%s\n' "$(grep -q 'id="oshoLiveProcessing"' "$body" && echo yes || echo no)"
-        printf 'PROGRESS_PERCENT_FIELD=%s\n' "$(grep -q 'id="liveJobPct"' "$body" && echo yes || echo no)"
-        printf 'PROGRESS_BAR_FIELD=%s\n' "$(grep -q 'id="liveJobBar"' "$body" && echo yes || echo no)"
-        printf 'STAGE_FIELD=%s\n' "$(grep -q 'id="liveJobStage"' "$body" && echo yes || echo no)"
-        printf 'WORKER_FIELD=%s\n' "$(grep -q 'id="liveJobWorker"' "$body" && echo yes || echo no)"
-        printf 'JOB_WORKER_PREFERENCE=%s\n' "$(grep -q "job.worker || activeWorkers" "$body" && echo yes || echo no)"
-        printf 'TELEMETRY_LABEL=%s\n' "$(grep -q 'Telemetry updated' "$body" && echo yes || echo no)"
-        printf 'REFRESH_3_SECONDS=%s\n' "$(grep -q 'setInterval(refreshLiveProcessing, 3000)' "$body" && echo yes || echo no)"
+        code=$(curl -sS -o "$body" -w '%{http_code}' "${base}/youtube-analyst")
+        echo "ANALYST_HTTP=$code"
+        printf 'HAS_FRESH_STATUS=%s\n' "$(grep -q "age<=4500.*fresh" "$body" && echo yes || echo no)"
+        printf 'HAS_STALE_THRESHOLD=%s\n' "$(grep -q "age<=10800.*stale" "$body" && echo yes || echo no)"
+        printf 'HOURLY_CADENCE_LABEL=%s\n' "$(grep -q "collector runs hourly at :05" "$body" && echo yes || echo no)"
         rm -f "$body"
-        echo '=== LIVE DASHBOARD API ==='
-        curl -fsS "${base}/api/dashboard" | python3 -c '
+        echo '=== LIVE ANALYTICS ==='
+        curl -fsS "${base}/api/analytics" | python3 -c '
         import json,sys
-        d=json.load(sys.stdin); s=d.get("summary") or {}; j=d.get("current_job") or {}; workers=d.get("workers") or []
-        print("PROCESSING="+str(s.get("processing")))
-        print("CURRENT_JOB_PRESENT="+str(bool(j)).lower())
-        print("CURRENT_JOB_ID="+str(j.get("id") or j.get("job_id") or j.get("source_id")))
-        print("CURRENT_JOB_TITLE="+str(j.get("title")))
-        print("CURRENT_JOB_STAGE="+str(j.get("stage") or j.get("status")))
-        print("CURRENT_JOB_PROGRESS="+str(j.get("progress")))
-        print("CURRENT_JOB_WORKER="+str(j.get("worker")))
-        for w in workers:
-            if w.get("name") == "compute-01":
-                print("C01_CURRENT_JOB="+str(w.get("current_job")))
-                print("C01_STAGE="+str(w.get("stage")))
-                print("C01_PROGRESS="+str(w.get("progress")))
-                print("C01_TELEMETRY_STATE="+str(w.get("telemetry_state")))
+        d=json.load(sys.stdin)
+        age=d.get("age_seconds")
+        print("API_STATUS="+str(d.get("status")))
+        print("AGE_SECONDS="+str(age))
+        if d.get("analytics") is not None and isinstance(age,(int,float)):
+            expected="fresh" if age <= 4500 else ("stale" if age <= 10800 else "offline")
+        else:
+            expected=d.get("status") or "unknown"
+        print("EXPECTED_ANALYST_BADGE="+str(expected).upper())
+        a=d.get("analytics") or {}
+        ch=a.get("channel") or a.get("channel_summary") or a.get("channel_stats") or {}
+        print("SUBSCRIBERS="+str(ch.get("subscriber_count",a.get("subscriber_count",a.get("subscribers")))))
+        print("COLLECTED_AT="+str(a.get("collected_at") or a.get("generated_at") or a.get("snapshot_at") or a.get("updated_at")))
         '
       args:
         executable: /bin/bash
       register: verify
       changed_when: false
 
-    - name: Show live progress verification
+    - name: Show Analyst freshness verification
       ansible.builtin.debug:
         msg: "{{ verify.stdout_lines }}"
