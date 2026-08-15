@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-pull-ensure-1786810942849",
-  "operation": "mavrick-model-pull",
+  "request_id": "dashboard-v051-sensor-fix-deploy-20260815",
+  "operation": "dashboard-deploy",
   "target": "compute-02"
 }
