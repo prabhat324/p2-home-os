@@ -1,5 +1,5 @@
 {
-  "request_id": "compute03-dashboard-card-20260814-2256",
-  "operation": "home-dashboard-deploy",
-  "target": "core-01"
+  "request_id": "verify-compute03-top-strip-20260814-2313",
+  "operation": "home-dashboard-inventory",
+  "target": "all"
 }
