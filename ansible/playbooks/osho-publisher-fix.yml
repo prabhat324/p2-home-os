@@ -10,7 +10,7 @@
         file=youtube_uploader.py
         test -f "$file"
 
-        if pgrep -af 'hook_ranker_v5.py|retention_qa_v4.py' >/dev/null 2>&1; then
+        if pgrep -af '[h]ook_ranker_v5.py|[r]etention_qa_v4.py' >/dev/null 2>&1; then
           echo 'Refusing patch: ranking/QA process is active' >&2
           exit 3
         fi
