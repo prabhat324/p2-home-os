@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import urllib.error
 import urllib.request
@@ -15,8 +15,6 @@ app = FastAPI(
 )
 
 
-# Real page URLs backed by the shared command-center shell. The frontend reads
-# location.pathname and renders only the content belonging to that page.
 COMMAND_CENTER_ROUTES = (
     "/",
     "/media",
@@ -224,8 +222,6 @@ def youtube_analyst_page():
     return FileResponse(base.STATIC_DIR / "analytics.html")
 
 
-# Compatibility alias for bookmarks and the analytics reporter UI added before
-# the P² sidebar redesign.
 @app.get("/analytics")
 def analytics_page_alias():
     return FileResponse(base.STATIC_DIR / "analytics.html")
@@ -241,13 +237,138 @@ def _analytics_table(conn):
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS analytics_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            received_at TEXT NOT NULL,
+            payload TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS analytics_history_received_at "
+        "ON analytics_history(received_at)"
+    )
     conn.commit()
+
+
+def _analytics_videos(payload):
+    if not isinstance(payload, dict):
+        return []
+    videos = payload.get("videos")
+    if not isinstance(videos, list):
+        videos = payload.get("video_stats")
+    return videos if isinstance(videos, list) else []
+
+
+def _analytics_channel(payload):
+    if not isinstance(payload, dict):
+        return {}
+    for key in ("channel", "channel_summary", "channel_stats"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def _video_key(video):
+    return str(video.get("video_id") or video.get("youtube_id") or video.get("reel_id") or "")
+
+
+def _public_views(video):
+    try:
+        return max(0, int(float(video.get("public_views") or 0)))
+    except Exception:
+        return 0
+
+
+def _uploaded_at(video):
+    value = video.get("uploaded_at") or video.get("published_at")
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _views_24h(conn, payload, now):
+    videos = _analytics_videos(payload)
+    channel = _analytics_channel(payload)
+    tracked = len(videos)
+    try:
+        channel_count = int(channel.get("video_count"))
+    except Exception:
+        try:
+            channel_count = int(payload.get("video_count"))
+        except Exception:
+            channel_count = None
+
+    current = {
+        _video_key(video): _public_views(video)
+        for video in videos
+        if _video_key(video)
+    }
+    current_total = sum(current.values())
+    target = now - timedelta(hours=24)
+
+    row = conn.execute(
+        "SELECT received_at, payload FROM analytics_history "
+        "WHERE received_at <= ? ORDER BY received_at DESC LIMIT 1",
+        (target.isoformat(),),
+    ).fetchone()
+
+    window_complete = row is not None
+    value = None
+    window_hours = None
+
+    if row is not None:
+        try:
+            baseline_payload = json.loads(row["payload"])
+        except Exception:
+            baseline_payload = {}
+        baseline = {
+            _video_key(video): _public_views(video)
+            for video in _analytics_videos(baseline_payload)
+            if _video_key(video)
+        }
+        value = sum(max(0, views - baseline.get(key, 0)) for key, views in current.items())
+        try:
+            baseline_at = datetime.fromisoformat(row["received_at"])
+            if baseline_at.tzinfo is None:
+                baseline_at = baseline_at.replace(tzinfo=timezone.utc)
+            window_hours = round((now - baseline_at).total_seconds() / 3600, 2)
+        except Exception:
+            window_hours = 24.0
+    else:
+        uploads = [_uploaded_at(video) for video in videos]
+        known_uploads = [stamp for stamp in uploads if stamp is not None]
+        if videos and len(known_uploads) == len(videos) and min(known_uploads) >= target:
+            value = current_total
+            window_complete = True
+            window_hours = 24.0
+
+    coverage_complete = channel_count is None or tracked >= channel_count
+    return {
+        "value": value,
+        "tracked_videos": tracked,
+        "channel_videos": channel_count,
+        "coverage_complete": coverage_complete,
+        "window_complete": window_complete,
+        "window_hours": window_hours,
+    }
 
 
 @app.post("/api/analytics/update")
 async def analytics_update(request: Request):
     payload = await request.json()
-    now = datetime.now(timezone.utc).isoformat()
+    now_dt = datetime.now(timezone.utc)
+    now = now_dt.isoformat()
+    packed = json.dumps(payload, separators=(",", ":"))
 
     conn = base.db()
     _analytics_table(conn)
@@ -259,11 +380,31 @@ async def analytics_update(request: Request):
             payload = excluded.payload,
             last_seen = excluded.last_seen
         """,
-        (json.dumps(payload, separators=(",", ":")), now),
+        (packed, now),
     )
+
+    last_history = conn.execute(
+        "SELECT received_at FROM analytics_history ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    should_store = True
+    if last_history is not None:
+        try:
+            previous = datetime.fromisoformat(last_history["received_at"])
+            if previous.tzinfo is None:
+                previous = previous.replace(tzinfo=timezone.utc)
+            should_store = (now_dt - previous).total_seconds() >= 300
+        except Exception:
+            should_store = True
+    if should_store:
+        conn.execute(
+            "INSERT INTO analytics_history(received_at, payload) VALUES (?, ?)",
+            (now, packed),
+        )
+        cutoff = (now_dt - timedelta(hours=72)).isoformat()
+        conn.execute("DELETE FROM analytics_history WHERE received_at < ?", (cutoff,))
+
     conn.commit()
     conn.close()
-
     return {"ok": True, "received_at": now}
 
 
@@ -274,14 +415,15 @@ def analytics_dashboard_data():
     row = conn.execute(
         "SELECT payload, last_seen FROM analytics_state WHERE id = 1"
     ).fetchone()
-    conn.close()
 
     if row is None:
+        conn.close()
         return {
             "status": "waiting",
             "age_seconds": None,
             "last_seen": None,
             "analytics": None,
+            "views_24h": None,
         }
 
     try:
@@ -291,6 +433,8 @@ def analytics_dashboard_data():
 
     try:
         last_seen = datetime.fromisoformat(row["last_seen"])
+        if last_seen.tzinfo is None:
+            last_seen = last_seen.replace(tzinfo=timezone.utc)
         age_seconds = max(
             0.0,
             (datetime.now(timezone.utc) - last_seen).total_seconds(),
@@ -300,26 +444,30 @@ def analytics_dashboard_data():
 
     if payload is None:
         status = "invalid"
-    elif age_seconds is None:
-        status = "unknown"
-    elif age_seconds <= 30:
-        status = "online"
-    elif age_seconds <= 180:
-        status = "stale"
+        views_24h = None
     else:
-        status = "offline"
+        views_24h = _views_24h(conn, payload, datetime.now(timezone.utc))
+        if age_seconds is None:
+            status = "unknown"
+        elif age_seconds <= 30:
+            status = "online"
+        elif age_seconds <= 180:
+            status = "stale"
+        else:
+            status = "offline"
 
+    conn.close()
     return {
         "status": status,
         "age_seconds": round(age_seconds, 1) if age_seconds is not None else None,
         "last_seen": row["last_seen"],
         "analytics": payload,
+        "views_24h": views_24h,
     }
 
 
 @app.get("/api/dashboard")
 def reconciled_dashboard_data():
-    """Prefer fresh autopilot reconciliation over legacy job-row counters."""
     data = base.dashboard_data()
     reconciliation = data.get("state_reconciliation") or {}
 
@@ -356,7 +504,4 @@ def reconciled_dashboard_data():
     return data
 
 
-# Keep the existing v0.5 dashboard API, health endpoint, telemetry endpoints and
-# startup behavior intact. Routes registered above win; everything else comes
-# from main.py.
 app.include_router(base.app.router)
