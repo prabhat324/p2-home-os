@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-temp-100-diagnose-20260815",
-  "operation": "dashboard-diagnose",
+  "request_id": "mavrick-model-assert-20260815-1619",
+  "operation": "mavrick-inventory",
   "target": "compute-02"
 }
