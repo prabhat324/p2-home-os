@@ -2,6 +2,7 @@
 set -euo pipefail
 
 REPO_RAW="https://raw.githubusercontent.com/prabhat324/p2-home-os/master"
+CACHE_BUST="$(date +%s)"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd || true)"
 LOCAL_HELPER="${ROOT_DIR:+$ROOT_DIR/scripts/p2ops-home-dashboard}"
 HELPER_DST="/usr/local/sbin/p2ops-home-dashboard"
@@ -29,7 +30,7 @@ HELPER_SRC="$work/p2ops-home-dashboard"
 if [[ -n "$LOCAL_HELPER" && -f "$LOCAL_HELPER" ]]; then
     cp "$LOCAL_HELPER" "$HELPER_SRC"
 else
-    curl -fsSL "$REPO_RAW/scripts/p2ops-home-dashboard" -o "$HELPER_SRC"
+    curl -fsSL "$REPO_RAW/scripts/p2ops-home-dashboard?cb=$CACHE_BUST" -o "$HELPER_SRC"
 fi
 
 chmod 0755 "$HELPER_SRC"
