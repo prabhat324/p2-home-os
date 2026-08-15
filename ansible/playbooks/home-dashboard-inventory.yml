@@ -64,6 +64,27 @@
         echo 'HOMEPAGE_CONFIG_END'
 
         if [ "$(hostname)" = "media-server" ]; then
+          echo 'HOMEPAGE_WIDGETS_BEGIN'
+          widgets='/opt/docker/compose/homepage/config/widgets.yaml'
+          if [ -f "$widgets" ]; then
+            python3 - "$widgets" <<'PY'
+        from pathlib import Path
+        import re, sys
+        secret_key=re.compile(r'(password|passwd|secret|token|api[_-]?key|apikey|authorization|bearer|username|credential)', re.I)
+        for raw in Path(sys.argv[1]).read_text(errors='replace').splitlines():
+            stripped=raw.lstrip()
+            key=stripped.split(':',1)[0] if ':' in stripped else ''
+            if secret_key.search(key):
+                indent=raw[:len(raw)-len(stripped)]
+                print(indent + key + ': [REDACTED]')
+            else:
+                print(raw)
+        PY
+          else
+            echo 'WIDGETS_MISSING=yes'
+          fi
+          echo 'HOMEPAGE_WIDGETS_END'
+
           echo 'CADDY_ROUTES_BEGIN'
           for f in /opt/docker/compose/caddy/Caddyfile /opt/docker/compose/caddy/config/Caddyfile; do
             if [ -f "$f" ]; then
