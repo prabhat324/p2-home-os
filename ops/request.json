@@ -1,5 +1,5 @@
 {
-  "request_id": "youtube-analytics-deploy-20260814-2204",
-  "operation": "dashboard-deploy",
+  "request_id": "youtube-analytics-verify-20260814-2207",
+  "operation": "dashboard-diagnose",
   "target": "compute-02"
 }
