@@ -1,0 +1,90 @@
+---
+- name: Find the working Mavrick analogue output route
+  hosts: compute-02
+  gather_facts: false
+  vars:
+    mic_device: "plughw:CARD=C930e,DEV=0"
+    work_dir: "/tmp/mavrick-audio-routes"
+  tasks:
+    - name: Stop Mavrick for exclusive microphone access
+      ansible.builtin.command: sudo -n /usr/bin/systemctl stop mavrick.service
+      changed_when: true
+
+    - name: Test UCM and ALSA output route matrix with microphone verification
+      ansible.builtin.shell: |
+        set -euo pipefail
+        rm -rf "{{ work_dir }}"
+        mkdir -m 0700 "{{ work_dir }}"
+
+        /opt/mavrick/venv/bin/python - <<'PY'
+        import math, struct, wave
+        rate=48000
+        with wave.open("{{ work_dir }}/tone.wav","wb") as w:
+            w.setnchannels(2); w.setsampwidth(2); w.setframerate(rate)
+            frames=bytearray()
+            for i in range(rate*3):
+                v=int(0.28*32767*math.sin(2*math.pi*1000*i/rate))
+                frames += struct.pack("<hh",v,v)
+            w.writeframes(frames)
+        PY
+
+        echo "=== UCM ==="
+        alsaucm -c sofhdadsp list _verbs 2>&1 || true
+        alsaucm -c sofhdadsp set _verb HiFi 2>&1 || true
+        alsaucm -c sofhdadsp list _devices 2>&1 || true
+        alsaucm -c sofhdadsp set _enadev Headphones 2>&1 || true
+        echo "=== PCM ALIASES ==="
+        aplay -L 2>&1
+
+        amixer -c sofhdadsp set Master 65% unmute >/dev/null
+        amixer -c sofhdadsp set Headphone 65% unmute >/dev/null
+        amixer -c sofhdadsp set Speaker 0% mute >/dev/null || true
+
+        measure() {
+          name="$1"; device="$2"; automute="$3"
+          amixer -c sofhdadsp set 'Auto-Mute Mode' "$automute" >/dev/null || true
+          timeout 7 arecord -q -D "{{ mic_device }}" -f S16_LE -r 48000 -c 1 -d 6             "{{ work_dir }}/${name}.wav" &
+          recorder=$!
+          sleep 1
+          set +e
+          timeout 5 aplay -q -D "$device" "{{ work_dir }}/tone.wav"
+          play_rc=$?
+          set -e
+          wait "$recorder"
+          /opt/mavrick/venv/bin/python - "$name" "$device" "$play_rc" "{{ work_dir }}/${name}.wav" <<'PY'
+        import math, struct, sys, wave
+        name, device, rc, path = sys.argv[1:]
+        with wave.open(path,"rb") as w:
+            rate=w.getframerate(); n=w.getnframes()
+            raw=w.readframes(n)
+        samples=struct.unpack("<"+"h"*(len(raw)//2),raw)
+        start=min(len(samples),rate)
+        x=samples[start:]
+        n=max(1,len(x))
+        rms=math.sqrt(sum(v*v for v in x)/n)/32768
+        c=sum(v*math.cos(2*math.pi*1000*i/rate) for i,v in enumerate(x))
+        s=sum(v*math.sin(2*math.pi*1000*i/rate) for i,v in enumerate(x))
+        amp=(2*math.sqrt(c*c+s*s)/n)/32768
+        db=lambda v: 20*math.log10(max(v,1e-12))
+        print(f"ROUTE name={name} device={device} aplay_rc={rc} rms_dbfs={db(rms):.2f} tone_1khz_dbfs={db(amp):.2f}")
+        PY
+        }
+
+        measure hw0 "plughw:CARD=sofhdadsp,DEV=0" Enabled
+        measure deep31 "plughw:CARD=sofhdadsp,DEV=31" Enabled
+        measure front0 "front:CARD=sofhdadsp,DEV=0" Enabled
+        measure sysdefault "sysdefault:CARD=sofhdadsp" Enabled
+        measure hw0_no_auto "plughw:CARD=sofhdadsp,DEV=0" Disabled
+        echo "MAVRICK_AUDIO_ROUTE_MATRIX=completed"
+      args:
+        executable: /bin/bash
+      register: routes
+      changed_when: true
+
+    - name: Restart Mavrick after route testing
+      ansible.builtin.command: sudo -n /usr/bin/systemctl start mavrick.service
+      changed_when: true
+
+    - name: Show measured route results
+      ansible.builtin.debug:
+        msg: "{{ routes.stdout_lines }}"
