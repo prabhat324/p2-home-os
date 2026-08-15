@@ -67,6 +67,13 @@ case "${operation}" in
     fi
     playbook="playbooks/osho-publish-audit.yml"
     ;;
+  youtube-analytics-diagnose)
+    if [[ "${target}" != "osho_nodes" ]]; then
+      echo "youtube-analytics-diagnose is restricted to osho_nodes" >&2
+      exit 2
+    fi
+    playbook="playbooks/youtube-analytics-diagnose.yml"
+    ;;
   *)
     echo "Operation is not allowed: ${operation}" >&2
     exit 2
