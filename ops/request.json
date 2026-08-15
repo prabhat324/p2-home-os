@@ -1,5 +1,5 @@
 {
-  "request_id": "youtube-analyst-freshness-deploy-20260815-1233",
-  "operation": "dashboard-deploy",
-  "target": "compute-02"
+  "request_id": "osho-upload-gap-audit-1786811755697",
+  "operation": "osho-publish-audit",
+  "target": "compute-01"
 }
