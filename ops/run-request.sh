@@ -39,6 +39,13 @@ case "${operation}" in
   osho-status)
     playbook="playbooks/osho-status.yml"
     ;;
+  privilege-check)
+    if [[ "${target}" != "compute-01" ]]; then
+      echo "privilege-check is restricted to compute-01" >&2
+      exit 2
+    fi
+    playbook="playbooks/privilege-check.yml"
+    ;;
   dashboard-diagnose)
     if [[ "${target}" != "compute-02" ]]; then
       echo "dashboard-diagnose is restricted to compute-02" >&2
