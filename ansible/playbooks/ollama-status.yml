@@ -1,0 +1,34 @@
+---
+- name: Diagnose Ollama reachability on compute-01
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Inspect Ollama service and port
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "HOST=$(hostname)"
+        echo "NOW=$(date -Ins)"
+        echo '=== SERVICE ==='
+        systemctl is-active ollama.service 2>&1 || true
+        systemctl is-enabled ollama.service 2>&1 || true
+        echo '=== LISTEN 11434 ==='
+        ss -lntp 2>/dev/null | grep -E '(:11434)([[:space:]]|$)' || true
+        echo '=== LOCAL ROOT ==='
+        curl -sS --max-time 3 http://127.0.0.1:11434/ 2>&1 || true
+        echo
+        echo '=== LOCAL TAGS ==='
+        curl -sS --max-time 3 http://127.0.0.1:11434/api/tags 2>&1 || true
+        echo
+        echo '=== PROCESS ==='
+        pgrep -af 'ollama( serve)?|llama-server' || true
+        echo '=== UNIT ENV ==='
+        systemctl show ollama.service -p Environment --no-pager 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      register: result
+      changed_when: false
+      failed_when: false
+
+    - name: Show Ollama diagnostic
+      ansible.builtin.debug:
+        msg: "{{ result.stdout_lines }}"
