@@ -61,6 +61,9 @@ case "${operation}" in
   mavrick-internal-speaker-test)
     [[ "${target}" == "compute-02" ]] || { echo "mavrick-internal-speaker-test is restricted to compute-02" >&2; exit 2; }
     playbook="playbooks/mavrick-internal-speaker-test.yml" ;;
+  mavrick-use-internal-speaker)
+    [[ "${target}" == "compute-02" ]] || { echo "mavrick-use-internal-speaker is restricted to compute-02" >&2; exit 2; }
+    playbook="playbooks/mavrick-use-internal-speaker.yml" ;;
   home-dashboard-deploy)
     [[ "${target}" == "core-01" ]] || { echo "home-dashboard-deploy is restricted to core-01" >&2; exit 2; }
     playbook="playbooks/home-dashboard-deploy.yml" ;;
