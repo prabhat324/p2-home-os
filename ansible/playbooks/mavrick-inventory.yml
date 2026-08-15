@@ -19,6 +19,12 @@
         command -v vainfo >/dev/null && vainfo 2>&1 | head -80 || true
         echo "=== USB ==="
         lsusb 2>/dev/null || true
+        echo "=== LOCAL AI ==="
+        curl -fsS --max-time 5 http://127.0.0.1:11434/api/tags 2>/dev/null || true
+        echo
+        curl -fsS --max-time 5 http://127.0.0.1:11434/api/ps 2>/dev/null || true
+        echo
+        systemctl cat ollama.service 2>/dev/null | grep -E "^(User|Group|Environment|ExecStart)=" || true
         echo "=== VIDEO DEVICES ==="
         command -v v4l2-ctl >/dev/null && v4l2-ctl --list-devices 2>&1 || true
         ls -l /dev/video* /dev/media* 2>/dev/null || true
@@ -32,6 +38,8 @@
         command -v arecord >/dev/null && arecord -l 2>&1 || true
         command -v aplay >/dev/null && aplay -l 2>&1 || true
         cat /proc/asound/cards 2>/dev/null || true
+        cat /proc/asound/pcm 2>/dev/null || true
+        ls -l /dev/snd 2>/dev/null || true
         echo "=== PIPEWIRE PULSE ==="
         command -v pactl >/dev/null && pactl info 2>&1 || true
         command -v pactl >/dev/null && pactl list short sources 2>&1 || true
@@ -39,14 +47,26 @@
         command -v wpctl >/dev/null && wpctl status 2>&1 || true
         echo "=== ACCESS ==="
         id
+        sudo -n -l 2>&1 || true
         getent group video || true
         getent group audio || true
         loginctl list-sessions --no-legend 2>/dev/null || true
+        ps -eo user,pid,comm,args | grep -E "pipewire|wireplumber|pulseaudio" | grep -v grep || true
+        ls -l /run/user/*/pulse/native 2>/dev/null || true
+        ls -ld /dev/dri /dev/dri/* 2>/dev/null || true
         echo "=== SOFTWARE ==="
-        for c in python3 docker ffmpeg ffprobe v4l2-ctl arecord aplay pactl wpctl; do
+        for c in python3 docker ffmpeg ffprobe v4l2-ctl arecord aplay amixer pactl wpctl espeak-ng piper; do
           printf "%s=" "$c"
           command -v "$c" 2>/dev/null || echo missing
         done
+        python3 - <<'PY'
+        for name in ("cv2","numpy","sounddevice","pyaudio","faster_whisper","openwakeword","requests"):
+            try:
+                mod=__import__(name)
+                print(f"PYTHON_{name}=yes version={getattr(mod,'__version__','unknown')}")
+            except Exception as exc:
+                print(f"PYTHON_{name}=no")
+        PY
         docker ps --format "table {{'{{'}}.Names{{'}}'}}\t{{'{{'}}.Status{{'}}'}}\t{{'{{'}}.Ports{{'}}'}}" 2>/dev/null || true
         systemctl --no-pager --type=service --state=running 2>/dev/null | grep -Ei "docker|pipewire|pulse|glances|osho|ollama|n8n" || true
         echo "=== NETWORK LISTENERS ==="
