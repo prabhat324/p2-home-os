@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ ${EUID} -ne 0 ]]; then
+    echo "This helper must run as root via sudo." >&2
+    exit 1
+fi
+
+ACTION="${1:-}"
+CODE="/srv/compose/osho-worker"
+BOUNDARY="$CODE/boundary_consensus.py"
+VERIFY="$CODE/verify_reel_transcript.py"
+STABILITY="$CODE/transcript_stability.py"
+BACKUPS="$CODE/backups"
+
+log() {
+    printf '[p2ops-osho-qa-fix] %s\n' "$*"
+}
+
+require_targets() {
+    for f in "$BOUNDARY" "$VERIFY" "$STABILITY"; do
+        [[ -f "$f" ]] || { echo "Required file missing: $f" >&2; exit 3; }
+        case "$(realpath -m "$f")" in
+            /srv/compose/osho-worker/*) ;;
+            *) echo "Refusing unexpected path: $f" >&2; exit 3 ;;
+        esac
+    done
+}
+
+status() {
+    require_targets
+    echo "HOST=$(hostname)"
+    echo "AUTOPILOT_SERVICE=$(systemctl is-active osho-autopilot.service 2>/dev/null || true)"
+    echo "BOUNDARY_QWEN4=$(grep -c 'qwen3:4b-instruct' "$BOUNDARY" 2>/dev/null || true)"
+    echo "BOUNDARY_QWEN8=$(grep -c 'qwen3:8b' "$BOUNDARY" 2>/dev/null || true)"
+    echo "VERIFY_QWEN4=$(grep -c 'qwen3:4b-instruct' "$VERIFY" 2>/dev/null || true)"
+    echo "VERIFY_QWEN8=$(grep -c 'qwen3:8b' "$VERIFY" 2>/dev/null || true)"
+    echo "STABILITY_QWEN4=$(grep -c 'qwen3:4b-instruct' "$STABILITY" 2>/dev/null || true)"
+    echo "STABILITY_QWEN8=$(grep -c 'qwen3:8b' "$STABILITY" 2>/dev/null || true)"
+    echo "PIPELINE_PROCS=$(pgrep -fc '[o]sho_autopilot.py|[h]ook_ranker_v5.py|[r]etention_qa_v4.py' 2>/dev/null || true)"
+}
+
+apply_fix() {
+    require_targets
+
+    local stamp backup
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    backup="$BACKUPS/qa-model-fix-$stamp"
+    mkdir -p "$backup"
+    cp -a "$BOUNDARY" "$VERIFY" "$STABILITY" "$backup/"
+    chown -R psquare:psquare "$backup"
+    log "backup created at $backup"
+
+    if ! python3 - "$BOUNDARY" "$VERIFY" "$STABILITY" <<'PY'
+from pathlib import Path
+import sys
+
+boundary, verify, stability = map(Path, sys.argv[1:])
+
+# Active boundary-consensus pair: retain the independent Llama reviewer but
+# replace the repeatedly timing-out Qwen 8B reviewer with the proven 4B model.
+text = boundary.read_text(encoding="utf-8")
+old = 'MODELS = [\n    "qwen3:8b",\n    "llama3.1:8b",\n]'
+new = 'MODELS = [\n    "qwen3:4b-instruct",\n    "llama3.1:8b",\n]'
+if old in text:
+    text = text.replace(old, new, 1)
+elif new not in text:
+    raise SystemExit("boundary_consensus.py did not match expected model block")
+boundary.write_text(text, encoding="utf-8")
+
+# Whisper large-v3 must unload the model the current ranker actually uses.
+text = verify.read_text(encoding="utf-8")
+old_model = '            "qwen3:8b",'
+new_model = '            "qwen3:4b-instruct",'
+if old_model in text:
+    text = text.replace(old_model, new_model, 1)
+elif new_model not in text:
+    raise SystemExit("verify_reel_transcript.py did not match expected Qwen stop target")
+old_label = '        "GPU STAGE: stopping Qwen3 8B",'
+new_label = '        "GPU STAGE: stopping Qwen3 4B Instruct",'
+if old_label in text:
+    text = text.replace(old_label, new_label, 1)
+verify.write_text(text, encoding="utf-8")
+
+# Transcript-stability GPU handoff uses the same current Qwen model.
+text = stability.read_text(encoding="utf-8")
+old_model = '        "qwen3:8b",'
+new_model = '        "qwen3:4b-instruct",'
+if old_model in text:
+    text = text.replace(old_model, new_model, 1)
+elif new_model not in text:
+    raise SystemExit("transcript_stability.py did not match expected Qwen stop target")
+stability.write_text(text, encoding="utf-8")
+PY
+    then
+        log "edit failed; restoring backup"
+        cp -a "$backup/boundary_consensus.py" "$BOUNDARY"
+        cp -a "$backup/verify_reel_transcript.py" "$VERIFY"
+        cp -a "$backup/transcript_stability.py" "$STABILITY"
+        exit 4
+    fi
+
+    chown psquare:psquare "$BOUNDARY" "$VERIFY" "$STABILITY"
+    chmod 0775 "$BOUNDARY" "$VERIFY" "$STABILITY"
+
+    if ! python3 -m py_compile "$BOUNDARY" "$VERIFY" "$STABILITY"; then
+        log "syntax validation failed; restoring backup"
+        cp -a "$backup/boundary_consensus.py" "$BOUNDARY"
+        cp -a "$backup/verify_reel_transcript.py" "$VERIFY"
+        cp -a "$backup/transcript_stability.py" "$STABILITY"
+        exit 5
+    fi
+
+    grep -q '"qwen3:4b-instruct"' "$BOUNDARY"
+    grep -q '"qwen3:4b-instruct"' "$VERIFY"
+    grep -q '"qwen3:4b-instruct"' "$STABILITY"
+
+    log "QA model repair applied; autopilot was not restarted"
+    status
+}
+
+case "$ACTION" in
+    status) status ;;
+    apply) apply_fix ;;
+    *)
+        echo "Allowed actions: status | apply" >&2
+        exit 2
+        ;;
+esac
