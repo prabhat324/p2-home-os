@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-idle-publish-gap-20260815-1011",
-  "operation": "osho-status",
+  "request_id": "osho-idle-rootcause-20260815-1012",
+  "operation": "osho-publisher-diagnose",
   "target": "compute-01"
 }
