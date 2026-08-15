@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-audio-inventory-20260815-01",
-  "operation": "mavrick-inventory",
+  "request_id": "youtube-analyst-24h-views-deploy-20260815-1258",
+  "operation": "dashboard-deploy",
   "target": "compute-02"
 }
