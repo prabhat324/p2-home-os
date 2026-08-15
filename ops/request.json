@@ -1,5 +1,5 @@
 {
-  "request_id": "youtube-analytics-locate-20260814-2201",
-  "operation": "youtube-analytics-diagnose",
-  "target": "osho_nodes"
+  "request_id": "youtube-analytics-runtime-20260814-2202",
+  "operation": "youtube-analytics-runtime",
+  "target": "compute-01"
 }
