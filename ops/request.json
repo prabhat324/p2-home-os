@@ -1,5 +1,5 @@
 {
-  "request_id": "ollama-lan-audit-privilege-20260815-1016",
-  "operation": "ollama-lan-audit",
-  "target": "all"
+  "request_id": "osho-continuous-feeder-20260815-1017",
+  "operation": "osho-publisher-diagnose",
+  "target": "compute-01"
 }
