@@ -36,6 +36,48 @@ Worker API:
 8800/tcp
 ```
 
+Verified worker health has reported:
+
+```text
+Project Osho Worker v0.6.2
+Whisper: medium
+device: cuda
+compute type: int8_float16
+```
+
+compute-03 has successfully completed an isolated distributed Osho job through transcription and GPU rendering, producing a vertical 1080x1920 H.264/AAC reel.
+
+## Dashboard telemetry
+
+compute-03 should run:
+
+```text
+osho-dashboard-heartbeat.service
+```
+
+The telemetry agent posts to compute-02 every 10 seconds so compute-03 remains visible even while idle. Dashboard v0.4 can display:
+
+```text
+worker health / heartbeat age
+worker version and port
+GPU model / utilization
+VRAM used / total
+GPU temperature / power
+1-minute load
+free disk
+Whisper runtime
+active Ollama model
+```
+
+If compute-03 disappears from the dashboard, check:
+
+```bash
+systemctl status osho-dashboard-heartbeat.service --no-pager
+journalctl -u osho-dashboard-heartbeat.service -n 50 --no-pager
+curl -fsS http://127.0.0.1:8800/health
+curl -fsS http://compute-02:8787/api/dashboard | python3 -m json.tool
+```
+
 ## Ollama
 
 Observed model:
@@ -67,7 +109,7 @@ The destination directory must exist with appropriate ownership before `rsync` c
 
 ## Current architecture
 
-compute-03 is a worker, not the scheduler. The intended layout is:
+compute-03 is a worker, not the scheduler:
 
 ```text
 compute-02 controller/dashboard
@@ -75,4 +117,4 @@ compute-02 controller/dashboard
   -> compute-03 secondary worker
 ```
 
-Future worker scheduling should consider free VRAM, utilization, current job count, and model availability.
+Worker scheduling should consider free VRAM, utilization, current job count, and model availability.
