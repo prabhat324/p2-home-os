@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-thermal-pause-20260815-urgent-r3",
-  "operation": "osho-thermal-pause",
-  "target": "compute_nodes"
+  "request_id": "mavrick-model-pull-20260815-1605",
+  "operation": "mavrick-model-pull",
+  "target": "compute-02"
 }
