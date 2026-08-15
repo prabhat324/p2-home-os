@@ -1,22 +1,23 @@
 ---
-- name: Locate Project Osho ranker scoring loops
+- name: Capture exact Project Osho ranker patch anchors
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect exact scoring loops
+    - name: Read exact ranker sections
       ansible.builtin.shell: |
-        set -o pipefail
         cd /srv/compose/osho-worker
-        echo '=== LOOP MARKERS ==='
-        grep -nE 'HOOK [0-9]|HOOK \{|FULL CLIPS TO SCORE|CLIP [0-9]|CLIP \{|model_score_anchor\(|model_score_clip\(|score_clip\(|anchor_pool|scored_anchors|survivors' hook_ranker_v5.py 2>/dev/null || true
-        echo '=== MAIN TAIL 1200-1873 ==='
-        sed -n '1200,1873p' hook_ranker_v5.py 2>/dev/null || true
+        echo '=== HEAD ==='
+        sed -n '1,45p' hook_ranker_v5.py
+        echo '=== OLLAMA ==='
+        sed -n '315,455p' hook_ranker_v5.py
+        echo '=== MAIN LOOPS ==='
+        sed -n '1495,1685p' hook_ranker_v5.py
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show exact scoring loops
+    - name: Show exact ranker sections
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
