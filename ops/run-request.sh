@@ -34,6 +34,9 @@ case "${operation}" in
   ollama-lan-audit)
     [[ "${target}" == "all" ]] || { echo "ollama-lan-audit is restricted to all" >&2; exit 2; }
     playbook="playbooks/ollama-lan-audit.yml" ;;
+  ollama-lan-fix)
+    [[ "${target}" == "all" ]] || { echo "ollama-lan-fix is restricted to all" >&2; exit 2; }
+    playbook="playbooks/ollama-lan-fix.yml" ;;
   home-dashboard-inventory)
     [[ "${target}" == "all" ]] || { echo "home-dashboard-inventory is restricted to all" >&2; exit 2; }
     playbook="playbooks/home-dashboard-inventory.yml" ;;
