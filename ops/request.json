@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-v055-storage-cleanup-deploy-r2-20260815",
-  "operation": "dashboard-deploy",
+  "request_id": "youtube-analyst-24h-views-verify-20260815-1300",
+  "operation": "dashboard-diagnose",
   "target": "compute-02"
 }
