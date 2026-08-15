@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-upload-path-1786811959778",
-  "operation": "osho-publisher-diagnose",
-  "target": "compute-01"
+  "request_id": "core01-storage-monitoring-diagnose-20260815",
+  "operation": "status",
+  "target": "core-01"
 }
