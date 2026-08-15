@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-thermal-pause-20260815-urgent",
+  "request_id": "osho-thermal-pause-20260815-urgent-r2",
   "operation": "osho-thermal-pause",
   "target": "compute_nodes"
 }
