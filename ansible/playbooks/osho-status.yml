@@ -1,72 +1,52 @@
 ---
-- name: Collect Project Osho status
+- name: Inspect Project Osho dual GPU readiness
   hosts: osho_nodes
   gather_facts: false
   tasks:
-    - name: Collect Osho service summary
+    - name: Collect dual GPU readiness
       ansible.builtin.shell: |
         set -o pipefail
         echo "HOST=$(hostname)"
         echo "OSHO_ROLE={{ osho_role | default('unknown') }}"
-        echo "AUTOPILOT_SERVICE=$(systemctl is-active osho-autopilot.service 2>/dev/null || true)"
-        echo "AUTOPILOT_PROCS=$(pgrep -fc '[o]sho_autopilot.py' 2>/dev/null || true)"
-        echo "RANKER_PROCS=$(pgrep -fc '[h]ook_ranker_v5.py' 2>/dev/null || true)"
-        echo "RETENTION_QA_PROCS=$(pgrep -fc '[r]etention_qa' 2>/dev/null || true)"
-        for port in 8787 8800 11434; do
-          if ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq ":${port}$"; then
-            echo "PORT_${port}=LISTENING"
-          else
-            echo "PORT_${port}=CLOSED"
-          fi
-        done
-
+        echo "OLLAMA_ACTIVE=$(systemctl is-active ollama.service 2>/dev/null || true)"
+        echo "OLLAMA_ENABLED=$(systemctl is-enabled ollama.service 2>/dev/null || true)"
+        echo "OLLAMA_PORT=$(ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq ':11434$' && echo LISTENING || echo CLOSED)"
         echo '=== GPU ==='
-        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total --format=csv,noheader 2>/dev/null || true
-        echo '=== GPU PROCESSES ==='
-        nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>/dev/null || true
+        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu --format=csv,noheader 2>/dev/null || true
+        echo '=== OLLAMA PROCESSES ==='
+        pgrep -af 'ollama|llama-server' 2>/dev/null || true
+        echo '=== MODEL STORE ==='
+        ls -ld /usr/share/ollama/.ollama/models /usr/share/ollama/.ollama/models/manifests 2>/dev/null || true
+        find /usr/share/ollama/.ollama/models/manifests -type f -maxdepth 8 2>/dev/null \
+          | sed 's#^.*/manifests/##' | grep -E 'qwen3|llama3' | head -30 || true
 
-        if ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq ':8800$'; then
-          echo '=== WORKER API PATHS / METHODS ==='
-          curl -fsS --max-time 3 http://127.0.0.1:8800/openapi.json 2>/dev/null \
-            | python3 -c 'import json,sys; d=json.load(sys.stdin); [print(p,",".join(sorted(v))) for p,v in sorted(d.get("paths",{}).items())]' 2>/dev/null || true
+        if [ "$(hostname -s)" = "compute-03" ]; then
+          echo '=== COMPUTE03 OLLAMA SERVICE SAFE CONFIG ==='
+          systemctl cat ollama.service 2>/dev/null \
+            | grep -vEi 'token|secret|password|credential|api[_-]?key' | head -100 || true
+          echo '=== P2OPS OLLAMA SUDO CAPABILITY ==='
+          sudo -n -l 2>/dev/null | grep -E 'ollama|p2ops' | head -80 || true
         fi
 
-        if [ -f /srv/compose/osho-worker/app.py ]; then
-          echo '=== WORKER JOB ROUTES / TYPES ==='
-          grep -nE 'def |async def |@app\.|job_type|kind|render|transcrib|whisper|rank|qa|ffmpeg|torch|cuda' \
-            /srv/compose/osho-worker/app.py 2>/dev/null | head -220 || true
-          echo '=== WORKER APP JOB HANDLER EXCERPT ==='
-          sed -n '1,300p' /srv/compose/osho-worker/app.py 2>/dev/null \
-            | grep -vEi 'token|secret|password|credential|api[_-]?key' | head -300 || true
-        fi
+        if [ "$(hostname -s)" = "compute-01" ]; then
+          echo '=== REACH COMPUTE03 OLLAMA ==='
+          curl -fsS --max-time 2 http://192.168.0.158:11434/api/tags 2>/dev/null \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print("REMOTE_MODELS="+",".join(x.get("name","") for x in d.get("models",[])))' 2>/dev/null || echo REMOTE_OLLAMA_UNREACHABLE
 
-        if [ -f /srv/compose/osho-worker/compose.yml ]; then
-          echo '=== WORKER COMPOSE SAFE EXCERPT ==='
-          sed -n '1,180p' /srv/compose/osho-worker/compose.yml 2>/dev/null \
-            | grep -vEi 'environment:|env_file:|token|secret|password|credential|api[_-]?key' || true
-        fi
+          echo '=== HOOK RANKER OLLAMA CODE ==='
+          sed -n '1,430p' /srv/compose/osho-worker/hook_ranker_v5.py 2>/dev/null \
+            | grep -nE 'OLLAMA|urlopen|Request|def .*model|def .*score|for .*candidate|for .*anchor|timeout|model' | head -180 || true
 
-        echo '=== OSHO STORAGE VISIBILITY ==='
-        findmnt -T /srv/osho 2>/dev/null | tail -n +2 || true
-        for p in /srv/osho/library/audio /srv/osho/candidates /srv/osho/transcripts /srv/osho/work; do
-          if [ -d "$p" ]; then echo "$p=present"; else echo "$p=missing"; fi
-        done
-
-        echo '=== OLLAMA RUNTIME ==='
-        command -v ollama 2>/dev/null || true
-        ollama list 2>/dev/null | head -20 || true
-
-        if [ "$(hostname -s)" = "compute-01" ] && [ -f /srv/compose/osho-worker/osho_autopilot.py ]; then
-          echo '=== AUTOPILOT WORKER FUNCTIONS ==='
-          sed -n '220,335p;420,620p;1090,1260p;1480,1540p' /srv/compose/osho-worker/osho_autopilot.py 2>/dev/null \
-            | grep -vEi 'token|secret|password|credential|api[_-]?key' || true
+          echo '=== BOUNDARY CONSENSUS OLLAMA CODE ==='
+          sed -n '1,360p' /srv/compose/osho-worker/boundary_consensus.py 2>/dev/null \
+            | grep -nE 'OLLAMA|MODELS|urlopen|Request|timeout|def .*model|for model' | head -140 || true
         fi
       args:
         executable: /bin/bash
-      register: osho_status
+      register: result
       changed_when: false
       failed_when: false
 
-    - name: Print Osho status
+    - name: Show dual GPU readiness
       ansible.builtin.debug:
-        msg: "{{ osho_status.stdout_lines }}"
+        msg: "{{ result.stdout_lines }}"
