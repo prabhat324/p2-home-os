@@ -1,56 +1,45 @@
 ---
-- name: Verify Project Osho dual GPU activation
+- name: Trace Project Osho dual GPU request activity
   hosts: osho_nodes
   gather_facts: false
   tasks:
-    - name: Inspect live dual GPU state
+    - name: Inspect current ranker and remote inference activity
       ansible.builtin.shell: |
         set -o pipefail
         echo "HOST=$(hostname -s)"
-        echo "OSHO_ROLE={{ osho_role | default('unknown') }}"
-        echo '=== GPU ==='
+        date -Ins
+        echo '=== GPU SAMPLE ==='
         nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu --format=csv,noheader 2>/dev/null || true
 
         if [ "$(hostname -s)" = "compute-01" ]; then
-          echo '=== DUAL GPU HELPER STATUS ==='
-          sudo -n /usr/local/sbin/p2ops-osho-dual-gpu-ranker status 2>&1 || true
+          echo '=== CURRENT RANKER ==='
+          for pid in $(pgrep -f '^/usr/bin/python3 hook_ranker_v5.py|^/usr/bin/python3 /srv/compose/osho-worker/hook_ranker_v5.py' 2>/dev/null); do
+            ps -p "$pid" -o pid=,lstart=,etime=,cmd= 2>/dev/null || true
+          done
 
-          echo '=== REMOTE TAGS EXACT ==='
-          curl -fsS --max-time 4 http://192.168.0.158:11434/api/tags 2>/dev/null \
-            | python3 -c 'import json,sys; d=json.load(sys.stdin); print("NAMES="+repr([x.get("name","") for x in d.get("models",[])])); print("MODELS="+repr([x.get("model","") for x in d.get("models",[])]))' \
-            || echo REMOTE_TAGS_FAILED
-
-          echo '=== RANKER PROCESSES ==='
-          pgrep -af '[h]ook_ranker_v5.py' 2>/dev/null || true
-
-          echo '=== PATCH MARKERS ==='
-          grep -nE 'OSHO_DUAL_GPU_RANKER_V1|REMOTE_OLLAMA_URL|ThreadPoolExecutor|active_ollama_urls|MODEL WORKERS' \
-            /srv/compose/osho-worker/hook_ranker_v5.py 2>/dev/null | head -40 || true
-
-          echo '=== RECENT AUTOPILOT ==='
-          journalctl -u osho-autopilot.service -n 35 --no-pager 2>/dev/null || true
-
-          echo '=== RECENT RANK LOGS ==='
-          find /srv/osho/logs -maxdepth 1 -type f -name '*-hook-v5.log' -printf '%T@ %p\n' 2>/dev/null \
-            | sort -nr | head -3 | cut -d' ' -f2- | while read -r f; do
+          echo '=== CURRENT SOURCE LOG FILES ==='
+          find /srv/osho /srv/compose/osho-worker -type f \( -name '000010*hook*v5*.log' -o -name '000010*hook*.log' \) -printf '%T@ %p\n' 2>/dev/null \
+            | sort -nr | head -8 | cut -d' ' -f2- | while read -r f; do
                 echo "--- $f ---"
-                grep -E 'DUAL GPU|MODEL WORKERS|HOOK [0-9]+/|CLIP [0-9]+/|MODEL ENDPOINT FAILOVER|MODEL RETRY' "$f" 2>/dev/null | tail -35 || true
+                tail -45 "$f" 2>/dev/null || true
               done
+
+          echo '=== RECENT DUAL GPU MARKERS ANYWHERE ==='
+          grep -RhsE 'DUAL GPU ENDPOINTS|MODEL WORKERS|compute-03|MODEL ENDPOINT FAILOVER' \
+            /srv/osho /srv/compose/osho-worker 2>/dev/null | tail -60 || true
         fi
 
         if [ "$(hostname -s)" = "compute-03" ]; then
-          echo '=== OLLAMA HELPER STATUS ==='
-          sudo -n /usr/local/sbin/p2ops-compute03-ollama-dual status 2>&1 || true
+          echo '=== OLLAMA API ACTIVITY ==='
+          journalctl -u ollama.service --since '10 minutes ago' --no-pager 2>/dev/null \
+            | grep -E 'api/chat|POST|load|runner|qwen3:4b-instruct' | tail -80 || true
 
-          echo '=== LOCAL TAGS EXACT ==='
-          curl -fsS --max-time 4 http://192.168.0.158:11434/api/tags 2>/dev/null \
-            | python3 -c 'import json,sys; d=json.load(sys.stdin); print("NAMES="+repr([x.get("name","") for x in d.get("models",[])])); print("MODELS="+repr([x.get("model","") for x in d.get("models",[])]))' \
-            || echo LOCAL_TAGS_FAILED
-
-          echo '=== OLLAMA LOADED MODELS ==='
-          curl -fsS --max-time 4 http://192.168.0.158:11434/api/ps 2>/dev/null \
-            | python3 -c 'import json,sys; d=json.load(sys.stdin); print([{"name":x.get("name"),"size_vram":x.get("size_vram")} for x in d.get("models",[])])' \
-            || true
+          echo '=== GPU 8-SECOND SAMPLE ==='
+          for i in $(seq 1 8); do
+            printf '%s ' "$(date +%H:%M:%S)"
+            nvidia-smi --query-gpu=utilization.gpu,memory.used,power.draw --format=csv,noheader 2>/dev/null || true
+            sleep 1
+          done
         fi
       args:
         executable: /bin/bash
@@ -58,6 +47,6 @@
       changed_when: false
       failed_when: false
 
-    - name: Show live dual GPU state
+    - name: Show dual GPU request activity
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
