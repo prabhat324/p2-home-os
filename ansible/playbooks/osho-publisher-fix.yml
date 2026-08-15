@@ -11,8 +11,7 @@
         echo '=== PUBLISHER GATE VERIFY ==='
         grep -n 'OSHO_GLOBAL_UPLOAD_MIN_INTERVAL_V1\|YOUTUBE GLOBAL COOLDOWN' \
           /srv/compose/osho-worker/app.py
-        python3 -m py_compile /srv/compose/osho-worker/app.py
-        echo 'APP_PY_COMPILE=ok'
+        sudo -n /usr/local/sbin/p2ops-osho-render-patch status
 
         echo "AUTOPILOT_SERVICE=$(systemctl is-active osho-autopilot.service 2>/dev/null || true)"
         echo -n 'WORKER_HEALTH='
