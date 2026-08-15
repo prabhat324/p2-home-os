@@ -6,8 +6,25 @@
     - name: Read authoritative autopilot status counts
       ansible.builtin.shell: |
         set -euo pipefail
-        sqlite3 -header -column /srv/osho/library/catalog/catalog.sqlite \
-          "SELECT lower(trim(status)) AS status, COUNT(*) AS count FROM osho_autopilot_state WHERE status IS NOT NULL AND trim(status) <> '' GROUP BY lower(trim(status)) ORDER BY status;"
+        python3 - <<'PY'
+        import sqlite3
+        from pathlib import Path
+
+        db = Path('/srv/osho/library/catalog/catalog.sqlite')
+        conn = sqlite3.connect(f'file:{db}?mode=ro', uri=True, timeout=2)
+        rows = conn.execute(
+            """
+            SELECT lower(trim(status)) AS status, COUNT(*) AS count
+            FROM osho_autopilot_state
+            WHERE status IS NOT NULL AND trim(status) <> ''
+            GROUP BY lower(trim(status))
+            ORDER BY status
+            """
+        ).fetchall()
+        conn.close()
+        for status, count in rows:
+            print(f'{status}={count}')
+        PY
       args:
         executable: /bin/bash
       register: status_counts
