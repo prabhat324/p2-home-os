@@ -1,67 +1,26 @@
 ---
-- name: Enforce Project Osho global YouTube publish interval
+- name: Deploy Project Osho 29-minute publisher gate
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Patch central YouTube uploader safely
+    - name: Apply publisher patch through existing privileged idle-safe helper
       ansible.builtin.shell: |
         set -euo pipefail
-        cd /srv/compose/osho-worker
-        file=youtube_uploader.py
-        test -f "$file"
+        sudo -n /usr/local/sbin/p2ops-osho-render-patch apply-if-idle
 
-        if pgrep -af '[h]ook_ranker_v5.py|[r]etention_qa_v4.py' >/dev/null 2>&1; then
-          echo 'Refusing patch: ranking/QA process is active' >&2
-          exit 3
-        fi
+        echo '=== PUBLISHER GATE VERIFY ==='
+        grep -n 'OSHO_GLOBAL_UPLOAD_MIN_INTERVAL_V1\|YOUTUBE GLOBAL COOLDOWN' \
+          /srv/compose/osho-worker/app.py
+        python3 -m py_compile /srv/compose/osho-worker/app.py
+        echo 'APP_PY_COMPILE=ok'
 
-        if grep -q 'OSHO_GLOBAL_UPLOAD_MIN_INTERVAL_V1' "$file"; then
-          echo 'PATCH_ALREADY_PRESENT=yes'
-        else
-          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-          cp -a "$file" "${file}.backup-before-global-upload-interval-${stamp}"
-          FILE="$file" python3 - <<'PY'
-        from pathlib import Path
-        import os
-
-        p = Path(os.environ['FILE'])
-        text = p.read_text(encoding='utf-8')
-        marker = '''    # -----------------------------------------------------\n    # Credentials\n    # -----------------------------------------------------\n'''
-        if marker not in text:
-            raise SystemExit('Credentials marker not found; refusing unsafe patch')
-        if 'OSHO_GLOBAL_UPLOAD_MIN_INTERVAL_V1' in text:
-            raise SystemExit(0)
-        block = '''    # OSHO_GLOBAL_UPLOAD_MIN_INTERVAL_V1\n    # Serialize every public upload path and enforce a global minimum\n    # interval from the newest durable public receipt.\n    import fcntl as _fcntl\n    import time as _time\n    from datetime import datetime as _dt, timezone as _tz\n\n    _interval_seconds = 29 * 60\n    _lock_path = RECEIPTS_DIR / ".global-upload.lock"\n    _lock_path.parent.mkdir(parents=True, exist_ok=True)\n    _upload_lock = _lock_path.open("a+")\n    _fcntl.flock(_upload_lock.fileno(), _fcntl.LOCK_EX)\n\n    _latest_public = None\n    for _receipt_path in RECEIPTS_DIR.glob("*.json"):\n        try:\n            _receipt = json.loads(\n                _receipt_path.read_text(encoding="utf-8")\n            )\n        except Exception:\n            continue\n        if not isinstance(_receipt, dict):\n            continue\n        if str(_receipt.get("privacy_status", "")).lower() != "public":\n            continue\n        _stamp = _receipt.get("uploaded_at") or _receipt.get("published_at")\n        if not _stamp:\n            continue\n        try:\n            _when = _dt.fromisoformat(str(_stamp).replace("Z", "+00:00"))\n            if _when.tzinfo is None:\n                _when = _when.replace(tzinfo=_tz.utc)\n            _when = _when.astimezone(_tz.utc)\n        except Exception:\n            continue\n        if _latest_public is None or _when > _latest_public:\n            _latest_public = _when\n\n    if _latest_public is not None:\n        _elapsed = (_dt.now(_tz.utc) - _latest_public).total_seconds()\n        _remaining = _interval_seconds - _elapsed\n        if _remaining > 0:\n            print(\n                "YOUTUBE GLOBAL COOLDOWN:"\n                f" {int(_remaining + 0.999)}s remaining before {reel_id}",\n                flush=True,\n            )\n            _time.sleep(_remaining)\n\n'''
-        p.write_text(text.replace(marker, block + marker, 1), encoding='utf-8')
-        PY
-        fi
-
-        python3 -m py_compile youtube_uploader.py
-        echo 'PY_COMPILE=ok'
-        grep -n 'OSHO_GLOBAL_UPLOAD_MIN_INTERVAL_V1\|YOUTUBE GLOBAL COOLDOWN\|_interval_seconds = 29' youtube_uploader.py
-
-        if docker ps --format '{{"{{"}}.Names{{"}}"}}' | grep -Fxq osho-worker; then
-          docker restart osho-worker >/dev/null
-          echo 'WORKER_RESTARTED=yes'
-        else
-          echo 'WORKER_RESTARTED=no_container_not_running' >&2
-          exit 4
-        fi
-
-        for i in $(seq 1 20); do
-          if curl -fsS http://127.0.0.1:8800/health >/tmp/osho-worker-health.json 2>/dev/null; then
-            echo 'WORKER_HEALTH=ok'
-            cat /tmp/osho-worker-health.json
-            exit 0
-          fi
-          sleep 1
-        done
-        echo 'WORKER_HEALTH=failed' >&2
-        exit 5
+        echo "AUTOPILOT_SERVICE=$(systemctl is-active osho-autopilot.service 2>/dev/null || true)"
+        echo -n 'WORKER_HEALTH='
+        curl -fsS http://127.0.0.1:8800/health
       args:
         executable: /bin/bash
       register: fix
-      changed_when: "'PATCH_ALREADY_PRESENT=yes' not in fix.stdout"
+      changed_when: true
 
     - name: Show publisher fix result
       ansible.builtin.debug:
