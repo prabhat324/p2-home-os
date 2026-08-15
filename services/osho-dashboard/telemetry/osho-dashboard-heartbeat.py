@@ -115,8 +115,18 @@ def disk_free_gb():
 def autopilot_status(hostname):
     if hostname != "compute-01":
         return None
-    status = run("systemctl", "is-active", "osho-autopilot.service")
-    return status or "unknown"
+    try:
+        proc = subprocess.run(
+            ["systemctl", "is-active", "osho-autopilot.service"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=4,
+            check=False,
+        )
+        return proc.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
 
 
 def payload():
