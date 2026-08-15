@@ -1,0 +1,45 @@
+---
+- name: Pull Project Mavrick local vision model
+  hosts: compute-02
+  gather_facts: false
+  tasks:
+    - name: Check whether Qwen vision model is already present
+      ansible.builtin.uri:
+        url: http://127.0.0.1:11434/api/tags
+        return_content: true
+      register: ollama_tags
+      changed_when: false
+
+    - name: Start background model pull
+      ansible.builtin.shell: |
+        set -eu
+        state=/home/p2ops/.local/state
+        mkdir -p "$state"
+        if curl -fsS http://127.0.0.1:11434/api/tags | grep -q '"name":"qwen3-vl:4b"'; then
+          echo "MODEL_STATE=present"
+          exit 0
+        fi
+        if [ -s "$state/mavrick-model-pull.pid" ] && kill -0 "$(cat "$state/mavrick-model-pull.pid")" 2>/dev/null; then
+          echo "MODEL_STATE=pulling"
+          echo "PULL_PID=$(cat "$state/mavrick-model-pull.pid")"
+          exit 0
+        fi
+        nohup curl -sS -N --max-time 7200 \
+          -H "Content-Type: application/json" \
+          -d '{"name":"qwen3-vl:4b","stream":true}' \
+          http://127.0.0.1:11434/api/pull \
+          > "$state/mavrick-model-pull.log" 2>&1 </dev/null &
+        pid=$!
+        echo "$pid" > "$state/mavrick-model-pull.pid"
+        sleep 2
+        kill -0 "$pid"
+        echo "MODEL_STATE=pull-started"
+        echo "PULL_PID=$pid"
+      args:
+        executable: /bin/bash
+      register: model_pull
+      changed_when: "'pull-started' in model_pull.stdout"
+
+    - name: Show model pull state
+      ansible.builtin.debug:
+        msg: "{{ model_pull.stdout_lines }}"
