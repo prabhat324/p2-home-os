@@ -158,10 +158,14 @@ function renderWorker(worker) {
     }
     if (worker.gpu_temperature_c != null) chips.push(`${n(worker.gpu_temperature_c)}°C`);
     if (worker.gpu_power_w != null) chips.push(`${n(worker.gpu_power_w,1)} W`);
+    if (worker.load_1m != null) chips.push(`Load ${n(worker.load_1m,2)}`);
+    if (worker.disk_free_gb != null) chips.push(`${n(worker.disk_free_gb,1)} GB free`);
+    if (worker.autopilot_status) chips.push(`Autopilot ${worker.autopilot_status}`);
     if (worker.service_version) chips.push(`Worker v${worker.service_version}`);
     if (worker.whisper_model) chips.push(`Whisper ${worker.whisper_model}`);
     if (worker.device || worker.compute_type) chips.push([worker.device, worker.compute_type].filter(Boolean).join(" / "));
     if (worker.ollama_model) chips.push(`Ollama ${worker.ollama_model}`);
+    if (worker.telemetry_version) chips.push(`Telemetry v${worker.telemetry_version}`);
 
     const job = worker.current_job
         ? `<div class="jobline"><span class="stage">${escapeHtml(worker.stage || "working")}</span> · ${escapeHtml(worker.current_job)} · ${Math.round(Number(worker.progress || 0))}%</div>`
