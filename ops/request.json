@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-dashboard-pages-verify-20260815-1150",
-  "operation": "dashboard-diagnose",
-  "target": "compute-02"
+  "request_id": "first-growth-video-check-20260815-1157",
+  "operation": "osho-status",
+  "target": "compute-01"
 }
