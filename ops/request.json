@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-model-recover-2b-20260815-01",
-  "operation": "mavrick-model-recover",
+  "request_id": "dashboard-deploy-mavrick-card-20260815-01",
+  "operation": "dashboard-deploy",
   "target": "compute-02"
 }
