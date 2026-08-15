@@ -34,6 +34,9 @@ case "${operation}" in
   home-dashboard-deploy)
     [[ "${target}" == "core-01" ]] || { echo "home-dashboard-deploy is restricted to core-01" >&2; exit 2; }
     playbook="playbooks/home-dashboard-deploy.yml" ;;
+  compute-monitoring-bootstrap)
+    [[ "${target}" == "compute-03" ]] || { echo "compute-monitoring-bootstrap is restricted to compute-03" >&2; exit 2; }
+    playbook="playbooks/compute-monitoring-bootstrap.yml" ;;
   dashboard-diagnose)
     [[ "${target}" == "compute-02" ]] || { echo "dashboard-diagnose is restricted to compute-02" >&2; exit 2; }
     playbook="playbooks/dashboard-diagnose.yml" ;;
