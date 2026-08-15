@@ -1,5 +1,5 @@
 {
-  "request_id": "home-dashboard-inventory-20260815-1036",
-  "operation": "home-dashboard-inventory",
-  "target": "all"
+  "request_id": "osho-ranker-resume-verify-20260815-1036",
+  "operation": "osho-ranker-diagnose",
+  "target": "compute-01"
 }
