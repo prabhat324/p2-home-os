@@ -1,0 +1,32 @@
+---
+- name: Apply scoped Project Osho maintenance on compute-01
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Apply root-owned allowlisted Osho fixes
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - /usr/local/sbin/p2ops-osho-maintenance
+          - apply-safe-fixes
+      register: maintenance
+      changed_when: true
+
+    - name: Show maintenance output
+      ansible.builtin.debug:
+        msg: "{{ maintenance.stdout_lines }}"
+
+    - name: Verify helper status after maintenance
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - /usr/local/sbin/p2ops-osho-maintenance
+          - status
+      register: helper_status
+      changed_when: false
+
+    - name: Show helper status
+      ansible.builtin.debug:
+        msg: "{{ helper_status.stdout_lines }}"
