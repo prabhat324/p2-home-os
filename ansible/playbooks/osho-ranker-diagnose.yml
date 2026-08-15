@@ -1,9 +1,9 @@
 ---
-- name: Diagnose Project Osho ranker on compute-01
+- name: Diagnose Project Osho ranker and QA on compute-01
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Collect live ranker diagnostics
+    - name: Collect live pipeline diagnostics
       ansible.builtin.shell: |
         set -u
         cd /srv/compose/osho-worker
@@ -12,7 +12,11 @@
         systemctl show osho-autopilot.service -p ActiveState -p SubState -p MainPID --no-pager 2>/dev/null || true
 
         echo '=== PROCESSES ==='
-        pgrep -af 'osho_autopilot.py|hook_ranker_v5.py|retention_qa' 2>/dev/null || true
+        pids="$(pgrep -d, -f 'osho_autopilot.py|hook_ranker_v5.py|retention_qa_v4.py' 2>/dev/null || true)"
+        pgrep -af 'osho_autopilot.py|hook_ranker_v5.py|retention_qa_v4.py' 2>/dev/null || true
+        if [ -n "$pids" ]; then
+          ps -o pid=,etime=,pcpu=,pmem=,stat=,args= -p "$pids" 2>/dev/null || true
+        fi
 
         echo '=== MODELS ==='
         ollama list 2>/dev/null || true
@@ -21,31 +25,50 @@
 
         echo '=== AUTOPILOT MODEL CONFIG ==='
         grep -nE 'qwen3:8b|qwen3:4b|qwen3:4b-instruct|--model|def stop_llms' osho_autopilot.py 2>/dev/null || true
-        sed -n '384,402p;1114,1132p' osho_autopilot.py 2>/dev/null || true
 
-        echo '=== RANKER TIMEOUT CONFIG ==='
-        grep -nE 'OLLAMA_URL|timeout=|urlopen|HTTPError|URLError|TimeoutError|except' hook_ranker_v5.py 2>/dev/null | head -80 || true
-        sed -n '350,410p' hook_ranker_v5.py 2>/dev/null || true
+        echo '=== RANKER CONFIG ==='
+        grep -nE 'OLLAMA_URL|timeout=|attempts|MODEL RETRY|except' hook_ranker_v5.py 2>/dev/null | head -100 || true
 
-        echo '=== RECENT AUTOPILOT JOURNAL ==='
-        journalctl -u osho-autopilot.service -n 100 --no-pager 2>/dev/null | tail -100 || true
+        echo '=== RETENTION QA MODEL CONFIG ==='
+        grep -nE 'OLLAMA|MODEL|model|timeout=|urlopen|api/chat|attempt|retry|except' retention_qa_v4.py 2>/dev/null | head -160 || true
 
-        echo '=== RECENT OLLAMA JOURNAL ==='
-        journalctl -u ollama.service -n 100 --no-pager 2>/dev/null | tail -100 || true
+        echo '=== SOURCE 000004 ARTIFACTS ==='
+        for f in \
+          /srv/osho/candidates/000004.hook-ranked-v5.json \
+          /srv/osho/logs/autopilot/000004-hook-v5.log \
+          /srv/osho/logs/autopilot/000004-qa-v4.log; do
+          if [ -e "$f" ]; then
+            stat -c '%n size=%s mtime=%y' "$f"
+          else
+            echo "MISSING $f"
+          fi
+        done
 
-        echo '=== RECENT RANK LOGS ==='
-        find /srv/osho /srv/compose/osho-worker -maxdepth 4 -type f \
-          \( -name '*hook-v5.log' -o -name '*rank*.log' \) -printf '%T@ %p\n' 2>/dev/null \
-          | sort -nr | head -8 | cut -d' ' -f2- | while read -r f; do
-              echo "--- $f ---"
-              tail -40 "$f" 2>/dev/null || true
-            done
+        echo '=== QA LOG BEFORE ==='
+        qa=/srv/osho/logs/autopilot/000004-qa-v4.log
+        if [ -f "$qa" ]; then
+          stat -c 'QA_SIZE_BEFORE=%s QA_MTIME_BEFORE=%Y' "$qa"
+          tail -80 "$qa" 2>/dev/null || true
+        fi
+
+        echo '=== 12 SECOND LIVENESS SAMPLE ==='
+        sleep 12
+        ollama ps 2>/dev/null || true
+        pgrep -af 'osho_autopilot.py|hook_ranker_v5.py|retention_qa_v4.py' 2>/dev/null || true
+        if [ -f "$qa" ]; then
+          stat -c 'QA_SIZE_AFTER=%s QA_MTIME_AFTER=%Y' "$qa"
+          tail -30 "$qa" 2>/dev/null || true
+        fi
+
+        echo '=== RECENT SOURCE-000004 RELATED FILES ==='
+        find /srv/osho -maxdepth 5 -type f -name '*000004*' -printf '%T@ %TY-%Tm-%TdT%TH:%TM:%TS %p\n' 2>/dev/null \
+          | sort -nr | head -40 || true
       args:
         executable: /bin/bash
-      register: ranker_diag
+      register: pipeline_diag
       changed_when: false
       failed_when: false
 
-    - name: Show live ranker diagnostics
+    - name: Show live pipeline diagnostics
       ansible.builtin.debug:
-        msg: "{{ ranker_diag.stdout_lines }}"
+        msg: "{{ pipeline_diag.stdout_lines }}"
