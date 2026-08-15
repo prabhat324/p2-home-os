@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-audio-loopback-20260815-01",
-  "operation": "mavrick-audio-loopback",
+  "request_id": "mavrick-audio-routes-20260815-01",
+  "operation": "mavrick-audio-routes",
   "target": "compute-02"
 }
