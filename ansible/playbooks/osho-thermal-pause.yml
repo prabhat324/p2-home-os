@@ -25,7 +25,7 @@
           exit 0
         fi
         for name in osho-ollama ollama immich_machine_learning immich-machine-learning; do
-          if docker ps --format '{{"{{"}}.Names{{"}}"}}' | grep -Fxq "$name"; then
+          if docker ps --format '{{ "{{.Names}}" }}' | grep -Fxq "$name"; then
             docker stop --time 30 "$name"
           fi
         done
@@ -50,7 +50,7 @@
         echo '=== CPU/SYSTEM ==='
         sensors 2>/dev/null || true
         echo '=== REMAINING CONTAINERS ==='
-        docker ps --format '{{"{{"}}.Names{{"}}"}}' 2>/dev/null || true
+        docker ps --format '{{ "{{.Names}}" }}' 2>/dev/null || true
       args:
         executable: /bin/bash
       register: thermal_report
@@ -59,4 +59,4 @@
 
     - name: Print thermal report
       ansible.builtin.debug:
-        msg: "{{"{{"}} thermal_report.stdout_lines {{"}}"}}"
+        msg: "{{ thermal_report.stdout_lines }}"
