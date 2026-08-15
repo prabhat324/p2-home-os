@@ -17,7 +17,7 @@ ssh "$TARGET" "
     REMOTE_DIR='$REMOTE_DIR'
     BACKUP_DIR='$BACKUP_DIR'
     cd \"\$REMOTE_DIR\"
-    for item in .dockerignore Dockerfile requirements.txt compose.yml app/main.py app/static/index.html; do
+    for item in .dockerignore Dockerfile requirements.txt compose.yml app/main.py app/server.py app/static/index.html app/static/analytics.html; do
         if [ -f \"\$item\" ]; then
             mkdir -p \"\$BACKUP_DIR/\$(dirname \"\$item\")\"
             cp -a \"\$item\" \"\$BACKUP_DIR/\$item\"
@@ -34,11 +34,13 @@ rsync -av \
 
 rsync -av \
     "$SCRIPT_DIR/app/main.py" \
-    "$TARGET:$REMOTE_DIR/app/main.py"
+    "$SCRIPT_DIR/app/server.py" \
+    "$TARGET:$REMOTE_DIR/app/"
 
 rsync -av \
     "$SCRIPT_DIR/app/static/index.html" \
-    "$TARGET:$REMOTE_DIR/app/static/index.html"
+    "$SCRIPT_DIR/app/static/analytics.html" \
+    "$TARGET:$REMOTE_DIR/app/static/"
 
 # Preserve an existing live compose.yml because it may contain host-specific settings.
 # Install the repository baseline only when no compose file exists remotely.
@@ -58,6 +60,9 @@ ssh "$TARGET" "
     curl -fsS http://127.0.0.1:8787/health | python3 -m json.tool
     echo
     curl -fsS http://127.0.0.1:8787/api/dashboard | python3 -m json.tool | head -120
+    echo
+    curl -fsS -o /dev/null http://127.0.0.1:8787/analytics
+    curl -fsS http://127.0.0.1:8787/api/analytics | python3 -m json.tool | head -80
 "
 
 echo
