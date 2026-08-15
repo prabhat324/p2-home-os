@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-idle-rootcause-20260815-1012",
-  "operation": "osho-publisher-diagnose",
-  "target": "compute-01"
+  "request_id": "ollama-lan-audit-20260815-1014",
+  "operation": "ollama-lan-audit",
+  "target": "all"
 }
