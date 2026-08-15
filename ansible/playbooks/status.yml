@@ -22,6 +22,13 @@
         for x in rows if isinstance(rows,list) else []:
             print("|".join(str(x.get(k,"")) for k in ("mnt_point","device_name","fs_type","size","used","free","percent")))
         ' || true
+        if [ "$(hostname)" = "media-server" ] || [ "$(hostname)" = "core-01" ]; then
+          echo '=== CORE GLANCES ACCESS ==='
+          stat -c '%U:%G %a %n' /opt/docker/compose/glances /opt/docker/compose/glances/docker-compose.yml 2>/dev/null || true
+          sed -n '1,160p' /opt/docker/compose/glances/docker-compose.yml 2>/dev/null || true
+          docker ps --filter name=glances --format '{{ "{{.Names}}" }}|{{ "{{.Status}}" }}' 2>&1 || true
+          sudo -n -l 2>&1 | head -80 || true
+        fi
       args:
         executable: /bin/bash
       register: host_status
