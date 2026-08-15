@@ -1,48 +1,59 @@
 ---
-- name: Diagnose Project Osho dashboard navigation and YouTube analyst
+- name: Verify Project Osho dashboard page routing and YouTube analyst
   hosts: compute-02
   gather_facts: false
   tasks:
-    - name: Inspect live dashboard frontend, routes and analyst references
+    - name: Verify live page routes and analytics
       ansible.builtin.shell: |
         set -o pipefail
         base='http://127.0.0.1:8787'
-        root='/srv/compose/osho-dashboard'
-
         echo '=== HEALTH ==='
-        curl -fsS "${base}/health" 2>/dev/null || true
+        curl -fsS "${base}/health"
         echo
-        echo '=== HTTP ROUTES ==='
-        for p in / /youtube /analytics /analyst /api/dashboard /api/analytics; do
-          code=$(curl -sS -o /tmp/osho-dash-body -w '%{http_code}' "${base}${p}" 2>/dev/null || true)
-          echo "$p HTTP=$code SIZE=$(wc -c </tmp/osho-dash-body 2>/dev/null || echo 0)"
+        echo '=== PAGE ROUTES ==='
+        for p in / /media /monitoring /network /storage /services /osho /youtube-analyst /alerts /analytics; do
+          body="$(mktemp)"
+          code=$(curl -sS -o "$body" -w '%{http_code}' "${base}${p}" || true)
+          marker='-'
+          if grep -q 'YouTube Analyst' "$body"; then marker='youtube-analyst';
+          elif grep -q 'P² Home Command Center' "$body"; then marker='command-center'; fi
+          echo "$p HTTP=$code PAGE=$marker SIZE=$(wc -c <"$body")"
+          rm -f "$body"
         done
-        rm -f /tmp/osho-dash-body
-
-        echo '=== FILES ==='
-        find "$root" -maxdepth 4 -type f \( -name '*.py' -o -name '*.html' -o -name '*.js' -o -name '*.css' \) -print 2>/dev/null | sort
-
-        echo '=== NAV / ANALYTICS REFERENCES ==='
-        grep -RniE 'YouTube|Analyst|Analytics|sidebar|nav|href=|scroll|section|tab|dashboard' "$root" \
-          --include='*.html' --include='*.js' --include='*.py' --include='*.css' 2>/dev/null | head -500 || true
-
-        echo '=== FRONTEND CONTENT ==='
-        for f in $(find "$root" -maxdepth 4 -type f \( -name '*.html' -o -name '*.js' \) 2>/dev/null | sort); do
-          echo "--- $f ---"
-          sed -n '1,320p' "$f"
-        done
-
-        echo '=== SERVER ROUTES ==='
-        for f in $(find "$root" -maxdepth 4 -type f -name '*.py' 2>/dev/null | sort); do
-          echo "--- $f ---"
-          grep -nE '@app\.|@router\.|def .*dashboard|def .*analytics|youtube|analyst|HTMLResponse|FileResponse|StaticFiles' "$f" | head -240 || true
-        done
+        echo '=== NAV SEMANTICS ==='
+        root="$(curl -fsS "${base}/")"
+        printf 'YOUTUBE_ANALYST_LINK=%s\n' "$(printf '%s' "$root" | grep -q 'href="/youtube-analyst"' && echo yes || echo no)"
+        printf 'REAL_PAGE_PATH_MAP=%s\n' "$(printf '%s' "$root" | grep -q "'/media':'media'" && echo yes || echo no)"
+        printf 'SCROLL_INTO_VIEW=%s\n' "$(printf '%s' "$root" | grep -q 'scrollIntoView' && echo yes || echo no)"
+        echo '=== ANALYTICS API ==='
+        curl -fsS "${base}/api/analytics" | python3 -c '
+        import json,sys
+        d=json.load(sys.stdin); a=d.get("analytics") or {}; ch=a.get("channel") or a.get("channel_summary") or a.get("channel_stats") or {}
+        vids=a.get("videos") if isinstance(a.get("videos"),list) else a.get("video_stats") if isinstance(a.get("video_stats"),list) else []
+        def pick(*xs):
+            for x in xs:
+                if x is not None: return x
+            return None
+        print("ANALYTICS_STATUS="+str(d.get("status")))
+        print("ANALYTICS_AGE_SECONDS="+str(d.get("age_seconds")))
+        print("SUBSCRIBERS="+str(pick(ch.get("subscriber_count"),a.get("subscriber_count"),a.get("subscribers"))))
+        print("CHANNEL_VIDEOS="+str(pick(ch.get("video_count"),a.get("video_count"),a.get("channel_video_count"))))
+        print("TRACKED_SHORTS="+str(len(vids)))
+        '
+        echo '=== DASHBOARD API ==='
+        curl -fsS "${base}/api/dashboard" | python3 -c '
+        import json,sys
+        d=json.load(sys.stdin); s=d.get("summary") or {}
+        print("UPLOADED="+str(s.get("uploaded")))
+        print("PROCESSING="+str(s.get("processing")))
+        print("READY="+str(s.get("ready")))
+        print("FAILED="+str(s.get("failed")))
+        '
       args:
         executable: /bin/bash
-      register: dashboard_diag
+      register: verify
       changed_when: false
-      failed_when: false
 
-    - name: Print dashboard diagnostic
+    - name: Show dashboard page verification
       ansible.builtin.debug:
-        msg: "{{ dashboard_diag.stdout_lines }}"
+        msg: "{{ verify.stdout_lines }}"
