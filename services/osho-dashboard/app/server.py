@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import json
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse
 
 import main as base
 
@@ -13,25 +13,69 @@ app = FastAPI(
 )
 
 
-ANALYTICS_NAV = """
-<div style="display:flex;gap:8px;margin:-6px 0 16px">
-  <a href="/" style="padding:8px 11px;border:1px solid #5fa8ff;border-radius:10px;background:rgba(95,168,255,.12);font-size:12px;font-weight:700;letter-spacing:.6px">PIPELINE</a>
-  <a href="/analytics" style="padding:8px 11px;border:1px solid #252b39;border-radius:10px;background:#121620;font-size:12px;font-weight:700;letter-spacing:.6px">ANALYTICS</a>
-</div>
-"""
+# Real page URLs backed by the shared command-center shell. The frontend reads
+# location.pathname and renders only the content belonging to that page.
+COMMAND_CENTER_ROUTES = (
+    "/",
+    "/media",
+    "/monitoring",
+    "/network",
+    "/storage",
+    "/services",
+    "/osho",
+    "/alerts",
+)
 
 
 @app.get("/")
-def dashboard_with_analytics_tab():
-    html = (base.STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    if 'href="/analytics"' not in html:
-        marker = '<div class="mode" id="mode">'
-        html = html.replace(marker, ANALYTICS_NAV + "\n    " + marker, 1)
-    return HTMLResponse(html)
+def dashboard_page():
+    return FileResponse(base.STATIC_DIR / "index.html")
 
 
+@app.get("/media")
+def media_page():
+    return FileResponse(base.STATIC_DIR / "index.html")
+
+
+@app.get("/monitoring")
+def monitoring_page():
+    return FileResponse(base.STATIC_DIR / "index.html")
+
+
+@app.get("/network")
+def network_page():
+    return FileResponse(base.STATIC_DIR / "index.html")
+
+
+@app.get("/storage")
+def storage_page():
+    return FileResponse(base.STATIC_DIR / "index.html")
+
+
+@app.get("/services")
+def services_page():
+    return FileResponse(base.STATIC_DIR / "index.html")
+
+
+@app.get("/osho")
+def osho_page():
+    return FileResponse(base.STATIC_DIR / "index.html")
+
+
+@app.get("/alerts")
+def alerts_page():
+    return FileResponse(base.STATIC_DIR / "index.html")
+
+
+@app.get("/youtube-analyst")
+def youtube_analyst_page():
+    return FileResponse(base.STATIC_DIR / "analytics.html")
+
+
+# Compatibility alias for bookmarks and the analytics reporter UI added before
+# the P² sidebar redesign.
 @app.get("/analytics")
-def analytics_page():
+def analytics_page_alias():
     return FileResponse(base.STATIC_DIR / "analytics.html")
 
 
@@ -160,8 +204,7 @@ def reconciled_dashboard_data():
     return data
 
 
-# Keep the v0.5 dashboard API, health endpoint, telemetry endpoints and startup
-# behavior intact. Our routes are registered first, so /, /analytics and the
-# reconciled /api/dashboard route above win while all other existing routes
-# continue to come from main.py.
+# Keep the existing v0.5 dashboard API, health endpoint, telemetry endpoints and
+# startup behavior intact. Routes registered above win; everything else comes
+# from main.py.
 app.include_router(base.app.router)
