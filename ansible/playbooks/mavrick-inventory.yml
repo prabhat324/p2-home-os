@@ -82,3 +82,12 @@
     - name: Show Project Mavrick inventory
       ansible.builtin.debug:
         msg: "{{ mavrick_inventory.stdout_lines }}"
+
+    - name: Verify Mavrick local vision model is installed
+      ansible.builtin.shell: |
+        set -o pipefail
+        curl -fsS --max-time 10 http://127.0.0.1:11434/api/tags \
+          | jq -e '.models | any(.name == "qwen3-vl:4b" or .model == "qwen3-vl:4b")'
+      args:
+        executable: /bin/bash
+      changed_when: false
