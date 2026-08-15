@@ -1,0 +1,499 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ ${EUID} -ne 0 ]]; then
+    echo "This helper must run as root via sudo." >&2
+    exit 1
+fi
+
+case "$(hostname -s)" in
+    compute-01) ;;
+    *) echo "This helper is restricted to compute-01." >&2; exit 2 ;;
+esac
+
+ACTION="${1:-}"
+CODE="/srv/compose/osho-worker"
+TARGET="$CODE/hook_ranker_v5.py"
+BACKUPS="$CODE/backups"
+MARKER="OSHO_DUAL_GPU_RANKER_V1"
+REMOTE_TAGS="http://192.168.0.158:11434/api/tags"
+
+log() {
+    printf '[p2ops-osho-dual-gpu-ranker] %s\n' "$*"
+}
+
+require_target() {
+    [[ -f "$TARGET" ]] || { echo "Missing $TARGET" >&2; exit 3; }
+    [[ "$(realpath -m "$TARGET")" == /srv/compose/osho-worker/* ]] || {
+        echo "Refusing unexpected target path" >&2
+        exit 3
+    }
+}
+
+status() {
+    require_target
+    echo "HOST=$(hostname)"
+    echo "AUTOPILOT_SERVICE=$(systemctl is-active osho-autopilot.service 2>/dev/null || true)"
+    echo "DUAL_GPU_PATCH=$([[ $(grep -c "$MARKER" "$TARGET" 2>/dev/null || true) -gt 0 ]] && echo yes || echo no)"
+    echo "THREADPOOL_IMPORT=$([[ $(grep -c 'ThreadPoolExecutor' "$TARGET" 2>/dev/null || true) -gt 0 ]] && echo yes || echo no)"
+    echo "REMOTE_ENDPOINT_REF=$([[ $(grep -c '192.168.0.158:11434' "$TARGET" 2>/dev/null || true) -gt 0 ]] && echo yes || echo no)"
+    echo "RANKER_PROCS=$(pgrep -fc '[h]ook_ranker_v5.py' 2>/dev/null || true)"
+    if curl -fsS --max-time 3 "$REMOTE_TAGS" >/tmp/p2ops-dual-tags.$$ 2>/dev/null; then
+        echo "COMPUTE03_OLLAMA=reachable"
+        python3 - /tmp/p2ops-dual-tags.$$ <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    data = json.load(f)
+names = [x.get("name", "") for x in data.get("models", [])]
+print("COMPUTE03_QWEN4=" + ("yes" if "qwen3:4b-instruct" in names else "no"))
+PY
+        rm -f /tmp/p2ops-dual-tags.$$
+    else
+        rm -f /tmp/p2ops-dual-tags.$$
+        echo "COMPUTE03_OLLAMA=unreachable"
+        echo "COMPUTE03_QWEN4=unknown"
+    fi
+}
+
+apply_patch() {
+    require_target
+
+    if grep -q "$MARKER" "$TARGET"; then
+        log "dual-GPU ranker patch already present"
+        python3 -m py_compile "$TARGET"
+        status
+        return 0
+    fi
+
+    local stamp backup
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    backup="$BACKUPS/dual-gpu-ranker-$stamp"
+    mkdir -p "$backup"
+    cp -a "$TARGET" "$backup/"
+    chown -R psquare:psquare "$backup"
+    log "backup created at $backup"
+
+    if ! python3 - "$TARGET" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+marker = "OSHO_DUAL_GPU_RANKER_V1"
+
+if marker in text:
+    raise SystemExit(0)
+
+old_imports = "import argparse\nimport json\n"
+new_imports = (
+    "import argparse\n"
+    "import json\n"
+    "import os\n"
+    "from concurrent.futures import ThreadPoolExecutor, as_completed\n"
+)
+if old_imports not in text:
+    raise SystemExit("unexpected import block")
+text = text.replace(old_imports, new_imports, 1)
+
+old_const = 'OLLAMA_URL = "http://127.0.0.1:11434/api/chat"'
+new_const = '''# OSHO_DUAL_GPU_RANKER_V1
+LOCAL_OLLAMA_URL = "http://127.0.0.1:11434/api/chat"
+REMOTE_OLLAMA_URL = os.environ.get(
+    "OSHO_REMOTE_OLLAMA_URL",
+    "http://192.168.0.158:11434/api/chat",
+).strip()
+'''.rstrip()
+if old_const not in text:
+    raise SystemExit("unexpected OLLAMA_URL constant")
+text = text.replace(old_const, new_const, 1)
+
+ollama_start = text.index("def ollama_json(\n")
+anchor_start = text.index("def model_score_anchor(\n", ollama_start)
+new_ollama = '''def endpoint_label(url):
+    if "127.0.0.1:11434" in url:
+        return "compute-01"
+    if "192.168.0.158:11434" in url:
+        return "compute-03"
+    return url.split("//", 1)[-1].split("/", 1)[0]
+
+
+def tags_url(chat_url):
+    return chat_url.rsplit("/api/chat", 1)[0] + "/api/tags"
+
+
+def endpoint_has_model(chat_url, model):
+    req = urllib.request.Request(
+        tags_url(chat_url),
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=3) as response:
+        raw = json.load(response)
+    names = {
+        item.get("name", "")
+        for item in raw.get("models", [])
+    }
+    return model in names
+
+
+def active_ollama_urls(model):
+    urls = [LOCAL_OLLAMA_URL]
+
+    remote = REMOTE_OLLAMA_URL
+    if remote and remote != LOCAL_OLLAMA_URL:
+        try:
+            if endpoint_has_model(remote, model):
+                urls.append(remote)
+                print(
+                    "DUAL GPU ENDPOINTS: "
+                    + ", ".join(endpoint_label(x) for x in urls),
+                    flush=True,
+                )
+            else:
+                print(
+                    f"DUAL GPU REMOTE SKIPPED: {model} missing on "
+                    f"{endpoint_label(remote)}",
+                    flush=True,
+                )
+        except Exception as exc:
+            print(
+                "DUAL GPU REMOTE SKIPPED: "
+                f"{endpoint_label(remote)} unavailable: {exc}",
+                flush=True,
+            )
+
+    if len(urls) == 1:
+        print("DUAL GPU MODE: local fallback only", flush=True)
+
+    return urls
+
+
+def ollama_json(
+    model,
+    system,
+    user,
+    attempts=2,
+    ollama_url=None,
+):
+    primary_url = ollama_url or LOCAL_OLLAMA_URL
+    urls = [primary_url]
+    if primary_url != LOCAL_OLLAMA_URL:
+        urls.append(LOCAL_OLLAMA_URL)
+
+    last_error = None
+
+    for url_index, url in enumerate(urls):
+        url_attempts = attempts if url_index == 0 else 1
+
+        for attempt in range(1, url_attempts + 1):
+            try:
+                payload = {
+                    "model": model,
+                    "stream": False,
+                    "format": "json",
+                    "think": False,
+                    "options": {
+                        "temperature": 0,
+                        "num_predict": 256,
+                    },
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": system,
+                        },
+                        {
+                            "role": "user",
+                            "content": user,
+                        },
+                    ],
+                }
+
+                req = urllib.request.Request(
+                    url,
+                    data=json.dumps(payload).encode(),
+                    headers={
+                        "Content-Type": "application/json",
+                    },
+                    method="POST",
+                )
+
+                with urllib.request.urlopen(
+                    req,
+                    timeout=120,
+                ) as response:
+                    raw = json.load(response)
+
+                content = (
+                    raw.get("message", {})
+                    .get("content", "")
+                )
+
+                if not content:
+                    raise RuntimeError(
+                        "Ollama returned empty content"
+                    )
+
+                result = json.loads(content)
+
+                if not isinstance(result, dict):
+                    raise RuntimeError(
+                        "Model response is not an object"
+                    )
+
+                return result
+
+            except Exception as exc:
+                last_error = exc
+                print(
+                    f"MODEL RETRY {attempt}/{url_attempts} "
+                    f"[{endpoint_label(url)}]: {exc}",
+                    flush=True,
+                )
+                if attempt < url_attempts:
+                    time.sleep(1)
+
+        if url != LOCAL_OLLAMA_URL:
+            print(
+                "MODEL ENDPOINT FAILOVER: "
+                f"{endpoint_label(url)} -> compute-01",
+                flush=True,
+            )
+
+    raise RuntimeError(
+        f"Model scoring failed: {last_error}"
+    )
+'''
+text = text[:ollama_start] + new_ollama + "\n\n" + text[anchor_start:]
+
+# Pass the selected endpoint into hook scoring.
+start = text.index("def model_score_anchor(\n")
+end = text.index("\ndef anchor_total(", start)
+segment = text[start:end]
+old_sig = "def model_score_anchor(\n    model,\n    anchor,\n):"
+new_sig = "def model_score_anchor(\n    model,\n    anchor,\n    ollama_url=None,\n):"
+if old_sig not in segment:
+    raise SystemExit("unexpected model_score_anchor signature")
+segment = segment.replace(old_sig, new_sig, 1)
+needle = "        ),\n    )\n\n    return {"
+replacement = "        ),\n        ollama_url=ollama_url,\n    )\n\n    return {"
+if needle not in segment:
+    raise SystemExit("unexpected model_score_anchor ollama call")
+segment = segment.replace(needle, replacement, 1)
+text = text[:start] + segment + text[end:]
+
+# Pass the selected endpoint into full-clip scoring.
+start = text.index("def model_score_clip(\n")
+end = text.index("\ndef final_score(", start)
+segment = text[start:end]
+old_sig = "def model_score_clip(\n    model,\n    candidate,\n):"
+new_sig = "def model_score_clip(\n    model,\n    candidate,\n    ollama_url=None,\n):"
+if old_sig not in segment:
+    raise SystemExit("unexpected model_score_clip signature")
+segment = segment.replace(old_sig, new_sig, 1)
+needle = "        ),\n    )\n\n    fields = {}"
+replacement = "        ),\n        ollama_url=ollama_url,\n    )\n\n    fields = {}"
+if needle not in segment:
+    raise SystemExit("unexpected model_score_clip ollama call")
+segment = segment.replace(needle, replacement, 1)
+text = text[:start] + segment + text[end:]
+
+# Worker functions keep mutations isolated between threads.
+main_pos = text.index("def main():\n")
+workers = '''def score_anchor_task(
+    model,
+    number,
+    anchor,
+    ollama_url,
+):
+    item = dict(anchor)
+    item.update(
+        model_score_anchor(
+            model,
+            item,
+            ollama_url=ollama_url,
+        )
+    )
+    item["anchor_score"] = anchor_total(item)
+    item["model_scored"] = True
+    return number, item, ollama_url
+
+
+def score_clip_task(
+    model,
+    number,
+    candidate,
+    ollama_url,
+):
+    item = dict(candidate)
+    item.update(
+        model_score_clip(
+            model,
+            item,
+            ollama_url=ollama_url,
+        )
+    )
+    item["short_score"] = final_score(item)
+    item["model_scored"] = True
+
+    issues = deterministic_context_issues(item["text"])
+    item["context_issues"] = issues
+
+    eligible = (
+        not issues
+        and item["hook_score"] >= 75
+        and item["retention_score"] >= 75
+        and item["payoff_score"] >= 65
+        and item["standalone_score"] >= 70
+        and item["short_score"] >= 75
+    )
+    item["retention_eligible"] = eligible
+    return number, item, issues, eligible, ollama_url
+
+
+'''
+text = text[:main_pos] + workers + text[main_pos:]
+
+# Parallel hook scoring: exactly one concurrent request per healthy GPU endpoint.
+anchor_loop_start = text.index("    scored_anchors = []\n")
+anchor_loop_end = text.index("    scored_anchors.sort(\n", anchor_loop_start)
+new_anchor_loop = '''    scored_anchors = []
+    ollama_urls = active_ollama_urls(args.model)
+    print(
+        "MODEL WORKERS: "
+        + ", ".join(endpoint_label(x) for x in ollama_urls),
+        flush=True,
+    )
+
+    with ThreadPoolExecutor(
+        max_workers=len(ollama_urls),
+        thread_name_prefix="osho-ranker",
+    ) as executor:
+        futures = {}
+        for number, anchor in enumerate(pool, 1):
+            url = ollama_urls[(number - 1) % len(ollama_urls)]
+            future = executor.submit(
+                score_anchor_task,
+                args.model,
+                number,
+                anchor,
+                url,
+            )
+            futures[future] = (
+                number,
+                float(anchor["start"]),
+                url,
+            )
+
+        for future in as_completed(futures):
+            number, start_value, url = futures[future]
+            print(
+                f"HOOK {number}/{len(pool)} | "
+                f"{start_value:.2f} | {endpoint_label(url)}",
+                flush=True,
+            )
+            try:
+                _, item, _ = future.result()
+                scored_anchors.append(item)
+            except Exception as exc:
+                # FAIL CLOSED. Unscored hooks never enter ranking.
+                print(
+                    "HOOK MODEL FAILURE: "
+                    f"[{endpoint_label(url)}] {exc}",
+                    flush=True,
+                )
+
+'''
+text = text[:anchor_loop_start] + new_anchor_loop + text[anchor_loop_end:]
+
+# Parallel full-clip scoring over the same endpoint pool.
+clip_loop_start = text.index("    scored_clips = []\n")
+clip_loop_end = text.index("    scored_clips.sort(\n", clip_loop_start)
+new_clip_loop = '''    scored_clips = []
+
+    with ThreadPoolExecutor(
+        max_workers=len(ollama_urls),
+        thread_name_prefix="osho-clip",
+    ) as executor:
+        futures = {}
+        for number, candidate in enumerate(deduped, 1):
+            url = ollama_urls[(number - 1) % len(ollama_urls)]
+            future = executor.submit(
+                score_clip_task,
+                args.model,
+                number,
+                candidate,
+                url,
+            )
+            futures[future] = (
+                number,
+                float(candidate["start"]),
+                float(candidate["end"]),
+                url,
+            )
+
+        for future in as_completed(futures):
+            number, start_value, end_value, url = futures[future]
+            print(
+                f"CLIP {number}/{len(deduped)} | "
+                f"{start_value:.2f} -> {end_value:.2f} | "
+                f"{endpoint_label(url)}",
+                flush=True,
+            )
+            try:
+                _, item, issues, eligible, _ = future.result()
+                if eligible:
+                    scored_clips.append(item)
+                else:
+                    print(
+                        "CLIP HELD:",
+                        item["start"],
+                        "->",
+                        item["end"],
+                        "|",
+                        issues or "below retention threshold",
+                        flush=True,
+                    )
+            except Exception as exc:
+                # Again fail closed.
+                print(
+                    "CLIP MODEL FAILURE: "
+                    f"[{endpoint_label(url)}] {exc}",
+                    flush=True,
+                )
+
+'''
+text = text[:clip_loop_start] + new_clip_loop + text[clip_loop_end:]
+
+path.write_text(text, encoding="utf-8")
+PY
+    then
+        log "patch failed; restoring backup"
+        cp -a "$backup/hook_ranker_v5.py" "$TARGET"
+        exit 4
+    fi
+
+    chown psquare:psquare "$TARGET"
+    chmod 0775 "$TARGET"
+
+    if ! python3 -m py_compile "$TARGET"; then
+        log "syntax validation failed; restoring backup"
+        cp -a "$backup/hook_ranker_v5.py" "$TARGET"
+        exit 5
+    fi
+
+    grep -q "$MARKER" "$TARGET"
+    grep -q 'ThreadPoolExecutor' "$TARGET"
+    grep -q '192.168.0.158:11434/api/chat' "$TARGET"
+    grep -q 'MODEL ENDPOINT FAILOVER' "$TARGET"
+
+    log "dual-GPU ranker patch applied; running ranker processes were not restarted"
+    status
+}
+
+case "$ACTION" in
+    status) status ;;
+    apply) apply_patch ;;
+    *)
+        echo "Allowed actions: status | apply" >&2
+        exit 2
+        ;;
+esac
