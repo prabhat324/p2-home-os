@@ -1,0 +1,32 @@
+---
+- name: Deploy Project Osho dashboard from master on compute-02
+  hosts: compute-02
+  gather_facts: false
+  tasks:
+    - name: Deploy dashboard through root-owned allowlisted helper
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - /usr/local/sbin/p2ops-osho-dashboard
+          - deploy-master
+      register: deploy
+      changed_when: true
+
+    - name: Show deploy output
+      ansible.builtin.debug:
+        msg: "{{ deploy.stdout_lines }}"
+
+    - name: Verify dashboard helper status
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - /usr/local/sbin/p2ops-osho-dashboard
+          - status
+      register: status
+      changed_when: false
+
+    - name: Show dashboard status
+      ansible.builtin.debug:
+        msg: "{{ status.stdout_lines }}"
