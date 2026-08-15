@@ -166,6 +166,7 @@ function renderWorker(worker) {
     if (worker.device || worker.compute_type) chips.push([worker.device, worker.compute_type].filter(Boolean).join(" / "));
     if (worker.ollama_model) chips.push(`Ollama ${worker.ollama_model}`);
     if (worker.telemetry_version) chips.push(`Telemetry v${worker.telemetry_version}`);
+    if (worker.telemetry_state && worker.telemetry_state !== "fresh") chips.push(`Telemetry ${worker.telemetry_state}`);
 
     const job = worker.current_job
         ? `<div class="jobline"><span class="stage">${escapeHtml(worker.stage || "working")}</span> · ${escapeHtml(worker.current_job)} · ${Math.round(Number(worker.progress || 0))}%</div>`
