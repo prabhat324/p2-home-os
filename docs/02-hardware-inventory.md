@@ -1,72 +1,32 @@
 # Hardware Inventory
 
-## Server Hardware
+## Compute and infrastructure
 
-| Device | Model | Purpose |
+| Node | Hardware | Primary role |
 |---|---|---|
-| Main server | Raspberry Pi 5, 8 GB | Docker and home-server services |
-| Media storage | Seagate Expansion Desktop 8 TB | Movies, TV, music and downloads |
-| Family Vault | WD My Passport 3 TB | Planned photos, videos and private documents |
-| Backup storage | WD portable drive 2 TB | Planned Family Vault backup |
-| USB expansion | Powered USB 3 hub | Planned connection for multiple drives |
+| `core-01` / `media-server` | Raspberry Pi 5, 8 GB | Always-on storage/infrastructure |
+| `compute-01` | HP ZBook Fury 17 G7, i9-10885H, 64 GB RAM, Quadro RTX 3000 6 GB | Primary GPU/app node, Jellyfin, AI, Immich, Osho |
+| `compute-02` | Compute node, no NVIDIA GPU currently required/documented | Osho control plane/dashboard, Piper TTS |
+| `compute-03` | NVIDIA GeForce RTX 2060 6 GB | Secondary Osho/AI GPU worker |
 
-## Network Hardware
+## Storage
 
-| Device | Quantity | Purpose |
-|---|---:|---|
-| Rogers gateway | 1 | ISP gateway |
-| TP-Link BE19000 tri-band Wi-Fi 7 router | 1 | Main home network |
-| TP-Link BE9300 Wi-Fi 7 extender | 2 | Wireless coverage extension |
-
-## Smart-Home Devices
-
-| Device | Model or Platform | Location or Purpose |
-|---|---|---|
-| Smart lock | Aqara U100 | Front entrance |
-| Camera and doorbell | Ring | Front door |
-| Chime | Ring Chime | Doorbell alerts |
-| Camera | Dekco DC4L | Backyard |
-| Camera | AlfredCamera | Garage |
-| Lights | Govee | Living room and behind TV |
-| Lights | Lepro | Hallway and guest-room mirrors |
-| Thermostat | Ecobee Smart Thermostat Premium | HVAC |
-| Sensor | Ecobee SmartSensor | Bedroom |
-| Fan/humidifier | Dyson smart humidifier and fan | Home climate |
-| Smoke alarm | Kidde smart alarm | Fire and CO monitoring |
-| Home hub | Apple TV 4K | Apple Home hub |
-| Television | Samsung Neo QLED | Media and Home Assistant integration |
-
-# Hardware Inventory
-
-## Server and Storage
-
-| Device | Purpose |
+| Device | Current/design role |
 |---|---|
-| Raspberry Pi 5, 8 GB | Main server |
-| Seagate Expansion 8 TB | Movies, TV, music and downloads |
-| WD My Passport 3 TB | Planned Family Vault |
-| WD 2 TB drive | Planned Family Vault backup |
-| Powered USB 3 hub | Connect multiple storage devices |
+| Seagate Expansion Desktop 8 TB | Media library; physically attached to core-01 at `/mnt/media` |
+| WD 3 TB | Private primary photo library; exposed read-only to Immich as `/mnt/photos-primary` |
+| WD 2 TB | Designated photo backup drive; verify current mount/schedule before treating as active |
 
-## Network
+## Networking
 
-| Device | Purpose |
-|---|---|
-| Rogers gateway | ISP connection |
-| TP-Link BE19000 | Main Wi-Fi 7 router |
-| TP-Link BE9300 x2 | Range extenders |
+- Home LAN: `192.168.0.0/24`
+- core-01: `192.168.0.203`
+- compute-01: `192.168.0.31`
+- compute-02: `192.168.0.88`
+- compute-03 preferred wired address: `192.168.0.158`
+- Cisco SG350-10MP has been used as the wired switch during the compute/storage build.
+- Tailscale provides remote access.
 
-## Smart Home
+## Smart-home / media clients
 
-- Aqara U100 front-door lock
-- Ring front-door camera and chime
-- Dekco DC4L backyard camera
-- AlfredCamera garage camera
-- Govee living-room and TV lights
-- Lepro mirror lights
-- Ecobee Smart Thermostat Premium
-- Ecobee bedroom SmartSensor
-- Dyson humidifier and fan
-- Kidde smart smoke alarm
-- Apple TV 4K
-- Samsung Smart TV
+Known environment includes Apple TV 4K, NVIDIA Shield TV Pro, Samsung TVs, Aqara/Ring/Ecobee and other home devices. Device integrations should be documented as confirmed when actively connected to Home Assistant rather than inferred from ownership alone.
