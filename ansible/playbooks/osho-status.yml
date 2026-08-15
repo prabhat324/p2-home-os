@@ -1,32 +1,43 @@
 ---
-- name: Inspect Project Osho ranker and QA overlap
-  hosts: osho_nodes
+- name: Verify first Project Osho dual GPU ranker completion
+  hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Collect overlap state
+    - name: Inspect 000011 completion and reliability
       ansible.builtin.shell: |
         set -o pipefail
-        echo "HOST=$(hostname -s)"
-        date -Ins
-        echo '=== GPU ==='
-        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu --format=csv,noheader 2>/dev/null || true
-        echo '=== OSHO PROCESSES ==='
-        pgrep -af '[h]ook_ranker_v5.py|[r]etention_qa_v4.py|[b]oundary_consensus.py|[v]erify_reel_transcript.py|[t]ranscript_stability.py' 2>/dev/null || true
-
-        if [ "$(hostname -s)" = "compute-01" ]; then
-          echo '=== LOCAL OLLAMA PS ==='
-          curl -fsS --max-time 3 http://127.0.0.1:11434/api/ps 2>/dev/null \
-            | python3 -c 'import json,sys; d=json.load(sys.stdin); print([{"name":x.get("name"),"size_vram":x.get("size_vram")} for x in d.get("models",[])])' || true
-          echo '=== 000010 QA TAIL ==='
-          tail -80 /srv/osho/logs/autopilot/000010-qa-v4.log 2>/dev/null || true
-          echo '=== 000011 RANK TAIL ==='
-          grep -E 'DUAL GPU|MODEL WORKERS|HOOK [0-9]+/|CLIP [0-9]+/|MODEL RETRY|FAILOVER' /srv/osho/logs/autopilot/000011-hook-v5.log 2>/dev/null | tail -55 || true
+        echo "NOW=$(date -Ins)"
+        echo '=== ACTIVE PIPELINE ==='
+        pgrep -af '[h]ook_ranker_v5.py|[r]etention_qa_v4.py|[o]sho_autopilot.py' 2>/dev/null || true
+        echo '=== 000011 LOG SUMMARY ==='
+        log=/srv/osho/logs/autopilot/000011-hook-v5.log
+        if [ -f "$log" ]; then
+          echo "FIRST=$(head -1 "$log" 2>/dev/null)"
+          echo "DUAL_MARKERS=$(grep -c 'DUAL GPU ENDPOINTS' "$log" 2>/dev/null || true)"
+          echo "LOCAL_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-01$' "$log" 2>/dev/null || true)"
+          echo "REMOTE_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-03$' "$log" 2>/dev/null || true)"
+          echo "LOCAL_CLIPS=$(grep -Ec 'CLIP [0-9]+/[0-9]+ .* compute-01$' "$log" 2>/dev/null || true)"
+          echo "REMOTE_CLIPS=$(grep -Ec 'CLIP [0-9]+/[0-9]+ .* compute-03$' "$log" 2>/dev/null || true)"
+          echo "RETRIES=$(grep -c 'MODEL RETRY' "$log" 2>/dev/null || true)"
+          echo "FAILOVERS=$(grep -c 'MODEL ENDPOINT FAILOVER' "$log" 2>/dev/null || true)"
+          echo "MODEL_FAILURES=$(grep -Ec 'HOOK MODEL FAILURE|CLIP MODEL FAILURE' "$log" 2>/dev/null || true)"
+          echo '=== TAIL ==='
+          tail -90 "$log"
+        else
+          echo MISSING_000011_LOG
         fi
-
-        if [ "$(hostname -s)" = "compute-03" ]; then
-          echo '=== REMOTE OLLAMA PS ==='
-          curl -fsS --max-time 3 http://192.168.0.158:11434/api/ps 2>/dev/null \
-            | python3 -c 'import json,sys; d=json.load(sys.stdin); print([{"name":x.get("name"),"size_vram":x.get("size_vram")} for x in d.get("models",[])])' || true
+        echo '=== OUTPUT ==='
+        if [ -f /srv/osho/candidates/000011.hook-ranked-v5.json ]; then
+          python3 - <<'PY'
+import json
+p='/srv/osho/candidates/000011.hook-ranked-v5.json'
+d=json.load(open(p, encoding='utf-8'))
+for k in ('anchors_model_scored','anchor_survivors','full_clips_model_scored'):
+    print(f'{k.upper()}={d.get(k)}')
+print('RANKED_CANDIDATES='+str(len(d.get('ranked_candidates',[]))))
+PY
+        else
+          echo OUTPUT_NOT_YET_WRITTEN
         fi
       args:
         executable: /bin/bash
@@ -34,6 +45,6 @@
       changed_when: false
       failed_when: false
 
-    - name: Show overlap state
+    - name: Show 000011 verification
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
