@@ -1,70 +1,40 @@
 ---
-- name: Snapshot Project Osho after managed JSON hardening
+- name: Clean orphan Project Osho diagnostic watcher
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Collect immediate post-patch state
+    - name: Remove only the canceled read-only watcher shell
       ansible.builtin.shell: |
         set -o pipefail
-        cd /srv/compose/osho-worker
-        echo "NOW=$(date -Ins)"
+        self=$$
+        echo '=== BEFORE ==='
+        ps -eo pid,ppid,user,etimes,comm,args | awk -v self="$self" '$3=="p2ops" && $5=="bash" && $1!=self && /NO_POST_PATCH_RANKER_WITHIN_720S/ {print}' || true
+
+        pids="$(ps -eo pid,user,comm,args | awk -v self="$self" '$2=="p2ops" && $3=="bash" && $1!=self && /NO_POST_PATCH_RANKER_WITHIN_720S/ {print $1}')"
+        if [ -n "$pids" ]; then
+          for pid in $pids; do
+            echo "KILLING_ORPHAN_DIAGNOSTIC=$pid"
+            kill "$pid" 2>/dev/null || true
+          done
+          sleep 1
+        else
+          echo 'NO_ORPHAN_DIAGNOSTIC_FOUND'
+        fi
+
+        echo '=== AFTER ==='
+        ps -eo pid,ppid,user,etimes,comm,args | awk -v self="$self" '$3=="p2ops" && $5=="bash" && $1!=self && /NO_POST_PATCH_RANKER_WITHIN_720S/ {print}' || true
+
+        echo '=== REAL OSHO PROCESSES ==='
+        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && $4=="python3" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/ || $0 ~ /transcript_stability.py/ || $0 ~ /boundary_consensus.py/) {print}' || true
 
         echo '=== MANAGED PATCH STATUS ==='
         sudo -n /usr/local/sbin/p2ops-osho-managed-patch status 2>&1 || true
-
-        echo '=== ACTIVE PIPELINE ==='
-        ps -eo pid,etimes,pcpu,pmem,args | grep -E '[o]sho_autopilot.py|[h]ook_ranker_v5.py|[r]etention_qa_v4.py|[b]oundary_consensus.py|[v]erify_reel_transcript.py|[t]ranscript_stability.py' || true
-
-        echo '=== LOCAL GPU ==='
-        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu --format=csv,noheader 2>/dev/null || true
-
-        echo '=== LOCAL OLLAMA ==='
-        curl -fsS --max-time 3 http://127.0.0.1:11434/api/ps 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print([{"name":x.get("name"),"vram":x.get("size_vram")} for x in d.get("models",[])])' 2>/dev/null || true
-
-        echo '=== REMOTE OLLAMA ==='
-        curl -fsS --max-time 3 http://192.168.0.158:11434/api/ps 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print([{"name":x.get("name"),"vram":x.get("size_vram")} for x in d.get("models",[])])' 2>/dev/null || true
-
-        echo '=== POST-PATCH RANK LOGS ==='
-        find /srv/osho/logs/autopilot -maxdepth 1 -type f -name '*-hook-v5.log' -newermt '2026-08-15 00:50:43' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -5 || true
-
-        newest="$(find /srv/osho/logs/autopilot -maxdepth 1 -type f -name '*-hook-v5.log' -newermt '2026-08-15 00:50:43' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2- || true)"
-        if [ -n "$newest" ] && [ -f "$newest" ]; then
-          echo "NEWEST_POST_PATCH_LOG=$newest"
-          echo "LOCAL_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-01$' "$newest" 2>/dev/null || true)"
-          echo "REMOTE_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-03$' "$newest" 2>/dev/null || true)"
-          echo "LOCAL_CLIPS=$(grep -Ec 'CLIP [0-9]+/[0-9]+ .* compute-01$' "$newest" 2>/dev/null || true)"
-          echo "REMOTE_CLIPS=$(grep -Ec 'CLIP [0-9]+/[0-9]+ .* compute-03$' "$newest" 2>/dev/null || true)"
-          echo "RETRIES=$(grep -c 'MODEL RETRY' "$newest" 2>/dev/null || true)"
-          echo "FAILOVERS=$(grep -c 'MODEL ENDPOINT FAILOVER' "$newest" 2>/dev/null || true)"
-          echo "MODEL_FAILURES=$(grep -Ec 'HOOK MODEL FAILURE|CLIP MODEL FAILURE' "$newest" 2>/dev/null || true)"
-          echo "JSON_ERRORS=$(grep -Eic 'Unterminated string|Expecting .*delimiter|JSONDecodeError|invalid json' "$newest" 2>/dev/null || true)"
-          echo '=== NEWEST RANK TAIL ==='
-          tail -70 "$newest"
-        else
-          echo 'NO_POST_PATCH_RANK_LOG_YET'
-        fi
-
-        echo '=== ACTIVE QA LOG TAIL ==='
-        qa_cmd="$(pgrep -af '[r]etention_qa_v4.py' 2>/dev/null | head -1 || true)"
-        if [ -n "$qa_cmd" ]; then
-          qa_source="$(printf '%s\n' "$qa_cmd" | sed -nE 's#.*retention_qa_v4.py ([0-9]+).*#\1#p')"
-          echo "QA_SOURCE=$qa_source"
-          if [ -n "$qa_source" ]; then
-            qa_log="/srv/osho/logs/autopilot/${qa_source}-qa-v4.log"
-            [ -f "$qa_log" ] && tail -100 "$qa_log" || echo "MISSING_QA_LOG=$qa_log"
-          fi
-        else
-          echo 'QA_NOT_ACTIVE'
-        fi
-
-        echo '=== AUTOPILOT TAIL ==='
-        journalctl -u osho-autopilot.service -n 60 --no-pager 2>/dev/null || true
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show immediate post-patch state
+    - name: Show cleanup result
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
