@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-dashboard-progress-source-20260815-1208",
-  "operation": "osho-status",
+  "request_id": "osho-dashboard-progress-sender-20260815-1210",
+  "operation": "osho-ranker-diagnose",
   "target": "compute-01"
 }
