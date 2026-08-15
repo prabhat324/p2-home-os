@@ -1,63 +1,39 @@
 ---
-- name: Watch for first patched Project Osho dual GPU ranker
-  hosts: compute-01
+- name: Sample Project Osho dual GPU utilization
+  hosts: osho_nodes
   gather_facts: false
   tasks:
-    - name: Wait for ranker after pre-patch source 000010
+    - name: Sample real ranker workload
       ansible.builtin.shell: |
         set -o pipefail
-        deadline=$((SECONDS + 480))
-        last_state=''
-        while [ "$SECONDS" -lt "$deadline" ]; do
-          cmd="$(pgrep -af '^/usr/bin/python3 hook_ranker_v5.py|^/usr/bin/python3 /srv/compose/osho-worker/hook_ranker_v5.py' 2>/dev/null | head -1 || true)"
-          if [ -n "$cmd" ]; then
-            source_id="$(printf '%s\n' "$cmd" | sed -nE 's#.*hook_ranker_v5.py ([0-9]+).*#\1#p')"
-            if [ "$source_id" != "000010" ] && [ -n "$source_id" ]; then
-              echo "PATCHED_RANKER_SOURCE=$source_id"
-              echo "PATCHED_RANKER_CMD=$cmd"
-              log="/srv/osho/logs/autopilot/${source_id}-hook-v5.log"
-              marker_deadline=$((SECONDS + 150))
-              while [ "$SECONDS" -lt "$marker_deadline" ]; do
-                if [ -f "$log" ] && grep -q 'DUAL GPU ENDPOINTS' "$log" 2>/dev/null; then
-                  echo '=== DUAL GPU MARKERS ==='
-                  grep -E 'DUAL GPU ENDPOINTS|DUAL GPU MODE|DUAL GPU REMOTE SKIPPED|MODEL WORKERS|HOOK [0-9]+/|MODEL ENDPOINT FAILOVER' "$log" 2>/dev/null | head -35
-                  echo '=== REMOTE OLLAMA PS ==='
-                  curl -fsS --max-time 4 http://192.168.0.158:11434/api/ps 2>/dev/null \
-                    | python3 -c 'import json,sys; d=json.load(sys.stdin); print([{"name":x.get("name"),"size_vram":x.get("size_vram")} for x in d.get("models",[])])' || true
-                  exit 0
-                fi
-                sleep 3
-              done
-              echo "PATCHED_RANKER_STARTED_BUT_NO_DUAL_MARKER_WITHIN_150S"
-              [ -f "$log" ] && tail -80 "$log" || true
-              exit 3
-            fi
-            state="RANKER=$source_id"
-            log="/srv/osho/logs/autopilot/${source_id}-hook-v5.log"
-            progress="$(grep -E 'HOOK [0-9]+/' "$log" 2>/dev/null | tail -1 || true)"
-            [ -n "$progress" ] && state="$state | $progress"
-          else
-            qa="$(pgrep -af '[r]etention_qa_v4.py' 2>/dev/null | head -1 || true)"
-            if [ -n "$qa" ]; then
-              state="QA=$qa"
-            else
-              state="BETWEEN_STAGES"
-            fi
-          fi
-          if [ "$state" != "$last_state" ]; then
-            echo "$(date -Ins) $state"
-            last_state="$state"
-          fi
-          sleep 5
+        echo "HOST=$(hostname -s)"
+        echo "OSHO_ROLE={{ osho_role | default('unknown') }}"
+        echo '=== GPU UTILIZATION SAMPLE ==='
+        for i in $(seq 1 12); do
+          printf '%s ' "$(date +%H:%M:%S)"
+          nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu --format=csv,noheader 2>/dev/null || true
+          sleep 1
         done
-        echo 'TIMEOUT_WAITING_FOR_FIRST_PATCHED_RANKER'
-        exit 4
+
+        if [ "$(hostname -s)" = "compute-01" ]; then
+          echo '=== CURRENT RANKER ==='
+          pgrep -af '^/usr/bin/python3 hook_ranker_v5.py|^/usr/bin/python3 /srv/compose/osho-worker/hook_ranker_v5.py' 2>/dev/null || true
+          echo '=== 000011 DUAL GPU LOG ==='
+          grep -E 'DUAL GPU ENDPOINTS|MODEL WORKERS|HOOK [0-9]+/|CLIP [0-9]+/|MODEL RETRY|MODEL ENDPOINT FAILOVER' \
+            /srv/osho/logs/autopilot/000011-hook-v5.log 2>/dev/null | tail -70 || true
+        fi
+
+        if [ "$(hostname -s)" = "compute-03" ]; then
+          echo '=== REMOTE OLLAMA LOADED ==='
+          curl -fsS --max-time 4 http://192.168.0.158:11434/api/ps 2>/dev/null \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print([{"name":x.get("name"),"size_vram":x.get("size_vram"),"expires_at":x.get("expires_at")} for x in d.get("models",[])])' || true
+        fi
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show first patched ranker result
+    - name: Show real dual GPU sample
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
