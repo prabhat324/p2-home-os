@@ -30,23 +30,87 @@
         if [ -f "$db" ]; then
           printf 'DB=%s SIZE=%s MTIME=%s\n' "$db" "$(stat -c '%s' "$db")" "$(stat -c '%y' "$db")"
           python3 - "$db" <<'PY'
-        import sqlite3, sys
-        path=sys.argv[1]
-        con=sqlite3.connect(path)
-        con.row_factory=sqlite3.Row
-        tables=[r[0] for r in con.execute("select name from sqlite_master where type='table' and name not like 'sqlite_%' order by name")]
+        import json
+        import sqlite3
+        import sys
+
+        path = sys.argv[1]
+        con = sqlite3.connect(path)
+        con.row_factory = sqlite3.Row
+        tables = [
+            r[0]
+            for r in con.execute(
+                "select name from sqlite_master where type='table' "
+                "and name not like 'sqlite_%' order by name"
+            )
+        ]
         print('TABLES=' + ','.join(tables))
+
         for table in tables:
-            cols=[r[1] for r in con.execute(f'pragma table_info({table})')]
-            count=con.execute(f'select count(*) from {table}').fetchone()[0]
+            cols = [r[1] for r in con.execute(f'pragma table_info({table})')]
+            count = con.execute(f'select count(*) from {table}').fetchone()[0]
             print(f'TABLE={table} ROWS={count} COLS=' + ','.join(cols))
-            for candidate in ('updated_at','collected_at','fetched_at','timestamp','published_at','snapshot_at','created_at'):
+            for candidate in (
+                'updated_at', 'collected_at', 'fetched_at', 'timestamp',
+                'published_at', 'snapshot_at', 'created_at'
+            ):
                 if candidate in cols:
                     try:
-                        value=con.execute(f'select max({candidate}) from {table}').fetchone()[0]
+                        value = con.execute(
+                            f'select max({candidate}) from {table}'
+                        ).fetchone()[0]
                         print(f'TABLE={table} MAX_{candidate}={value}')
                     except Exception:
                         pass
+
+        if 'channel_history' in tables:
+            row = con.execute(
+                'select collected_at,channel_title,subscriber_count,video_count,'
+                'public_view_count from channel_history order by collected_at desc limit 1'
+            ).fetchone()
+            if row:
+                print('CHANNEL_LATEST=' + json.dumps(dict(row), ensure_ascii=False))
+
+        if 'videos' in tables:
+            wanted = [
+                'video_id', 'reel_id', 'title', 'uploaded_at', 'duration_seconds',
+                'age_hours', 'public_views', 'public_likes', 'public_comments',
+                'analytics_views', 'engaged_views', 'estimated_minutes_watched',
+                'average_view_duration', 'average_view_percentage', 'analytics_likes',
+                'analytics_comments', 'shares', 'subscribers_gained',
+                'subscribers_lost', 'shorts_feed_views', 'shorts_feed_engaged_views',
+                'shorts_feed_minutes', 'last_collected_at'
+            ]
+            cols = [r[1] for r in con.execute('pragma table_info(videos)')]
+            selected = [c for c in wanted if c in cols]
+            order = 'public_views desc, uploaded_at desc' if 'public_views' in cols else 'uploaded_at desc'
+            rows = con.execute(
+                'select ' + ','.join(selected) + ' from videos order by ' + order
+            ).fetchall()
+
+            print('VIDEO_METRICS_BEGIN')
+            for row in rows:
+                item = dict(row)
+                views = float(item.get('public_views') or 0)
+                age = float(item.get('age_hours') or 0)
+                likes = float(item.get('public_likes') or 0)
+                engaged = float(item.get('engaged_views') or 0)
+                analytics_views = float(item.get('analytics_views') or 0)
+                shorts_views = float(item.get('shorts_feed_views') or 0)
+                shorts_engaged = float(item.get('shorts_feed_engaged_views') or 0)
+                item['derived_views_per_hour'] = round(views / age, 3) if age > 0 else None
+                item['derived_like_rate_pct'] = round(likes * 100 / views, 2) if views > 0 else None
+                item['derived_engaged_rate_pct'] = (
+                    round(engaged * 100 / analytics_views, 2)
+                    if analytics_views > 0 else None
+                )
+                item['derived_shorts_engaged_rate_pct'] = (
+                    round(shorts_engaged * 100 / shorts_views, 2)
+                    if shorts_views > 0 else None
+                )
+                print(json.dumps(item, ensure_ascii=False, sort_keys=True))
+            print('VIDEO_METRICS_END')
+
         con.close()
         PY
         else
