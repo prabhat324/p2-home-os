@@ -1,23 +1,27 @@
 ---
-- name: Inspect Project Osho buffer manager CLI
+- name: Inspect Project Osho buffer fill contract
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect buffer manager without modifying state
+    - name: Inspect fill help, CLI tail, and ownership
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker || exit 1
         echo "NOW=$(date -Ins)"
-        echo '=== BUFFER MANAGER HELP ==='
-        python3 buffer_manager.py --help 2>&1 || true
-        echo '=== BUFFER MANAGER SOURCE ==='
-        sed -n '1,140p;200,380p;430,620p' buffer_manager.py
+        echo '=== FILL HELP ==='
+        python3 buffer_manager.py fill --help 2>&1 || true
+        echo '=== CLI TAIL ==='
+        tail -120 buffer_manager.py
+        echo '=== OWNERSHIP ==='
+        stat -c '%U:%G %a %n' buffer_manager.py /srv/osho/library/catalog/catalog.sqlite /srv/osho/library/audio /srv/osho/logs 2>/dev/null || true
+        echo '=== CURRENT BUFFER STATUS ==='
+        python3 buffer_manager.py status 2>&1 || true
       args:
         executable: /bin/bash
       register: diag
       changed_when: false
       failed_when: false
 
-    - name: Show buffer manager inspection
+    - name: Show buffer fill contract
       ansible.builtin.debug:
         msg: "{{ diag.stdout_lines }}"
