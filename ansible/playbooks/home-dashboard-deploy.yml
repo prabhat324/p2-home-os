@@ -1,0 +1,32 @@
+---
+- name: Deploy source-controlled Homepage resources on core-01
+  hosts: core-01
+  gather_facts: false
+  tasks:
+    - name: Deploy Homepage through root-owned allowlisted helper
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - /usr/local/sbin/p2ops-home-dashboard
+          - deploy-master
+      register: deploy
+      changed_when: true
+
+    - name: Show deploy output
+      ansible.builtin.debug:
+        msg: "{{ deploy.stdout_lines }}"
+
+    - name: Verify Homepage status
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - /usr/local/sbin/p2ops-home-dashboard
+          - status
+      register: status
+      changed_when: false
+
+    - name: Show Homepage status
+      ansible.builtin.debug:
+        msg: "{{ status.stdout_lines }}"
