@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-pipeline-watch-publish-20260815-0817",
-  "operation": "osho-publish-audit",
+  "request_id": "osho-pipeline-watch-ranker-20260815-0818",
+  "operation": "osho-ranker-diagnose",
   "target": "compute-01"
 }
