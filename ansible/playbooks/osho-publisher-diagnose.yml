@@ -1,27 +1,57 @@
 ---
-- name: Inspect Project Osho buffer fill contract
+- name: Verify Project Osho recovery after source-buffer repair
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect fill help, CLI tail, and ownership
+    - name: Inspect feeder, pipeline, GPUs, source 000030+, and receipts
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker || exit 1
         echo "NOW=$(date -Ins)"
-        echo '=== FILL HELP ==='
-        python3 buffer_manager.py fill --help 2>&1 || true
-        echo '=== CLI TAIL ==='
-        tail -120 buffer_manager.py
-        echo '=== OWNERSHIP ==='
-        stat -c '%U:%G %a %n' buffer_manager.py /srv/osho/library/catalog/catalog.sqlite /srv/osho/library/audio /srv/osho/logs 2>/dev/null || true
-        echo '=== CURRENT BUFFER STATUS ==='
-        python3 buffer_manager.py status 2>&1 || true
+        echo '=== SERVICES ==='
+        systemctl show osho-autopilot.service -p ActiveState -p SubState -p MainPID --no-pager 2>/dev/null || true
+        systemctl show osho-buffer-fill.service -p ActiveState -p SubState -p ExecMainStatus --no-pager 2>/dev/null || true
+        systemctl show osho-buffer-fill.timer -p ActiveState -p SubState -p UnitFileState --no-pager 2>/dev/null || true
+        echo '=== PIPELINE PROCESSES ==='
+        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && ($0 ~ /osho_autopilot.py/ || $0 ~ /buffer_manager.py/ || $0 ~ /transcript/ || $0 ~ /whisper/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/ || $0 ~ /boundary_consensus.py/ || $0 ~ /production_renderer.py/) {print}' || true
+        echo '=== COMPUTE-01 GPU ==='
+        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu --format=csv,noheader 2>/dev/null || true
+        echo '=== COMPUTE-03 GPU ==='
+        curl -fsS --max-time 3 http://192.168.0.158:61208/api/4/gpu 2>/dev/null || true
+        echo
+        echo '=== SOURCE STATE 000030+ ==='
+        python3 - <<'PY'
+        import sqlite3
+        p='/srv/osho/library/catalog/catalog.sqlite'
+        c=sqlite3.connect(p); c.row_factory=sqlite3.Row
+        for r in c.execute("""
+          SELECT d.source_number,d.source_id,d.title,d.download_status,d.local_file,
+                 s.status,s.attempts,s.started_at,s.finished_at,s.note
+            FROM discourses d
+            LEFT JOIN osho_autopilot_state s ON s.source_number=d.source_number
+           WHERE d.source_number BETWEEN 30 AND 38
+           ORDER BY d.source_number
+        """):
+            print(dict(r))
+        c.close()
+        PY
+        echo '=== BUFFER STATUS ==='
+        sudo -n /usr/local/sbin/p2ops-osho-buffer status 2>&1 || true
+        echo '=== 000030 FILES / LOGS ==='
+        find /srv/osho -maxdepth 4 -type f \( -name '000030*' -o -name '000031*' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -50 || true
+        for f in /srv/osho/logs/autopilot/000030* /srv/osho/logs/autopilot/000031*; do
+          [ -f "$f" ] || continue
+          echo "--- $f ---"
+          tail -60 "$f" || true
+        done
+        echo '=== RECENT RECEIPTS ==='
+        find /srv/osho/youtube/receipts -maxdepth 1 -type f -name '*.json' -printf '%T@ %f\n' 2>/dev/null | sort -nr | head -12 || true
       args:
         executable: /bin/bash
       register: diag
       changed_when: false
       failed_when: false
 
-    - name: Show buffer fill contract
+    - name: Show recovery verification
       ansible.builtin.debug:
         msg: "{{ diag.stdout_lines }}"
