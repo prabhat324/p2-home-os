@@ -3,12 +3,14 @@ import csv
 import io
 import json
 import os
+import shutil
 import socket
 import subprocess
 import time
 import urllib.error
 import urllib.request
 
+TELEMETRY_VERSION = "1.0.0"
 DASHBOARD_URL = os.environ.get(
     "OSHO_DASHBOARD_URL",
     "http://compute-02:8787/api/worker/heartbeat",
@@ -50,7 +52,7 @@ def worker_health():
     try:
         req = urllib.request.Request(
             WORKER_HEALTH_URL,
-            headers={"User-Agent": "Project-Osho-Telemetry/1.0"},
+            headers={"User-Agent": f"Project-Osho-Telemetry/{TELEMETRY_VERSION}"},
         )
         with urllib.request.urlopen(req, timeout=4) as response:
             return json.loads(response.read().decode("utf-8"))
@@ -93,6 +95,30 @@ def ollama_model():
     return lines[1].split()[0]
 
 
+def load_1m():
+    try:
+        return round(os.getloadavg()[0], 2)
+    except Exception:
+        return None
+
+
+def disk_free_gb():
+    for path in ("/srv", "/"):
+        try:
+            if os.path.exists(path):
+                return round(shutil.disk_usage(path).free / (1024 ** 3), 1)
+        except Exception:
+            pass
+    return None
+
+
+def autopilot_status(hostname):
+    if hostname != "compute-01":
+        return None
+    status = run("systemctl", "is-active", "osho-autopilot.service")
+    return status or "unknown"
+
+
 def payload():
     hostname = socket.gethostname().split(".")[0]
     health = worker_health()
@@ -107,6 +133,10 @@ def payload():
         "progress": 0,
         "worker_port": WORKER_PORT,
         "ollama_model": ollama_model(),
+        "load_1m": load_1m(),
+        "disk_free_gb": disk_free_gb(),
+        "autopilot_status": autopilot_status(hostname),
+        "telemetry_version": TELEMETRY_VERSION,
     }
     data.update(gpu_stats())
 
@@ -129,7 +159,7 @@ def post(data):
         data=body,
         headers={
             "Content-Type": "application/json",
-            "User-Agent": "Project-Osho-Telemetry/1.0",
+            "User-Agent": f"Project-Osho-Telemetry/{TELEMETRY_VERSION}",
         },
         method="POST",
     )
