@@ -1,0 +1,212 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ ${EUID} -ne 0 ]]; then
+    echo "This helper must run as root via sudo." >&2
+    exit 1
+fi
+
+case "$(hostname -s)" in
+    compute-01) ;;
+    *) echo "This helper is restricted to compute-01." >&2; exit 2 ;;
+esac
+
+ACTION="${1:-}"
+CODE="/srv/compose/osho-worker"
+BACKUPS="$CODE/backups"
+MANIFEST_URL="https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-managed/patches.json"
+
+ALLOWED=(
+    hook_ranker_v5.py
+    retention_qa_v4.py
+    boundary_consensus.py
+    qa_gate_v062.py
+    transcript_stability.py
+    verify_reel_transcript.py
+)
+
+log() {
+    printf '[p2ops-osho-managed-patch] %s\n' "$*"
+}
+
+require_targets() {
+    local f
+    for f in "${ALLOWED[@]}"; do
+        [[ -f "$CODE/$f" ]] || {
+            echo "Missing allowlisted Osho file: $CODE/$f" >&2
+            exit 3
+        }
+        [[ "$(realpath -m "$CODE/$f")" == "$CODE/"* ]] || {
+            echo "Refusing unexpected path: $CODE/$f" >&2
+            exit 3
+        }
+    done
+}
+
+fetch_manifest() {
+    local out="$1"
+    curl -fsSL --max-time 15 "${MANIFEST_URL}?cb=$(date +%s)" -o "$out"
+    python3 - "$out" <<'PY'
+import json, sys
+p = sys.argv[1]
+with open(p, encoding="utf-8") as f:
+    d = json.load(f)
+if d.get("version") != 1 or not isinstance(d.get("patches"), list):
+    raise SystemExit("invalid managed patch manifest")
+print("MANIFEST_VALID=yes")
+print("MANIFEST_PATCHES=" + str(len(d["patches"])))
+PY
+}
+
+status() {
+    require_targets
+    echo "HOST=$(hostname)"
+    echo "AUTOPILOT_SERVICE=$(systemctl is-active osho-autopilot.service 2>/dev/null || true)"
+    echo "RANKER_PROCS=$(pgrep -fc '[h]ook_ranker_v5.py' 2>/dev/null || true)"
+    echo "QA_PROCS=$(pgrep -fc '[r]etention_qa_v4.py' 2>/dev/null || true)"
+    echo "DUAL_GPU=$([[ $(grep -c 'OSHO_DUAL_GPU_RANKER_V1' "$CODE/hook_ranker_v5.py" 2>/dev/null || true) -gt 0 ]] && echo yes || echo no)"
+    echo "JSON_HARDENING=$([[ $(grep -c 'OSHO_JSON_HARDENING_V1' "$CODE/hook_ranker_v5.py" 2>/dev/null || true) -gt 0 ]] && echo yes || echo no)"
+
+    local tmp
+    tmp="$(mktemp)"
+    if fetch_manifest "$tmp" >/tmp/p2ops-osho-managed-status.$$ 2>/dev/null; then
+        cat /tmp/p2ops-osho-managed-status.$$
+        python3 - "$tmp" "$CODE" <<'PY'
+import json, pathlib, sys
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+code = pathlib.Path(sys.argv[2])
+for patch in manifest["patches"]:
+    marker = patch.get("marker", "")
+    marker_file = patch.get("marker_file", "")
+    text = (code / marker_file).read_text(encoding="utf-8") if marker_file else ""
+    state = "applied" if marker and marker in text else "pending"
+    print(f"PATCH_{patch.get('id','unknown')}={state}")
+PY
+    else
+        echo "MANIFEST_VALID=unreachable"
+    fi
+    rm -f "$tmp" /tmp/p2ops-osho-managed-status.$$
+}
+
+apply_manifest() {
+    require_targets
+    command -v curl >/dev/null 2>&1 || { echo "curl is required" >&2; exit 3; }
+    command -v python3 >/dev/null 2>&1 || { echo "python3 is required" >&2; exit 3; }
+
+    local work manifest stamp backup f
+    work="$(mktemp -d)"
+    trap 'rm -rf "$work"' RETURN
+    manifest="$work/patches.json"
+    fetch_manifest "$manifest"
+
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    backup="$BACKUPS/managed-patch-$stamp"
+    mkdir -p "$backup"
+    for f in "${ALLOWED[@]}"; do
+        cp -a "$CODE/$f" "$backup/"
+    done
+    chown -R psquare:psquare "$backup"
+    log "backup created at $backup"
+
+    rollback() {
+        log "managed patch failed; restoring backup"
+        local rf
+        for rf in "${ALLOWED[@]}"; do
+            cp -a "$backup/$rf" "$CODE/$rf"
+        done
+    }
+
+    if ! python3 - "$manifest" "$CODE" <<'PY'
+import json
+import pathlib
+import sys
+
+manifest_path = pathlib.Path(sys.argv[1])
+code = pathlib.Path(sys.argv[2]).resolve()
+allowed = {
+    "hook_ranker_v5.py",
+    "retention_qa_v4.py",
+    "boundary_consensus.py",
+    "qa_gate_v062.py",
+    "transcript_stability.py",
+    "verify_reel_transcript.py",
+}
+
+data = json.loads(manifest_path.read_text(encoding="utf-8"))
+if data.get("version") != 1 or not isinstance(data.get("patches"), list):
+    raise SystemExit("invalid manifest structure")
+
+texts = {}
+for name in allowed:
+    path = (code / name).resolve()
+    if path.parent != code or not path.is_file():
+        raise SystemExit(f"invalid allowlisted target: {name}")
+    texts[name] = path.read_text(encoding="utf-8")
+
+applied = []
+skipped = []
+for patch in data["patches"]:
+    patch_id = patch.get("id")
+    marker = patch.get("marker")
+    marker_file = patch.get("marker_file")
+    replacements = patch.get("replacements")
+    if not patch_id or not marker or marker_file not in allowed:
+        raise SystemExit(f"invalid patch metadata: {patch_id!r}")
+    if not isinstance(replacements, list) or not replacements:
+        raise SystemExit(f"patch has no replacements: {patch_id}")
+
+    if marker in texts[marker_file]:
+        skipped.append(patch_id)
+        continue
+
+    for item in replacements:
+        name = item.get("file")
+        old = item.get("old")
+        new = item.get("new")
+        expected = item.get("count", 1)
+        if name not in allowed or not isinstance(old, str) or not isinstance(new, str):
+            raise SystemExit(f"invalid replacement in {patch_id}")
+        if not isinstance(expected, int) or expected < 1:
+            raise SystemExit(f"invalid replacement count in {patch_id}")
+        actual = texts[name].count(old)
+        if actual != expected:
+            raise SystemExit(
+                f"{patch_id}: expected {expected} occurrence(s) in {name}, found {actual}"
+            )
+        texts[name] = texts[name].replace(old, new, expected)
+
+    if marker not in texts[marker_file]:
+        raise SystemExit(f"{patch_id}: marker was not installed")
+    applied.append(patch_id)
+
+for name, text in texts.items():
+    (code / name).write_text(text, encoding="utf-8")
+
+print("PATCHES_APPLIED=" + (",".join(applied) if applied else "none"))
+print("PATCHES_SKIPPED=" + (",".join(skipped) if skipped else "none"))
+PY
+    then
+        rollback
+        exit 4
+    fi
+
+    for f in "${ALLOWED[@]}"; do
+        if ! python3 -m py_compile "$CODE/$f"; then
+            rollback
+            echo "Python syntax validation failed: $f" >&2
+            exit 5
+        fi
+    done
+
+    log "managed Osho patches applied; running pipeline processes were not restarted"
+    status
+}
+
+case "$ACTION" in
+    status) status ;;
+    apply) apply_manifest ;;
+    *)
+        echo "Allowed actions: status | apply" >&2
+        exit 2
+        ;;
+esac
