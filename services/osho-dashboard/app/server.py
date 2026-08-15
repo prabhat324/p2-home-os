@@ -59,7 +59,7 @@ OSHO_PROGRESS_PANEL = """
       <div><span>Source / Job</span><b id="liveJobId">—</b></div>
       <div><span>Current stage</span><b id="liveJobStage">—</b></div>
       <div><span>Active worker</span><b id="liveJobWorker">—</b></div>
-      <div><span>Stage updated</span><b id="liveJobUpdated">—</b></div>
+      <div><span>Telemetry updated</span><b id="liveJobUpdated">—</b></div>
     </div>
     <div class="osho-progress-head"><span>Job progress</span><strong id="liveJobPct">0%</strong></div>
     <div class="osho-progress-track"><i id="liveJobBar"></i></div>
@@ -125,7 +125,7 @@ OSHO_PROGRESS_PANEL = """
       $('liveJobTitle').textContent = job.title || job.name || `Osho ${id}`;
       $('liveJobId').textContent = id;
       $('liveJobStage').textContent = stage;
-      $('liveJobWorker').textContent = activeWorkers(d.workers, job);
+      $('liveJobWorker').textContent = job.worker || activeWorkers(d.workers, job);
       $('liveJobUpdated').textContent = relative(job.updated_at || job.created_at);
       $('liveJobPct').textContent = `${Math.round(pct)}%`;
       $('liveJobBar').style.width = `${pct}%`;
