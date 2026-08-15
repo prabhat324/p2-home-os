@@ -121,7 +121,47 @@ def analytics_dashboard_data():
     }
 
 
+@app.get("/api/dashboard")
+def reconciled_dashboard_data():
+    """Prefer fresh autopilot reconciliation over legacy job-row counters."""
+    data = base.dashboard_data()
+    reconciliation = data.get("state_reconciliation") or {}
+
+    if reconciliation.get("fresh"):
+        status_counts = reconciliation.get("status_counts") or {}
+        summary = data.setdefault("summary", {})
+
+        summary["ready"] = sum(
+            int(status_counts.get(key, 0) or 0)
+            for key in ("ready_to_upload", "ready")
+        )
+        summary["queued"] = sum(
+            int(status_counts.get(key, 0) or 0)
+            for key in ("queued", "pending")
+        )
+
+        processing_states = {
+            "downloading", "transcribing", "analyzing", "candidate_extraction",
+            "ranking", "hook_ranking", "retention_qa", "generating_visuals",
+            "rendering", "rendering_approved_clips", "quality_check", "metadata",
+            "uploading", "retrying", "processing", "running", "remote_qa",
+        }
+        summary["processing"] = sum(
+            int(status_counts.get(key, 0) or 0)
+            for key in processing_states
+        )
+
+        summary["failed"] = sum(
+            int(status_counts.get(key, 0) or 0)
+            for key in ("failed", "error")
+        )
+        summary["skipped"] = int(status_counts.get("skipped", 0) or 0)
+
+    return data
+
+
 # Keep the v0.5 dashboard API, health endpoint, telemetry endpoints and startup
-# behavior intact. Our routes are registered first, so / and /analytics above
-# win while all other existing routes continue to come from main.py.
+# behavior intact. Our routes are registered first, so /, /analytics and the
+# reconciled /api/dashboard route above win while all other existing routes
+# continue to come from main.py.
 app.include_router(base.app.router)
