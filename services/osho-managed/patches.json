@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "patches": [
+    {
+      "id": "ranker-json-hardening-v1",
+      "marker": "OSHO_JSON_HARDENING_V1",
+      "marker_file": "hook_ranker_v5.py",
+      "replacements": [
+        {
+          "file": "hook_ranker_v5.py",
+          "old": "def ollama_json(\n    model,\n    system,\n    user,\n    attempts=2,\n    ollama_url=None,\n):",
+          "new": "# OSHO_JSON_HARDENING_V1\ndef ollama_json(\n    model,\n    system,\n    user,\n    attempts=2,\n    ollama_url=None,\n    num_predict=256,\n):",
+          "count": 1
+        },
+        {
+          "file": "hook_ranker_v5.py",
+          "old": "    primary_url = ollama_url or LOCAL_OLLAMA_URL\n    urls = [primary_url]\n    if primary_url != LOCAL_OLLAMA_URL:\n        urls.append(LOCAL_OLLAMA_URL)\n",
+          "new": "    primary_url = ollama_url or LOCAL_OLLAMA_URL\n    urls = [primary_url]\n    if primary_url == LOCAL_OLLAMA_URL:\n        if REMOTE_OLLAMA_URL and REMOTE_OLLAMA_URL != LOCAL_OLLAMA_URL:\n            urls.append(REMOTE_OLLAMA_URL)\n    else:\n        urls.append(LOCAL_OLLAMA_URL)\n",
+          "count": 1
+        },
+        {
+          "file": "hook_ranker_v5.py",
+          "old": "        for attempt in range(1, url_attempts + 1):\n            try:\n                payload = {",
+          "new": "        for attempt in range(1, url_attempts + 1):\n            predict_budget = min(\n                1024,\n                max(128, int(num_predict))\n                * (2 ** (attempt - 1 + url_index)),\n            )\n            try:\n                payload = {",
+          "count": 1
+        },
+        {
+          "file": "hook_ranker_v5.py",
+          "old": "                        \"num_predict\": 256,",
+          "new": "                        \"num_predict\": predict_budget,",
+          "count": 1
+        },
+        {
+          "file": "hook_ranker_v5.py",
+          "old": "                result = json.loads(content)\n\n                if not isinstance(result, dict):",
+          "new": "                try:\n                    result = json.loads(content)\n                except json.JSONDecodeError as exc:\n                    done_reason = raw.get(\"done_reason\", \"unknown\")\n                    raise RuntimeError(\n                        \"invalid JSON \"\n                        f\"(done_reason={done_reason}, \"\n                        f\"num_predict={predict_budget}): {exc}\"\n                    ) from exc\n\n                if not isinstance(result, dict):",
+          "count": 1
+        },
+        {
+          "file": "hook_ranker_v5.py",
+          "old": "        if url != LOCAL_OLLAMA_URL:\n            print(\n                \"MODEL ENDPOINT FAILOVER: \"\n                f\"{endpoint_label(url)} -> compute-01\",\n                flush=True,\n            )\n",
+          "new": "        if url_index + 1 < len(urls):\n            print(\n                \"MODEL ENDPOINT FAILOVER: \"\n                f\"{endpoint_label(url)} -> \"\n                f\"{endpoint_label(urls[url_index + 1])}\",\n                flush=True,\n            )\n",
+          "count": 1
+        },
+        {
+          "file": "hook_ranker_v5.py",
+          "old": "        CLIP_SYSTEM,\n        (\n            f\"Duration: \"\n            f\"{candidate['duration']:.1f} seconds\\n\\n\"\n            \"Transcript:\\n\\n\"\n            + candidate[\"text\"]\n        ),\n        ollama_url=ollama_url,\n    )",
+          "new": "        CLIP_SYSTEM,\n        (\n            f\"Duration: \"\n            f\"{candidate['duration']:.1f} seconds\\n\\n\"\n            \"Transcript:\\n\\n\"\n            + candidate[\"text\"]\n        ),\n        ollama_url=ollama_url,\n        num_predict=512,\n    )",
+          "count": 1
+        },
+        {
+          "file": "hook_ranker_v5.py",
+          "old": "reason:\nA concise explanation of the retention strengths/weaknesses.\n\nBe strict. Most clips should NOT score above 85.",
+          "new": "reason:\nA concise explanation of the retention strengths/weaknesses.\nLimit reason to one sentence and at most 35 words.\n\nBe strict. Most clips should NOT score above 85.",
+          "count": 1
+        },
+        {
+          "file": "hook_ranker_v5.py",
+          "old": "        default=\"qwen3:8b\",",
+          "new": "        default=\"qwen3:4b-instruct\",",
+          "count": 1
+        }
+      ]
+    }
+  ]
+}
