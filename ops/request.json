@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-growth-v1-artifact-recheck-20260815-1842",
-  "operation": "osho-status",
+  "request_id": "osho-000065-growth-acceptance-inspect-20260815-1847",
+  "operation": "osho-ranker-diagnose",
   "target": "compute-01"
 }
