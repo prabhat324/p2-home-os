@@ -15,6 +15,7 @@ status() {
     echo "DASHBOARD_HEALTH=$(curl -fsS http://127.0.0.1:8787/health 2>/dev/null || echo unavailable)"
     echo "COMPOSE_PRESENT=$([[ -f "$REMOTE_DIR/compose.yml" ]] && echo yes || echo no)"
     echo "DATABASE_PRESENT=$([[ -f "$REMOTE_DIR/data/osho.db" ]] && echo yes || echo no)"
+    echo "DOCKERIGNORE_PRESENT=$([[ -f "$REMOTE_DIR/.dockerignore" ]] && echo yes || echo no)"
 }
 
 deploy_master() {
@@ -32,6 +33,7 @@ deploy_master() {
     mkdir -p "$tmp/app/static"
 
     log "downloading fixed dashboard files from master"
+    curl -fsSL "$RAW_BASE/.dockerignore" -o "$tmp/.dockerignore"
     curl -fsSL "$RAW_BASE/Dockerfile" -o "$tmp/Dockerfile"
     curl -fsSL "$RAW_BASE/requirements.txt" -o "$tmp/requirements.txt"
     curl -fsSL "$RAW_BASE/app/main.py" -o "$tmp/app/main.py"
@@ -39,19 +41,23 @@ deploy_master() {
 
     python3 -m py_compile "$tmp/app/main.py"
     grep -q '<!doctype html>' "$tmp/app/static/index.html"
+    grep -qx 'backups/' "$tmp/.dockerignore"
+    grep -qx 'data/' "$tmp/.dockerignore"
 
     stamp="$(date +%Y%m%d-%H%M%S)"
     backup="$REMOTE_DIR/backups/${stamp}-git-helper"
     mkdir -p "$backup/app/static"
 
-    for item in Dockerfile requirements.txt app/main.py app/static/index.html; do
+    for item in .dockerignore Dockerfile requirements.txt app/main.py app/static/index.html; do
         if [[ -f "$REMOTE_DIR/$item" ]]; then
             cp -a "$REMOTE_DIR/$item" "$backup/$item"
         fi
     done
+    chown -R psquare:psquare "$backup"
 
     log "backup created at $backup"
 
+    install -o psquare -g psquare -m 0664 "$tmp/.dockerignore" "$REMOTE_DIR/.dockerignore"
     install -o psquare -g psquare -m 0664 "$tmp/Dockerfile" "$REMOTE_DIR/Dockerfile"
     install -o psquare -g psquare -m 0664 "$tmp/requirements.txt" "$REMOTE_DIR/requirements.txt"
     install -o psquare -g psquare -m 0664 "$tmp/app/main.py" "$REMOTE_DIR/app/main.py"
