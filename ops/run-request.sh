@@ -46,6 +46,13 @@ case "${operation}" in
     fi
     playbook="playbooks/dashboard-diagnose.yml"
     ;;
+  dashboard-deploy)
+    if [[ "${target}" != "compute-02" ]]; then
+      echo "dashboard-deploy is restricted to compute-02" >&2
+      exit 2
+    fi
+    playbook="playbooks/dashboard-deploy.yml"
+    ;;
   osho-maintenance)
     if [[ "${target}" != "compute-01" ]]; then
       echo "osho-maintenance is restricted to compute-01" >&2
