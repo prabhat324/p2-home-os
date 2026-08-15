@@ -10,10 +10,11 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 DATA_DIR = Path("/data")
 DB_PATH = DATA_DIR / "osho.db"
+DASHBOARD_VERSION = "0.4.1"
 
 app = FastAPI(
     title="Project Osho Dashboard API",
-    version="0.4.0",
+    version=DASHBOARD_VERSION,
 )
 
 
@@ -78,7 +79,9 @@ WORKER_COLUMNS = {
     "load_1m": "REAL",
     "disk_free_gb": "REAL",
     "autopilot_status": "TEXT",
+    "health_status": "TEXT",
     "telemetry_version": "TEXT",
+    "telemetry_last_seen": "TEXT",
     "notes": "TEXT",
 }
 
@@ -147,7 +150,9 @@ def db():
             load_1m REAL,
             disk_free_gb REAL,
             autopilot_status TEXT,
+            health_status TEXT,
             telemetry_version TEXT,
+            telemetry_last_seen TEXT,
             notes TEXT,
             last_seen TEXT
         )
@@ -177,7 +182,7 @@ def health():
     return {
         "status": "healthy",
         "service": "Project Osho Dashboard",
-        "version": "0.4.0",
+        "version": DASHBOARD_VERSION,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -185,86 +190,117 @@ def health():
 @app.post("/api/worker/heartbeat")
 def worker_heartbeat(heartbeat: WorkerHeartbeat):
     now = datetime.now(timezone.utc).isoformat()
-    progress = max(0, min(100, float(heartbeat.progress)))
-
     conn = db()
-    conn.execute(
-        """
-        INSERT INTO workers (
-            name, status, role, ip, current_job, stage, progress,
-            service, service_version, worker_port,
-            gpu_name, gpu_utilization, vram_used_mb, vram_total_mb,
-            gpu_temperature_c, gpu_power_w, ollama_model,
-            whisper_model, device, compute_type,
-            load_1m, disk_free_gb, autopilot_status, telemetry_version,
-            notes, last_seen
+
+    if heartbeat.telemetry_version:
+        # Rich v0.4 telemetry is deliberately separate from the legacy
+        # operational heartbeat. It must never erase current_job/stage/progress
+        # maintained by the existing compute-01 heartbeat sender.
+        conn.execute(
+            """
+            INSERT INTO workers (
+                name, status, role, ip,
+                service, service_version, worker_port,
+                gpu_name, gpu_utilization, vram_used_mb, vram_total_mb,
+                gpu_temperature_c, gpu_power_w, ollama_model,
+                whisper_model, device, compute_type,
+                load_1m, disk_free_gb, autopilot_status,
+                health_status, telemetry_version, telemetry_last_seen, notes
+            )
+            VALUES (
+                :name, :status, :role, :ip,
+                :service, :service_version, :worker_port,
+                :gpu_name, :gpu_utilization, :vram_used_mb, :vram_total_mb,
+                :gpu_temperature_c, :gpu_power_w, :ollama_model,
+                :whisper_model, :device, :compute_type,
+                :load_1m, :disk_free_gb, :autopilot_status,
+                :health_status, :telemetry_version, :telemetry_last_seen, :notes
+            )
+            ON CONFLICT(name) DO UPDATE SET
+                role = COALESCE(excluded.role, workers.role),
+                ip = COALESCE(excluded.ip, workers.ip),
+                service = COALESCE(excluded.service, workers.service),
+                service_version = COALESCE(excluded.service_version, workers.service_version),
+                worker_port = COALESCE(excluded.worker_port, workers.worker_port),
+                gpu_name = COALESCE(excluded.gpu_name, workers.gpu_name),
+                gpu_utilization = excluded.gpu_utilization,
+                vram_used_mb = excluded.vram_used_mb,
+                vram_total_mb = COALESCE(excluded.vram_total_mb, workers.vram_total_mb),
+                gpu_temperature_c = excluded.gpu_temperature_c,
+                gpu_power_w = excluded.gpu_power_w,
+                ollama_model = excluded.ollama_model,
+                whisper_model = COALESCE(excluded.whisper_model, workers.whisper_model),
+                device = COALESCE(excluded.device, workers.device),
+                compute_type = COALESCE(excluded.compute_type, workers.compute_type),
+                load_1m = excluded.load_1m,
+                disk_free_gb = excluded.disk_free_gb,
+                autopilot_status = excluded.autopilot_status,
+                health_status = excluded.health_status,
+                telemetry_version = excluded.telemetry_version,
+                telemetry_last_seen = excluded.telemetry_last_seen,
+                notes = excluded.notes
+            """,
+            {
+                "name": heartbeat.name,
+                "status": heartbeat.status,
+                "role": heartbeat.role,
+                "ip": heartbeat.ip,
+                "service": heartbeat.service,
+                "service_version": heartbeat.service_version,
+                "worker_port": heartbeat.worker_port,
+                "gpu_name": heartbeat.gpu_name,
+                "gpu_utilization": heartbeat.gpu_utilization,
+                "vram_used_mb": heartbeat.vram_used_mb,
+                "vram_total_mb": heartbeat.vram_total_mb,
+                "gpu_temperature_c": heartbeat.gpu_temperature_c,
+                "gpu_power_w": heartbeat.gpu_power_w,
+                "ollama_model": heartbeat.ollama_model,
+                "whisper_model": heartbeat.whisper_model,
+                "device": heartbeat.device,
+                "compute_type": heartbeat.compute_type,
+                "load_1m": heartbeat.load_1m,
+                "disk_free_gb": heartbeat.disk_free_gb,
+                "autopilot_status": heartbeat.autopilot_status,
+                "health_status": heartbeat.status,
+                "telemetry_version": heartbeat.telemetry_version,
+                "telemetry_last_seen": now,
+                "notes": heartbeat.notes,
+            },
         )
-        VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?
+    else:
+        # Backward-compatible path for the existing v0.3 heartbeat sender.
+        # It remains authoritative for current job/stage/progress.
+        progress = max(0, min(100, float(heartbeat.progress)))
+        conn.execute(
+            """
+            INSERT INTO workers (
+                name, status, current_job, stage, progress, last_seen
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET
+                status = excluded.status,
+                current_job = excluded.current_job,
+                stage = excluded.stage,
+                progress = excluded.progress,
+                last_seen = excluded.last_seen
+            """,
+            (
+                heartbeat.name,
+                heartbeat.status,
+                heartbeat.current_job,
+                heartbeat.stage,
+                progress,
+                now,
+            ),
         )
-        ON CONFLICT(name) DO UPDATE SET
-            status = excluded.status,
-            role = COALESCE(excluded.role, workers.role),
-            ip = COALESCE(excluded.ip, workers.ip),
-            current_job = excluded.current_job,
-            stage = excluded.stage,
-            progress = excluded.progress,
-            service = COALESCE(excluded.service, workers.service),
-            service_version = COALESCE(excluded.service_version, workers.service_version),
-            worker_port = COALESCE(excluded.worker_port, workers.worker_port),
-            gpu_name = COALESCE(excluded.gpu_name, workers.gpu_name),
-            gpu_utilization = excluded.gpu_utilization,
-            vram_used_mb = excluded.vram_used_mb,
-            vram_total_mb = COALESCE(excluded.vram_total_mb, workers.vram_total_mb),
-            gpu_temperature_c = excluded.gpu_temperature_c,
-            gpu_power_w = excluded.gpu_power_w,
-            ollama_model = excluded.ollama_model,
-            whisper_model = COALESCE(excluded.whisper_model, workers.whisper_model),
-            device = COALESCE(excluded.device, workers.device),
-            compute_type = COALESCE(excluded.compute_type, workers.compute_type),
-            load_1m = excluded.load_1m,
-            disk_free_gb = excluded.disk_free_gb,
-            autopilot_status = excluded.autopilot_status,
-            telemetry_version = COALESCE(excluded.telemetry_version, workers.telemetry_version),
-            notes = excluded.notes,
-            last_seen = excluded.last_seen
-        """,
-        (
-            heartbeat.name,
-            heartbeat.status,
-            heartbeat.role,
-            heartbeat.ip,
-            heartbeat.current_job,
-            heartbeat.stage,
-            progress,
-            heartbeat.service,
-            heartbeat.service_version,
-            heartbeat.worker_port,
-            heartbeat.gpu_name,
-            heartbeat.gpu_utilization,
-            heartbeat.vram_used_mb,
-            heartbeat.vram_total_mb,
-            heartbeat.gpu_temperature_c,
-            heartbeat.gpu_power_w,
-            heartbeat.ollama_model,
-            heartbeat.whisper_model,
-            heartbeat.device,
-            heartbeat.compute_type,
-            heartbeat.load_1m,
-            heartbeat.disk_free_gb,
-            heartbeat.autopilot_status,
-            heartbeat.telemetry_version,
-            heartbeat.notes,
-            now,
-        ),
-    )
+
     conn.commit()
     conn.close()
 
     return {
         "ok": True,
         "worker": heartbeat.name,
+        "heartbeat_type": "telemetry" if heartbeat.telemetry_version else "operational",
         "received_at": now,
     }
 
@@ -313,6 +349,16 @@ def update_job(job: JobUpdate):
     conn.close()
 
     return {"ok": True, "job": job.id, "status": job.status}
+
+
+def timestamp_age(now: datetime, value: str | None):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+        return max(0.0, (now - parsed).total_seconds())
+    except Exception:
+        return None
 
 
 @app.get("/api/dashboard")
@@ -368,21 +414,41 @@ def dashboard_data():
 
     for row in worker_rows:
         worker = dict(row)
-        try:
-            last_seen = datetime.fromisoformat(worker["last_seen"])
-            age = (now - last_seen).total_seconds()
-            worker["age_seconds"] = round(age, 1)
+        operational_age = timestamp_age(now, worker.get("last_seen"))
+        telemetry_age = timestamp_age(now, worker.get("telemetry_last_seen"))
+        available_ages = [age for age in (operational_age, telemetry_age) if age is not None]
+        age = min(available_ages) if available_ages else None
 
-            reported = worker.get("status") or "unknown"
-            if age > 90:
-                worker["status"] = "offline"
-            elif age > 30:
-                worker["status"] = "stale"
-            elif reported in ("ok", "healthy"):
-                worker["status"] = "online"
-        except Exception:
-            worker["status"] = "unknown"
-            worker["age_seconds"] = None
+        worker["operational_age_seconds"] = (
+            round(operational_age, 1) if operational_age is not None else None
+        )
+        worker["telemetry_age_seconds"] = (
+            round(telemetry_age, 1) if telemetry_age is not None else None
+        )
+        worker["age_seconds"] = round(age, 1) if age is not None else None
+
+        if telemetry_age is None:
+            worker["telemetry_state"] = "missing"
+        elif telemetry_age > 90:
+            worker["telemetry_state"] = "offline"
+        elif telemetry_age > 30:
+            worker["telemetry_state"] = "stale"
+        else:
+            worker["telemetry_state"] = "fresh"
+
+        reported = (worker.get("status") or "unknown").lower()
+        health_status = (worker.get("health_status") or "").lower()
+
+        if age is None or age > 90:
+            worker["status"] = "offline"
+        elif telemetry_age is not None and telemetry_age <= 30 and health_status == "degraded":
+            worker["status"] = "degraded"
+        elif age > 30:
+            worker["status"] = "stale"
+        elif reported in ("drain", "maintenance"):
+            worker["status"] = reported
+        else:
+            worker["status"] = "online"
 
         workers.append(worker)
 
@@ -390,7 +456,7 @@ def dashboard_data():
 
     return {
         "timestamp": now.isoformat(),
-        "dashboard_version": "0.4.0",
+        "dashboard_version": DASHBOARD_VERSION,
         "mode": "Zero-Touch V5",
         "summary": {
             "uploaded": uploaded,
