@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-maintenance-20260814-2147",
-  "operation": "osho-maintenance",
+  "request_id": "osho-publish-audit-20260814-2153",
+  "operation": "osho-publish-audit",
   "target": "compute-01"
 }
