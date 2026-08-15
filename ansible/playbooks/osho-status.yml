@@ -1,22 +1,29 @@
 ---
-- name: Inspect Project Osho boundary consensus inference path
+- name: Inspect Project Osho boundary model call loop
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Read boundary consensus model and Ollama code
+    - name: Read boundary model request and loop
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker
-        echo '=== MODEL AND URL REFERENCES ==='
-        grep -nE 'qwen3:4b-instruct|llama3.1:8b|OLLAMA|api/chat|urlopen|timeout|def .*ollama|def .*model' boundary_consensus.py 2>/dev/null || true
-        echo '=== RELEVANT SOURCE ==='
-        sed -n '1,260p' boundary_consensus.py
+        echo '=== ASK MODEL ==='
+        sed -n '370,500p' boundary_consensus.py
+        echo '=== MODEL LOOP REFERENCES ==='
+        grep -nE 'for model in MODELS|ask_model\(|MODELS' boundary_consensus.py 2>/dev/null || true
+        echo '=== MODEL LOOP CONTEXT ==='
+        line=$(grep -n 'for model in MODELS' boundary_consensus.py | head -1 | cut -d: -f1)
+        if [ -n "$line" ]; then
+          start=$((line - 35)); [ "$start" -lt 1 ] && start=1
+          end=$((line + 100))
+          sed -n "${start},${end}p" boundary_consensus.py
+        fi
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show boundary consensus path
+    - name: Show boundary call loop
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
