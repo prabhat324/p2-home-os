@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-watch-ranker-20260815-1026",
-  "operation": "osho-ranker-diagnose",
+  "request_id": "osho-buffer-verify-20260815-1032",
+  "operation": "osho-buffer",
   "target": "compute-01"
 }
