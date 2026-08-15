@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#090b10">
+<title>Project Osho Analytics</title>
+<style>
+:root{color-scheme:dark;--bg:#090b10;--card:#121620;--card2:#171c27;--border:#252b39;--text:#f3f5f7;--muted:#8992a3;--green:#43d17a;--yellow:#efc94c;--red:#ff6262;--blue:#5fa8ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.app{max-width:900px;margin:auto;padding:calc(20px + env(safe-area-inset-top)) 16px calc(30px + env(safe-area-inset-bottom))}header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}h1{margin:0;font-size:25px}.subtitle{margin-top:4px;color:var(--muted);font-size:13px}.live{display:flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid var(--border);border-radius:999px;font-size:12px;white-space:nowrap}.dot{width:8px;height:8px;border-radius:50%;background:currentColor}.online{color:var(--green)}.stale,.waiting,.unknown{color:var(--yellow)}.offline,.invalid{color:var(--red)}.nav{display:flex;gap:8px;margin:0 0 18px}.nav a{padding:8px 11px;border:1px solid var(--border);border-radius:10px;background:var(--card);font-size:12px;font-weight:700;letter-spacing:.6px;color:var(--blue);text-decoration:none}.nav a.active{border-color:var(--blue);background:rgba(95,168,255,.12)}.metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}.metric{padding:14px;background:var(--card);border:1px solid var(--border);border-radius:16px}.metric-value{font-size:27px;font-weight:750}.metric-label{margin-top:4px;color:var(--muted);font-size:12px}section{margin-bottom:14px;padding:17px;background:var(--card);border:1px solid var(--border);border-radius:16px}.section-title{margin-bottom:13px;color:var(--muted);font-size:12px;font-weight:700;letter-spacing:1px}.row{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--border)}.row:first-of-type{border-top:none}.label{color:var(--muted)}.value{font-weight:650;text-align:right}.videos{display:grid;gap:10px}.video{padding:14px;background:var(--card2);border:1px solid var(--border);border-radius:13px}.video-title{font-weight:700;line-height:1.25}.video-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.chip{padding:5px 7px;border:1px solid var(--border);border-radius:8px;color:#c8ced8;font-size:11px}.rank{color:var(--blue);font-weight:800;margin-right:7px}.empty{color:var(--muted);padding:8px 0}.muted{color:var(--muted)}a{color:var(--blue);text-decoration:none}footer{margin-top:18px;text-align:center;color:var(--muted);font-size:11px}@media(min-width:600px){.metrics{grid-template-columns:repeat(4,1fr)}}
+</style>
+</head>
+<body>
+<div class="app">
+<header><div><h1>Project Osho</h1><div class="subtitle">YouTube Analytics</div></div><div id="status" class="live waiting"><span class="dot"></span><span id="status-text">WAITING</span></div></header>
+<div class="nav"><a href="/">PIPELINE</a><a class="active" href="/analytics">ANALYTICS</a></div>
+<div class="metrics">
+  <div class="metric"><div class="metric-value" id="views">0</div><div class="metric-label">Channel views</div></div>
+  <div class="metric"><div class="metric-value" id="subscribers">0</div><div class="metric-label">Subscribers</div></div>
+  <div class="metric"><div class="metric-value" id="engaged">0</div><div class="metric-label">Engaged views</div></div>
+  <div class="metric"><div class="metric-value" id="watch-time">0 min</div><div class="metric-label">Watch time</div></div>
+</div>
+<section>
+  <div class="section-title">CHANNEL</div>
+  <div class="row"><span class="label">Channel videos</span><span class="value" id="channel-videos">—</span></div>
+  <div class="row"><span class="label">Tracked Shorts</span><span class="value" id="tracked-videos">—</span></div>
+  <div class="row"><span class="label">Subscribers gained</span><span class="value" id="subs-gained">—</span></div>
+  <div class="row"><span class="label">Average viewed %</span><span class="value" id="avg-view">—</span></div>
+  <div class="row"><span class="label">Analytics collected</span><span class="value" id="collected">—</span></div>
+</section>
+<section>
+  <div class="section-title">SHORTS — RANKED BY VIEWS</div>
+  <div id="videos" class="videos"><div class="empty">Waiting for YouTube analytics…</div></div>
+</section>
+<footer>YouTube analytics can lag behind public counters · auto-refresh every 10 seconds · <span id="last-update">waiting</span></footer>
+</div>
+<script>
+const nf=new Intl.NumberFormat();
+function num(v){const n=Number(v);return Number.isFinite(n)?n:0}
+function fmt(v){return nf.format(Math.round(num(v)))}
+function pick(...vals){for(const v of vals){if(v!==undefined&&v!==null&&v!=="")return v}return null}
+function esc(v){const d=document.createElement('div');d.textContent=v??'';return d.innerHTML}
+function minutes(v){const n=num(v);return n>=60?`${(n/60).toFixed(n>=600?0:1)} h`:`${Math.round(n)} min`}
+function statusClass(s){return ['online','stale','offline','invalid','waiting','unknown'].includes(s)?s:'unknown'}
+function normalize(payload){
+  const a=payload||{};
+  const channel=a.channel||a.channel_summary||a.channel_stats||{};
+  const videos=Array.isArray(a.videos)?a.videos:(Array.isArray(a.video_stats)?a.video_stats:[]);
+  const total=(key)=>videos.reduce((sum,v)=>sum+num(v?.[key]),0);
+  const avgs=videos.map(v=>Number(v?.average_view_percentage)).filter(Number.isFinite);
+  return {
+    channelViews:pick(channel.public_view_count,channel.view_count,a.public_view_count,a.channel_views,total('public_views')),
+    subscribers:pick(channel.subscriber_count,a.subscriber_count,a.subscribers),
+    channelVideos:pick(channel.video_count,a.video_count,a.channel_video_count),
+    engaged:pick(a.engaged_views,total('engaged_views')),
+    watch:pick(a.estimated_minutes_watched,a.watch_time_minutes,total('estimated_minutes_watched')),
+    subsGained:pick(a.subscribers_gained,total('subscribers_gained')),
+    avgView:pick(a.average_view_percentage,avgs.length?avgs.reduce((x,y)=>x+y,0)/avgs.length:null),
+    collected:pick(a.collected_at,a.generated_at,a.snapshot_at,a.updated_at),
+    videos
+  };
+}
+function renderVideos(videos){
+  const target=document.getElementById('videos');
+  if(!videos.length){target.innerHTML='<div class="empty">No tracked Shorts in the analytics payload yet.</div>';return}
+  const sorted=[...videos].sort((a,b)=>num(b.public_views)-num(a.public_views));
+  target.innerHTML=sorted.map((v,i)=>{
+    const id=pick(v.video_id,v.youtube_id);
+    const title=pick(v.title,v.reel_id,id,'Untitled Short');
+    const href=id?`https://www.youtube.com/watch?v=${encodeURIComponent(id)}`:null;
+    const chips=[
+      `Views ${fmt(v.public_views)}`,
+      `Engaged ${fmt(v.engaged_views)}`,
+      `Likes ${fmt(pick(v.public_likes,v.analytics_likes))}`,
+      `Comments ${fmt(pick(v.public_comments,v.analytics_comments))}`,
+      `Watch ${minutes(v.estimated_minutes_watched)}`,
+      Number.isFinite(Number(v.average_view_percentage))?`Viewed ${Number(v.average_view_percentage).toFixed(1)}%`:null,
+      Number.isFinite(Number(v.subscribers_gained))?`Subs +${fmt(v.subscribers_gained)}`:null
+    ].filter(Boolean);
+    return `<div class="video"><div class="video-title"><span class="rank">#${i+1}</span>${href?`<a href="${href}" target="_blank" rel="noopener">${esc(title)}</a>`:esc(title)}</div><div class="video-meta">${chips.map(c=>`<span class="chip">${esc(c)}</span>`).join('')}</div></div>`
+  }).join('');
+}
+async function refresh(){
+  try{
+    const r=await fetch('/api/analytics',{cache:'no-store'});if(!r.ok)throw new Error(`HTTP ${r.status}`);
+    const data=await r.json();const status=data.status||'unknown';
+    const badge=document.getElementById('status');badge.className=`live ${statusClass(status)}`;document.getElementById('status-text').textContent=status.toUpperCase();
+    if(!data.analytics){document.getElementById('last-update').textContent='waiting for reporter';return}
+    const x=normalize(data.analytics);
+    document.getElementById('views').textContent=fmt(x.channelViews);
+    document.getElementById('subscribers').textContent=fmt(x.subscribers);
+    document.getElementById('engaged').textContent=fmt(x.engaged);
+    document.getElementById('watch-time').textContent=minutes(x.watch);
+    document.getElementById('channel-videos').textContent=x.channelVideos==null?'—':fmt(x.channelVideos);
+    document.getElementById('tracked-videos').textContent=fmt(x.videos.length);
+    document.getElementById('subs-gained').textContent=x.subsGained==null?'—':`+${fmt(x.subsGained)}`;
+    document.getElementById('avg-view').textContent=x.avgView==null?'—':`${Number(x.avgView).toFixed(1)}%`;
+    document.getElementById('collected').textContent=x.collected?new Date(x.collected).toLocaleString():(data.last_seen?new Date(data.last_seen).toLocaleString():'—');
+    renderVideos(x.videos);
+    document.getElementById('last-update').textContent=data.age_seconds==null?'just now':`${Math.round(data.age_seconds)}s ago`;
+  }catch(e){const badge=document.getElementById('status');badge.className='live offline';document.getElementById('status-text').textContent='OFFLINE';document.getElementById('last-update').textContent=e.message}
+}
+refresh();setInterval(refresh,10000);
+</script>
+</body>
+</html>
