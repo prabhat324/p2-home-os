@@ -46,6 +46,13 @@ case "${operation}" in
     fi
     playbook="playbooks/dashboard-diagnose.yml"
     ;;
+  osho-maintenance)
+    if [[ "${target}" != "compute-01" ]]; then
+      echo "osho-maintenance is restricted to compute-01" >&2
+      exit 2
+    fi
+    playbook="playbooks/osho-maintenance.yml"
+    ;;
   *)
     echo "Operation is not allowed: ${operation}" >&2
     exit 2
