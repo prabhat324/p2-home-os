@@ -1,54 +1,36 @@
 ---
-- name: Inspect Project Osho worker reload safety signals
+- name: Inspect Project Osho rendering and metadata pipeline
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect worker process, port, compose definition, and persisted active jobs
+    - name: Inspect renderer files, functions, and recent artifacts
       ansible.builtin.shell: |
         set -o pipefail
-        echo "NOW=$(date -Ins)"
-        echo '=== PORT 8800 ==='
-        ss -ltn 2>/dev/null | grep -E '(:8800[[:space:]])' || true
-        echo '=== UVICORN / WORKER PROCESSES ==='
-        ps -eo pid,etimes,user,comm,args | grep -E '[u]vicorn|[o]sho-worker|[a]pp:app' || true
-        echo '=== COMPOSE WORKER REFERENCES ==='
         cd /srv/compose/osho-worker
-        for f in docker-compose.yml compose.yml compose.yaml docker-compose.yaml; do
-          [ -f "$f" ] || continue
-          echo "FILE=$f"
-          grep -nC 5 -E 'container_name|8800|uvicorn|app:app|restart:' "$f" || true
-        done
-        echo '=== PERSISTED JOB STATES ==='
-        python3 - <<'PY'
-        import json
-        from pathlib import Path
-        roots=[Path('/srv/osho/work'),Path('/srv/osho/jobs')]
-        terminal={'completed','complete','failed','cancelled','canceled','published','done','ready_to_upload'}
-        rows=[]
-        for root in roots:
-            if not root.exists(): continue
-            for p in root.glob('*/job.json'):
-                try: d=json.loads(p.read_text(encoding='utf-8'))
-                except Exception: continue
-                status=str(d.get('status') or d.get('stage') or '').lower()
-                rows.append((p.stat().st_mtime,p,str(d.get('id') or p.parent.name),status,str(d.get('stage') or '')))
-        rows.sort(reverse=True,key=lambda x:x[0])
-        active=[r for r in rows if r[3] and r[3] not in terminal]
-        print('JOB_FILES=' + str(len(rows)))
-        print('ACTIVE_PERSISTED=' + str(len(active)))
-        for _,p,j,s,stage in active[:12]: print(f'ACTIVE={j}|status={s}|stage={stage}|{p}')
-        print('LATEST_BEGIN')
-        for _,p,j,s,stage in rows[:12]: print(f'JOB={j}|status={s}|stage={stage}|{p}')
-        print('LATEST_END')
-        PY
-        echo '=== AUTOPILOT PIPELINE ==='
-        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && $4=="python3" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/ || $0 ~ /boundary_consensus.py/) {print}' || true
+        echo "NOW=$(date -Ins)"
+        echo '=== RENDER/METADATA FILES ==='
+        find . -maxdepth 2 -type f \( \
+          -iname '*render*' -o -iname '*reel*' -o -iname '*caption*' -o \
+          -iname '*subtitle*' -o -iname '*metadata*' -o -iname '*upload*' \
+        \) -printf '%p\n' | sort | head -120
+        echo '=== CODE REFERENCES ==='
+        grep -RInE --include='*.py' 'ffmpeg|drawtext|subtitles=|ass=|caption|subtitle|1080|1920|crop=|scale=|zoom|loudnorm|metadata|title|description|hashtags' . \
+          | grep -vE '/backups?/|\.backup|__pycache__' \
+          | head -260 || true
+        echo '=== AUTOPILOT RENDER BLOCKS ==='
+        grep -nE 'render|reel|caption|subtitle|metadata|upload' osho_autopilot.py | head -120 || true
+        echo '=== RECENT RENDERS ==='
+        find /srv/osho -type f \( -name '*.mp4' -o -name '*.ass' -o -name '*.srt' \) -printf '%T@ %p %s bytes\n' 2>/dev/null \
+          | sort -nr | head -30
+        echo '=== RECENT METADATA JSON ==='
+        find /srv/osho -type f -name '*.json' -printf '%T@ %p\n' 2>/dev/null \
+          | sort -nr | grep -Ei 'metadata|publish|reel|render|candidate' | head -30 || true
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show worker reload safety signals
+    - name: Show renderer inspection
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
