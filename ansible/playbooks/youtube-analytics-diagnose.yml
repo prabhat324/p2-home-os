@@ -1,74 +1,54 @@
 ---
-- name: Locate Project Osho YouTube analytics components
-  hosts: osho_nodes
+- name: Inspect Project Osho analytics 24h view source
+  hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Find analytics UI, producers, and services
+    - name: Inspect reporter and calculate historical view deltas
       ansible.builtin.shell: |
         set -eu
-        echo "HOST=$(hostname)"
-
-        for path in \
-          /srv/compose/osho-dashboard/app/static/analytics.html \
-          /srv/compose/osho-dashboard/backups/20260814-210924/app/static/analytics.html; do
-          if [ -f "$path" ]; then
-            printf 'ANALYTICS_HTML=%s LINES=%s SIZE=%s\n' "$path" "$(wc -l < "$path")" "$(stat -c '%s' "$path")"
-          fi
-        done
-
-        echo 'MATCHING_SERVICES_BEGIN'
-        systemctl list-units --type=service --all --no-legend 2>/dev/null \
-          | awk '{print $1, $3, $4}' \
-          | grep -Ei 'analytics|youtube|osho.*metric|metric.*osho' \
-          | head -40 || true
-        echo 'MATCHING_SERVICES_END'
-
-        echo 'MATCHING_FILES_BEGIN'
-        find /srv/compose /srv/osho -maxdepth 6 -type f 2>/dev/null \
-          \( -iname '*analytics*' -o -iname '*youtube*stats*' -o -iname '*youtube*metric*' \) \
-          | sort | head -100 || true
-        echo 'MATCHING_FILES_END'
-
-        echo 'PRODUCER_FILES_BEGIN'
-        grep -RIlE 'api/analytics/update|subscriberCount|estimatedMinutesWatched|averageViewDuration|impressions|clickThroughRate' \
-          /srv/compose /srv/osho 2>/dev/null \
-          --include='*.py' --include='*.sh' --include='*.service' --include='*.html' \
-          | sort | head -100 || true
-        echo 'PRODUCER_FILES_END'
-
-        html='/srv/compose/osho-dashboard/app/static/analytics.html'
-        if [ -f "$html" ]; then
-          python3 - "$html" <<'PY'
+        echo '=== REPORTER SOURCE ==='
+        python3 - <<'PY'
         from pathlib import Path
-        import re, sys
-        p = Path(sys.argv[1])
-        lines = p.read_text(errors='replace').splitlines()
-        kw = re.compile(r'analytics|youtube|subscriber|views|watch.?time|impression|ctr|video|fetch\(', re.I)
-        secretish = re.compile(r'(api[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token|authorization|bearer|AIza[0-9A-Za-z_-]+)', re.I)
-        hits = [i for i,l in enumerate(lines) if kw.search(l)]
-        ranges=[]
-        for i in hits:
-            s,e=max(0,i-2),min(len(lines),i+3)
-            if ranges and s <= ranges[-1][1]: ranges[-1]=(ranges[-1][0],max(ranges[-1][1],e))
-            else: ranges.append((s,e))
-        shown=0
-        print('ANALYTICS_HTML_SNIPPETS_BEGIN')
-        for s,e in ranges:
-            for n in range(s,e):
-                if shown >= 160: break
-                text=lines[n]
-                if secretish.search(text): text='[REDACTED SECRET-LIKE LINE]'
-                print(f'{n+1}: {text}')
-                shown += 1
-            if shown >= 160: break
-        print('ANALYTICS_HTML_SNIPPETS_END')
+        p=Path('/srv/osho/analytics/dashboard_reporter.py')
+        if not p.exists():
+            print('MISSING')
+        else:
+            for n,line in enumerate(p.read_text(errors='replace').splitlines(),1):
+                if any(k in line.lower() for k in ('payload','video','channel','sqlite','post','analytics')):
+                    if any(s in line.lower() for s in ('token','secret','authorization','credential')):
+                        continue
+                    print(f'{n}: {line}')
         PY
-        fi
+        echo '=== 24H HISTORY ==='
+        python3 - <<'PY'
+        import sqlite3, json
+        from datetime import datetime, timezone, timedelta
+        db='/srv/osho/analytics/analytics.sqlite'
+        c=sqlite3.connect(db); c.row_factory=sqlite3.Row
+        latest=c.execute('select max(collected_at) t from video_history').fetchone()['t']
+        print('LATEST='+str(latest))
+        if latest:
+            lt=datetime.fromisoformat(latest); target=lt-timedelta(hours=24)
+            rows=c.execute('select distinct collected_at from video_history order by collected_at').fetchall()
+            times=[datetime.fromisoformat(r['collected_at']) for r in rows]
+            base=max((t for t in times if t<=target), default=min(times) if times else None)
+            print('TARGET='+target.isoformat())
+            print('BASE='+str(base.isoformat() if base else None))
+            def total_at(ts):
+                if ts is None:return 0
+                return c.execute('select coalesce(sum(public_views),0) s from video_history where collected_at=?',(ts.isoformat(),)).fetchone()['s']
+            latest_total=total_at(lt); base_total=total_at(base)
+            print('LATEST_TRACKED_TOTAL='+str(latest_total))
+            print('BASE_TRACKED_TOTAL='+str(base_total))
+            print('DELTA='+str(max(0,latest_total-base_total)))
+            print('WINDOW_HOURS='+str(round((lt-base).total_seconds()/3600,2) if base else None))
+            print('LATEST_VIDEO_ROWS='+str(c.execute('select count(*) n from video_history where collected_at=?',(latest,)).fetchone()['n']))
+        c.close()
+        PY
       args:
         executable: /bin/bash
-      register: youtube_analytics_diag
+      register: diag
       changed_when: false
-
-    - name: Print YouTube analytics diagnostic
+    - name: Show diagnostic
       ansible.builtin.debug:
-        msg: "{{ youtube_analytics_diag.stdout_lines }}"
+        msg: "{{ diag.stdout_lines }}"
