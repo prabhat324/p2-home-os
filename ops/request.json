@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-youtube-video-metrics-20260815-0122",
-  "operation": "youtube-analytics-runtime",
+  "request_id": "osho-pipeline-watch-20260815-0122",
+  "operation": "osho-status",
   "target": "compute-01"
 }
