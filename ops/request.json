@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-gpu-status-20260815-0928",
-  "operation": "gpu-status",
-  "target": "gpu_nodes"
+  "request_id": "osho-publish-troubleshoot-20260815-0934",
+  "operation": "osho-status",
+  "target": "osho_nodes"
 }
