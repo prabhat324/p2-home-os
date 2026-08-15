@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-v052-storage-deploy-20260815",
-  "operation": "dashboard-deploy",
-  "target": "compute-02"
+  "request_id": "osho-gap-diagnose-1786811807416",
+  "operation": "osho-publisher-diagnose",
+  "target": "compute-01"
 }
