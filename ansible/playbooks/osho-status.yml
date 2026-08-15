@@ -1,89 +1,54 @@
 ---
-- name: Preflight Project Osho growth renderer patch
+- name: Inspect Project Osho worker reload safety signals
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Validate manifest replacements, FFmpeg CTA filter, and worker job state without changing files
+    - name: Inspect worker process, port, compose definition, and persisted active jobs
       ansible.builtin.shell: |
         set -o pipefail
-        cd /srv/compose/osho-worker
         echo "NOW=$(date -Ins)"
-        manifest=$(mktemp)
-        jobs=$(mktemp)
-        trap 'rm -f "$manifest" "$jobs"' EXIT
-
-        echo '=== MANIFEST ==='
-        curl -fsSL --max-time 10 "https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-render-managed/patches.json?cb=$(date +%s)" -o "$manifest"
-        python3 - "$manifest" . <<'PY'
-        import json,pathlib,sys
-        m=json.load(open(sys.argv[1],encoding='utf-8'))
-        code=pathlib.Path(sys.argv[2])
-        allowed={'app.py','production_renderer.py'}
-        print('MANIFEST_VERSION=' + str(m.get('version')))
-        print('PATCH_COUNT=' + str(len(m.get('patches',[]))))
-        ok=True
-        for p in m.get('patches',[]):
-            print('PATCH_ID=' + str(p.get('id')))
-            marker=p.get('marker'); mf=p.get('marker_file')
-            if mf not in allowed: print('INVALID_MARKER_FILE=' + str(mf)); ok=False; continue
-            text=(code/mf).read_text(encoding='utf-8')
-            if marker in text:
-                print('PATCH_STATE=already_applied'); continue
-            for r in p.get('replacements',[]):
-                name=r.get('file'); expected=r.get('count',1)
-                if name not in allowed: print('INVALID_TARGET=' + str(name)); ok=False; continue
-                count=(code/name).read_text(encoding='utf-8').count(r.get('old',''))
-                print(f'REPLACEMENT={name}:expected={expected}:found={count}')
-                if count != expected: ok=False
-        print('REPLACEMENT_PREFLIGHT=' + ('pass' if ok else 'fail'))
-        if not ok: raise SystemExit(8)
+        echo '=== PORT 8800 ==='
+        ss -ltn 2>/dev/null | grep -E '(:8800[[:space:]])' || true
+        echo '=== UVICORN / WORKER PROCESSES ==='
+        ps -eo pid,etimes,user,comm,args | grep -E '[u]vicorn|[o]sho-worker|[a]pp:app' || true
+        echo '=== COMPOSE WORKER REFERENCES ==='
+        cd /srv/compose/osho-worker
+        for f in docker-compose.yml compose.yml compose.yaml docker-compose.yaml; do
+          [ -f "$f" ] || continue
+          echo "FILE=$f"
+          grep -nC 5 -E 'container_name|8800|uvicorn|app:app|restart:' "$f" || true
+        done
+        echo '=== PERSISTED JOB STATES ==='
+        python3 - <<'PY'
+        import json
+        from pathlib import Path
+        roots=[Path('/srv/osho/work'),Path('/srv/osho/jobs')]
+        terminal={'completed','complete','failed','cancelled','canceled','published','done','ready_to_upload'}
+        rows=[]
+        for root in roots:
+            if not root.exists(): continue
+            for p in root.glob('*/job.json'):
+                try: d=json.loads(p.read_text(encoding='utf-8'))
+                except Exception: continue
+                status=str(d.get('status') or d.get('stage') or '').lower()
+                rows.append((p.stat().st_mtime,p,str(d.get('id') or p.parent.name),status,str(d.get('stage') or '')))
+        rows.sort(reverse=True,key=lambda x:x[0])
+        active=[r for r in rows if r[3] and r[3] not in terminal]
+        print('JOB_FILES=' + str(len(rows)))
+        print('ACTIVE_PERSISTED=' + str(len(active)))
+        for _,p,j,s,stage in active[:12]: print(f'ACTIVE={j}|status={s}|stage={stage}|{p}')
+        print('LATEST_BEGIN')
+        for _,p,j,s,stage in rows[:12]: print(f'JOB={j}|status={s}|stage={stage}|{p}')
+        print('LATEST_END')
         PY
-
-        echo '=== PYTHON SYNTAX CURRENT ==='
-        python3 -m py_compile app.py production_renderer.py && echo PY_COMPILE=pass
-
-        echo '=== FFMPEG CTA FILTER ==='
-        font=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
-        if [ -f "$font" ]; then echo FONT_PRESENT=yes; else echo FONT_PRESENT=no; fi
-        if ffmpeg -hide_banner -loglevel error -f lavfi -i 'color=c=black:s=1080x1920:d=0.08:r=30' \
-          -vf "drawtext=fontfile=$font:text='MORE OSHO - SUBSCRIBE':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.45:boxborderw=16:x=(w-text_w)/2:y=h*0.72:enable='between(t,0,0.08)'" \
-          -frames:v 1 -f null - >/dev/null 2>&1; then
-          echo FFMPEG_GROWTH_FILTER=pass
-        else
-          echo FFMPEG_GROWTH_FILTER=fail
-        fi
-
-        echo '=== WORKER JOB STATE ==='
-        if curl -fsS --max-time 4 http://127.0.0.1:8800/jobs -o "$jobs"; then
-          echo WORKER_JOBS_REACHABLE=yes
-          python3 - "$jobs" <<'PY'
-        import json,sys
-        obj=json.load(open(sys.argv[1],encoding='utf-8'))
-        rows=obj if isinstance(obj,list) else obj.get('jobs',[]) if isinstance(obj,dict) else []
-        if not isinstance(rows,list): rows=[]
-        terminal={'completed','complete','failed','cancelled','canceled','published','done'}
-        active=[]
-        for r in rows:
-            if not isinstance(r,dict): continue
-            status=str(r.get('status') or r.get('stage') or '').lower()
-            if status and status not in terminal:
-                active.append((str(r.get('id') or r.get('job_id') or '?'),status))
-        print('WORKER_JOB_COUNT=' + str(len(rows)))
-        print('WORKER_ACTIVE_JOBS=' + str(len(active)))
-        for x in active[:8]: print('ACTIVE_JOB=' + ':'.join(x))
-        PY
-        else
-          echo WORKER_JOBS_REACHABLE=no
-        fi
-
-        echo '=== PIPELINE ==='
-        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && $4=="python3" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/) {print}' || true
+        echo '=== AUTOPILOT PIPELINE ==='
+        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && $4=="python3" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/ || $0 ~ /boundary_consensus.py/) {print}' || true
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show growth renderer preflight
+    - name: Show worker reload safety signals
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
