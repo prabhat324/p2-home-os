@@ -15,6 +15,7 @@ ACTION="${1:-}"
 CADDYFILE="/opt/docker/compose/caddy/Caddyfile"
 BACKUPS="/opt/docker/compose/caddy/config-backups"
 NEW_UPSTREAM="http://192.168.0.88:8787/"
+MARKER="data-p2-command-center=\"v1\""
 
 require_files() {
   [[ -f "$CADDYFILE" ]] || { echo "Missing $CADDYFILE" >&2; exit 3; }
@@ -23,13 +24,31 @@ require_files() {
   command -v python3 >/dev/null
 }
 
-route_probe() {
-  local tmp
+fetch_contains() {
+  local url="$1" marker="$2" host_header="${3:-}" tmp rc
   tmp="$(mktemp)"
-  trap 'rm -f "$tmp"' RETURN
-  if curl -fsS --max-time 6 -H 'Host: dashboard.home.arpa' http://127.0.0.1/ -o "$tmp"; then
+  if [[ -n "$host_header" ]]; then
+    curl -fsS --max-time 6 -H "Host: $host_header" "$url" -o "$tmp" || rc=$?
+  else
+    curl -fsS --max-time 6 "$url" -o "$tmp" || rc=$?
+  fi
+  rc="${rc:-0}"
+  if [[ "$rc" -eq 0 ]] && grep -Fq "$marker" "$tmp"; then
+    rm -f "$tmp"
+    return 0
+  fi
+  rm -f "$tmp"
+  return 1
+}
+
+route_probe() {
+  local tmp rc
+  tmp="$(mktemp)"
+  curl -fsS --max-time 6 -H 'Host: dashboard.home.arpa' http://127.0.0.1/ -o "$tmp" || rc=$?
+  rc="${rc:-0}"
+  if [[ "$rc" -eq 0 ]]; then
     echo "DASHBOARD_HTTP=ok"
-    if grep -q 'P² Home Command Center' "$tmp"; then
+    if grep -Fq "$MARKER" "$tmp"; then
       echo "DASHBOARD_PRODUCT=p2-command-center"
     elif grep -qi 'homepage' "$tmp"; then
       echo "DASHBOARD_PRODUCT=homepage"
@@ -40,6 +59,7 @@ route_probe() {
     echo "DASHBOARD_HTTP=unavailable"
     echo "DASHBOARD_PRODUCT=unknown"
   fi
+  rm -f "$tmp"
 }
 
 status() {
@@ -49,7 +69,7 @@ status() {
   echo "=== DASHBOARD ROUTES ==="
   grep -A3 -B1 -E 'dashboard\.home\.arpa|homepage\.home\.arpa' "$CADDYFILE" || true
   echo "=== NEW APP ==="
-  if curl -fsS --max-time 5 "$NEW_UPSTREAM" | grep -q 'P² Home Command Center'; then
+  if fetch_contains "$NEW_UPSTREAM" "$MARKER"; then
     echo "P2_APP=ready"
   else
     echo "P2_APP=unavailable-or-wrong-content"
@@ -69,7 +89,7 @@ validate_and_reload() {
 
 activate_custom() {
   require_files
-  curl -fsS --max-time 6 "$NEW_UPSTREAM" | grep -q 'P² Home Command Center' || {
+  fetch_contains "$NEW_UPSTREAM" "$MARKER" || {
     echo "Refusing: P2 Command Center is not healthy on compute-02" >&2
     exit 4
   }
@@ -96,7 +116,6 @@ pat=re.compile(r'http://dashboard\.home\.arpa\s*\{.*?\}', re.S)
 if not pat.search(text):
     raise SystemExit('dashboard.home.arpa block not found')
 text=pat.sub(block, text, count=1)
-# Avoid duplicate fallback route on repeated execution.
 first=text.find('http://homepage.home.arpa')
 if first >= 0:
     second=text.find('http://homepage.home.arpa', first+1)
@@ -111,7 +130,7 @@ PY
     exit 5
   fi
 
-  if ! curl -fsS --max-time 6 -H 'Host: dashboard.home.arpa' http://127.0.0.1/ | grep -q 'P² Home Command Center'; then
+  if ! fetch_contains http://127.0.0.1/ "$MARKER" dashboard.home.arpa; then
     echo "Post-change health check failed; rolling back" >&2
     cp -a "$backup" "$CADDYFILE"
     docker exec caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null || true
