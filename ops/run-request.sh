@@ -43,6 +43,9 @@ case "${operation}" in
   mavrick-inventory)
     [[ "${target}" == "compute-02" ]] || { echo "mavrick-inventory is restricted to compute-02" >&2; exit 2; }
     playbook="playbooks/mavrick-inventory.yml" ;;
+  mavrick-model-pull)
+    [[ "${target}" == "compute-02" ]] || { echo "mavrick-model-pull is restricted to compute-02" >&2; exit 2; }
+    playbook="playbooks/mavrick-model-pull.yml" ;;
   home-dashboard-deploy)
     [[ "${target}" == "core-01" ]] || { echo "home-dashboard-deploy is restricted to core-01" >&2; exit 2; }
     playbook="playbooks/home-dashboard-deploy.yml" ;;
