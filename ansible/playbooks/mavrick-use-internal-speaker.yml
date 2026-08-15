@@ -1,0 +1,30 @@
+---
+- name: Route Mavrick audio to verified built-in speakers
+  hosts: compute-02
+  gather_facts: false
+  tasks:
+    - name: Stop Mavrick before changing output route
+      ansible.builtin.command: sudo -n /usr/bin/systemctl stop mavrick.service
+      changed_when: true
+
+    - name: Select built-in speaker route and mute faulty headphone path
+      ansible.builtin.shell: |
+        set -euo pipefail
+        amixer -c sofhdadsp set Master 100% unmute
+        amixer -c sofhdadsp set Headphone 0% mute
+        amixer -c sofhdadsp set Speaker 80% unmute
+        amixer -c sofhdadsp set 'Auto-Mute Mode' Disabled
+        echo "MAVRICK_OUTPUT_ROUTE=internal_speaker"
+        echo "MAVRICK_HEADPHONE_PATH=muted"
+      args:
+        executable: /bin/bash
+      register: route
+      changed_when: true
+
+    - name: Restart Mavrick on built-in speaker route
+      ansible.builtin.command: sudo -n /usr/bin/systemctl start mavrick.service
+      changed_when: true
+
+    - name: Show selected Mavrick output
+      ansible.builtin.debug:
+        msg: "{{ route.stdout_lines }}"
