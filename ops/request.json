@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-publisher-gate-v2-retry-1786812343329",
-  "operation": "osho-publisher-fix",
-  "target": "compute-01"
+  "request_id": "dashboard-storage-proxy-verify-20260815",
+  "operation": "dashboard-storage-diagnose",
+  "target": "compute-02"
 }
