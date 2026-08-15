@@ -505,3 +505,130 @@ def reconciled_dashboard_data():
 
 
 app.include_router(base.app.router)
+
+
+# Project Mavrick telemetry is deliberately operational-only. The API rejects
+# media, transcripts, prompts, observations, replies, and other retained content.
+_MAVRICK_ALLOWED = {
+    "state", "service", "camera", "microphone", "model", "model_ready",
+    "speaker_route", "output_device", "last_error", "last_error_at",
+    "stt_ms", "vision_ms", "tts_ms", "total_ms", "rss_mb", "load_1m",
+    "version", "privacy", "updated_at",
+}
+_MAVRICK_FORBIDDEN = {
+    "image", "frame", "audio", "transcript", "prompt", "observation",
+    "reply", "question", "utterance", "media",
+}
+
+
+def _mavrick_table(conn):
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mavrick_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            payload TEXT NOT NULL,
+            last_seen TEXT NOT NULL
+        )
+        """
+    )
+    conn.commit()
+
+
+def _sanitize_mavrick(payload):
+    if not isinstance(payload, dict):
+        return {}
+    lowered = {str(key).lower() for key in payload}
+    if lowered & _MAVRICK_FORBIDDEN:
+        raise HTTPException(status_code=400, detail="Mavrick telemetry contains forbidden retained content")
+    clean = {key: payload.get(key) for key in _MAVRICK_ALLOWED if key in payload}
+    packed = json.dumps(clean, separators=(",", ":"))
+    if len(packed.encode("utf-8")) > 8192:
+        raise HTTPException(status_code=413, detail="Mavrick telemetry is too large")
+    return clean
+
+
+@app.post("/api/mavrick/update")
+async def mavrick_update(request: Request):
+    clean = _sanitize_mavrick(await request.json())
+    now = datetime.now(timezone.utc).isoformat()
+    clean["updated_at"] = clean.get("updated_at") or now
+    conn = base.db()
+    _mavrick_table(conn)
+    conn.execute(
+        """
+        INSERT INTO mavrick_state (id, payload, last_seen)
+        VALUES (1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            payload = excluded.payload,
+            last_seen = excluded.last_seen
+        """,
+        (json.dumps(clean, separators=(",", ":")), now),
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True, "received_at": now}
+
+
+@app.get("/api/mavrick")
+def mavrick_dashboard_data():
+    conn = base.db()
+    _mavrick_table(conn)
+    row = conn.execute("SELECT payload, last_seen FROM mavrick_state WHERE id = 1").fetchone()
+    conn.close()
+
+    payload = {}
+    last_seen = None
+    age_seconds = None
+    if row is not None:
+        last_seen = row["last_seen"]
+        try:
+            payload = json.loads(row["payload"])
+        except Exception:
+            payload = {}
+        try:
+            stamp = datetime.fromisoformat(last_seen)
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=timezone.utc)
+            age_seconds = max(0.0, (datetime.now(timezone.utc) - stamp).total_seconds())
+        except Exception:
+            age_seconds = None
+
+    ollama_models = []
+    try:
+        req = urllib.request.Request(
+            "http://192.168.0.88:11434/api/tags",
+            headers={"User-Agent": "P2-Dashboard-Mavrick/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=3) as response:
+            tags = json.loads(response.read().decode("utf-8"))
+        ollama_models = [
+            str(item.get("name") or item.get("model") or "")
+            for item in tags.get("models", [])
+            if isinstance(item, dict)
+        ]
+    except Exception:
+        pass
+
+    configured_model = str(payload.get("model") or "qwen3-vl:2b")
+    model_ready = configured_model in ollama_models
+    payload["model"] = configured_model
+    payload["model_ready"] = model_ready
+
+    if row is None:
+        status = "waiting"
+    elif age_seconds is None or age_seconds > 45:
+        status = "offline"
+    elif payload.get("service") != "active":
+        status = "degraded"
+    elif not model_ready or not payload.get("camera") or not payload.get("microphone"):
+        status = "degraded"
+    else:
+        status = "ready"
+
+    return {
+        "status": status,
+        "age_seconds": round(age_seconds, 1) if age_seconds is not None else None,
+        "last_seen": last_seen,
+        "mavrick": payload,
+        "privacy": "operational telemetry only; no frames, audio, transcripts, or replies",
+    }
