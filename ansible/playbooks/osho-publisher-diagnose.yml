@@ -12,6 +12,12 @@
         systemctl show osho-autopilot.service -p ActiveState -p SubState -p MainPID --no-pager 2>/dev/null || true
         systemctl show osho-buffer-fill.service -p ActiveState -p SubState -p ExecMainStatus --no-pager 2>/dev/null || true
         systemctl show osho-buffer-fill.timer -p ActiveState -p SubState -p UnitFileState --no-pager 2>/dev/null || true
+        echo '=== PUBLISHER GATE RUNTIME ==='
+        grep -n 'OSHO_GLOBAL_UPLOAD_MIN_INTERVAL_V1\|YOUTUBE GLOBAL COOLDOWN' /srv/compose/osho-worker/app.py 2>/dev/null || true
+        docker exec osho-worker sh -lc "grep -n 'OSHO_GLOBAL_UPLOAD_MIN_INTERVAL_V1\\|YOUTUBE GLOBAL COOLDOWN' /app/app.py /app/osho_autopilot.py 2>/dev/null || true" 2>/dev/null || true
+        grep -nE 'upload_to_youtube|/process|8800|requests\.(post|get)|http' /srv/compose/osho-worker/osho_autopilot.py 2>/dev/null | tail -80 || true
+        docker inspect osho-worker --format '{{'{{'}}json .Mounts{{'}}'}}' 2>/dev/null || true
+        docker inspect osho-worker --format '{{'{{'}}json .Config.Env{{'}}'}}' 2>/dev/null | sed -E 's/(TOKEN|SECRET|PASSWORD|KEY)=[^",]*/\\1=[REDACTED]/g' || true
         echo '=== PIPELINE PROCESSES ==='
         ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && ($0 ~ /osho_autopilot.py/ || $0 ~ /buffer_manager.py/ || $0 ~ /transcript/ || $0 ~ /whisper/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/ || $0 ~ /boundary_consensus.py/ || $0 ~ /production_renderer.py/) {print}' || true
         echo '=== COMPUTE-01 GPU ==='
