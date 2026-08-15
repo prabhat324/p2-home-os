@@ -31,6 +31,9 @@ case "${operation}" in
   home-dashboard-inventory)
     [[ "${target}" == "all" ]] || { echo "home-dashboard-inventory is restricted to all" >&2; exit 2; }
     playbook="playbooks/home-dashboard-inventory.yml" ;;
+  home-dashboard-deploy)
+    [[ "${target}" == "core-01" ]] || { echo "home-dashboard-deploy is restricted to core-01" >&2; exit 2; }
+    playbook="playbooks/home-dashboard-deploy.yml" ;;
   dashboard-diagnose)
     [[ "${target}" == "compute-02" ]] || { echo "dashboard-diagnose is restricted to compute-02" >&2; exit 2; }
     playbook="playbooks/dashboard-diagnose.yml" ;;
