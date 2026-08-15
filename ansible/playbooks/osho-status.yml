@@ -1,32 +1,26 @@
 ---
-- name: Inspect Project Osho ranker JSON generation path
+- name: Inspect Project Osho ranker JSON prompts
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Read ranker JSON and scoring prompt sections
+    - name: Read scoring prompt constants
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker
-        echo '=== OLLAMA JSON FUNCTION ==='
-        sed -n '385,510p' hook_ranker_v5.py
-        echo '=== ANCHOR SCORE FUNCTION ==='
-        start=$(grep -n '^def model_score_anchor(' hook_ranker_v5.py | head -1 | cut -d: -f1)
-        if [ -n "$start" ]; then
-          end=$((start + 145))
-          sed -n "${start},${end}p" hook_ranker_v5.py
-        fi
-        echo '=== CLIP SCORE FUNCTION ==='
-        start=$(grep -n '^def model_score_clip(' hook_ranker_v5.py | head -1 | cut -d: -f1)
-        if [ -n "$start" ]; then
-          end=$((start + 180))
-          sed -n "${start},${end}p" hook_ranker_v5.py
-        fi
+        for key in HOOK_SYSTEM CLIP_SYSTEM; do
+          echo "=== ${key} ==="
+          start=$(grep -n "^${key} =" hook_ranker_v5.py | head -1 | cut -d: -f1)
+          if [ -n "$start" ]; then
+            end=$((start + 90))
+            sed -n "${start},${end}p" hook_ranker_v5.py
+          fi
+        done
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show ranker JSON path
+    - name: Show scoring prompts
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
