@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=psquare
 Environment=PYTHONUNBUFFERED=1
-Environment=OSHO_DASHBOARD_URL=http://compute-02:8787/api/worker/heartbeat
+Environment=OSHO_DASHBOARD_URL=http://192.168.0.88:8787/api/worker/heartbeat
 Environment=OSHO_HEARTBEAT_INTERVAL=10
 Environment=OSHO_WORKER_PORT=8800
 ExecStart=/usr/bin/python3 /usr/local/lib/project-osho/osho-dashboard-heartbeat.py
