@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-dashboard-pages-deploy-20260815-1145",
-  "operation": "dashboard-deploy",
+  "request_id": "osho-dashboard-pages-verify-20260815-1150",
+  "operation": "dashboard-diagnose",
   "target": "compute-02"
 }
