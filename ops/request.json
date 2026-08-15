@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-dual-gpu-request-trace-20260815-0030",
+  "request_id": "osho-first-dual-gpu-ranker-watch-20260815-0032",
   "operation": "osho-status",
-  "target": "osho_nodes"
+  "target": "compute-01"
 }
