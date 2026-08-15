@@ -19,6 +19,7 @@
       failed_when: false
 
     - name: Stop only known heat-producing containers
+      become: false
       ansible.builtin.shell: |
         set -o pipefail
         if ! command -v docker >/dev/null 2>&1; then
@@ -32,7 +33,7 @@
       args:
         executable: /bin/bash
       register: stopped_containers
-      changed_when: stopped_containers.stdout | length > 0
+      changed_when: stopped_containers.stdout | default('') | length > 0
       failed_when: false
 
     - name: Allow temperatures to begin falling
@@ -40,6 +41,7 @@
         seconds: 30
 
     - name: Report services, GPU and CPU temperatures
+      become: false
       ansible.builtin.shell: |
         set -o pipefail
         echo "HOST=$(hostname)"
