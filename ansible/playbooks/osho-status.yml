@@ -1,31 +1,31 @@
 ---
-- name: Inspect Project Osho caption and scene timing functions
+- name: Inspect Project Osho brand endcard baseline
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Read exact caption and semantic beat logic
+    - name: Read endcard function and render caller
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker
         echo "NOW=$(date -Ins)"
-        echo '=== CONSTANTS ==='
-        sed -n '1,40p' production_renderer.py
-        echo '=== MAKE CENTER ASS ==='
-        start=$(grep -n '^def make_center_ass(' production_renderer.py | head -1 | cut -d: -f1)
-        end=$(grep -n '^def safe_run(' production_renderer.py | head -1 | cut -d: -f1)
-        [ -n "$start" ] && [ -n "$end" ] && sed -n "${start},$((end-1))p" production_renderer.py
-        echo '=== SEMANTIC BEATS ==='
-        start=$(grep -n '^def semantic_beats(' production_renderer.py | head -1 | cut -d: -f1)
-        end=$(grep -n '^def semantic_query(' production_renderer.py | head -1 | cut -d: -f1)
-        [ -n "$start" ] && [ -n "$end" ] && sed -n "${start},$((end-1))p" production_renderer.py
-        echo '=== RENDER CALLERS ==='
-        grep -RInE --include='*.py' 'make_center_ass\(|render_production_reel\(' . | grep -vE '/backups?/|\.bak|\.backup' | head -80 || true
+        echo '=== ENDCARD FUNCTION ==='
+        start=$(grep -n '^def append_brand_endcard(' app.py | head -1 | cut -d: -f1)
+        if [ -n "$start" ]; then
+          next=$(awk -v s="$start" 'NR>s && /^def / {print NR; exit}' app.py)
+          [ -n "$next" ] && sed -n "${start},$((next-1))p" app.py || sed -n "${start},$((start+180))p" app.py
+        fi
+        echo '=== ENDCARD CALL CONTEXT ==='
+        line=$(grep -n 'append_brand_endcard(' app.py | tail -1 | cut -d: -f1)
+        if [ -n "$line" ]; then sed -n "$((line-35)),$((line+35))p" app.py; fi
+        echo '=== CURRENT WORKER/PIPELINE ==='
+        curl -fsS --max-time 3 http://127.0.0.1:8800/jobs 2>/dev/null || true
+        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && $4=="python3" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/) {print}' || true
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show caption and scene timing functions
+    - name: Show endcard baseline
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
