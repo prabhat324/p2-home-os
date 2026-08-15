@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-execution-verify-20260815-1035",
-  "operation": "osho-status",
-  "target": "compute-01"
+  "request_id": "home-dashboard-inventory-20260815-1036",
+  "operation": "home-dashboard-inventory",
+  "target": "all"
 }
