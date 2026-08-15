@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-live-progress-ui-deploy-20260815-1222",
-  "operation": "dashboard-deploy",
+  "request_id": "mavrick-pull-ensure-1786810942849",
+  "operation": "mavrick-model-pull",
   "target": "compute-02"
 }
