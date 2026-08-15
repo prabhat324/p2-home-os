@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ ${EUID} -ne 0 ]]; then
+    echo "This helper must run as root via sudo." >&2
+    exit 1
+fi
+
+case "$(hostname -s)" in
+    compute-01) ;;
+    *) echo "This helper is restricted to compute-01." >&2; exit 2 ;;
+esac
+
+ACTION="${1:-}"
+CODE="/srv/compose/osho-worker"
+BACKUPS="$CODE/backups"
+MANIFEST_URL="https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-render-managed/patches.json"
+WORKER_URL="http://127.0.0.1:8800"
+WORKER_CONTAINER="osho-worker"
+
+ALLOWED=(
+    app.py
+    production_renderer.py
+)
+
+log() {
+    printf '[p2ops-osho-render-patch] %s\n' "$*"
+}
+
+require_targets() {
+    local f
+    for f in "${ALLOWED[@]}"; do
+        [[ -f "$CODE/$f" ]] || { echo "Missing allowlisted render file: $CODE/$f" >&2; exit 3; }
+        [[ "$(realpath -m "$CODE/$f")" == "$CODE/"* ]] || { echo "Refusing unexpected path: $CODE/$f" >&2; exit 3; }
+    done
+}
+
+fetch_manifest() {
+    local out="$1"
+    curl -fsSL --max-time 15 "${MANIFEST_URL}?cb=$(date +%s)" -o "$out"
+    python3 - "$out" <<'PY'
+import json, sys
+p=sys.argv[1]
+d=json.load(open(p, encoding='utf-8'))
+if d.get('version') != 1 or not isinstance(d.get('patches'), list):
+    raise SystemExit('invalid render patch manifest')
+print('MANIFEST_VALID=yes')
+print('MANIFEST_PATCHES=' + str(len(d['patches'])))
+PY
+}
+
+worker_jobs_state() {
+    local tmp
+    tmp="$(mktemp)"
+    if ! curl -fsS --max-time 4 "$WORKER_URL/jobs" -o "$tmp"; then
+        rm -f "$tmp"
+        echo "WORKER_JOBS=unreachable"
+        return 1
+    fi
+    python3 - "$tmp" <<'PY'
+import json,sys
+obj=json.load(open(sys.argv[1],encoding='utf-8'))
+if isinstance(obj,list): rows=obj
+elif isinstance(obj,dict):
+    rows=obj.get('jobs')
+    if not isinstance(rows,list): rows=[]
+else: rows=[]
+terminal={'completed','complete','failed','cancelled','canceled','published','done'}
+active=[]
+for row in rows:
+    if not isinstance(row,dict): continue
+    status=str(row.get('status') or row.get('stage') or '').lower()
+    if status and status not in terminal:
+        active.append((str(row.get('id') or row.get('job_id') or '?'),status))
+print('WORKER_JOB_COUNT=' + str(len(rows)))
+print('WORKER_ACTIVE_JOBS=' + str(len(active)))
+for jid,status in active[:10]: print(f'ACTIVE_JOB={jid}:{status}')
+if active: raise SystemExit(9)
+PY
+    local rc=$?
+    rm -f "$tmp"
+    return "$rc"
+}
+
+status() {
+    require_targets
+    echo "HOST=$(hostname)"
+    echo "AUTOPILOT_SERVICE=$(systemctl is-active osho-autopilot.service 2>/dev/null || true)"
+    echo "WORKER_CONTAINER_RUNNING=$(docker inspect -f '{{.State.Running}}' "$WORKER_CONTAINER" 2>/dev/null || echo no)"
+    echo "GROWTH_TEMPLATE=$([[ $(grep -c 'OSHO_GROWTH_TEMPLATE_V1' "$CODE/production_renderer.py" 2>/dev/null || true) -gt 0 ]] && echo yes || echo no)"
+    worker_jobs_state || true
+
+    local tmp
+    tmp="$(mktemp)"
+    if fetch_manifest "$tmp" >/tmp/p2ops-osho-render-status.$$ 2>/dev/null; then
+        cat /tmp/p2ops-osho-render-status.$$
+        python3 - "$tmp" "$CODE" <<'PY'
+import json,pathlib,sys
+m=json.load(open(sys.argv[1],encoding='utf-8'))
+code=pathlib.Path(sys.argv[2])
+for p in m['patches']:
+    marker=p.get('marker',''); mf=p.get('marker_file','')
+    text=(code/mf).read_text(encoding='utf-8') if mf else ''
+    print(f"PATCH_{p.get('id','unknown')}=" + ('applied' if marker and marker in text else 'pending'))
+PY
+    else
+        echo "MANIFEST_VALID=unreachable"
+    fi
+    rm -f "$tmp" /tmp/p2ops-osho-render-status.$$
+}
+
+validate_ffmpeg_growth_filter() {
+    local font='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+    [[ -f "$font" ]] || { echo "Required font missing: $font" >&2; return 1; }
+    ffmpeg -hide_banner -loglevel error \
+      -f lavfi -i 'color=c=black:s=1080x1920:d=0.08:r=30' \
+      -vf "drawtext=fontfile=$font:text='MORE OSHO - SUBSCRIBE':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.45:boxborderw=16:x=(w-text_w)/2:y=h*0.72:enable='between(t,0,0.08)'" \
+      -frames:v 1 -f null - >/dev/null 2>&1
+}
+
+restart_worker_safe() {
+    log "restarting only $WORKER_CONTAINER to load the new renderer"
+    docker restart "$WORKER_CONTAINER" >/dev/null
+    local i
+    for i in $(seq 1 30); do
+        if curl -fsS --max-time 2 "$WORKER_URL/health" >/dev/null 2>&1; then
+            log "worker health check passed"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "Worker health check failed after restart" >&2
+    return 1
+}
+
+apply_manifest() {
+    require_targets
+    command -v curl >/dev/null 2>&1 || { echo "curl is required" >&2; exit 3; }
+    command -v python3 >/dev/null 2>&1 || { echo "python3 is required" >&2; exit 3; }
+    command -v ffmpeg >/dev/null 2>&1 || { echo "ffmpeg is required" >&2; exit 3; }
+    command -v docker >/dev/null 2>&1 || { echo "docker is required" >&2; exit 3; }
+
+    if ! worker_jobs_state; then
+        echo "Refusing renderer deployment while the Osho worker has an active job." >&2
+        exit 8
+    fi
+    validate_ffmpeg_growth_filter || { echo "Growth CTA FFmpeg filter preflight failed" >&2; exit 8; }
+
+    local work manifest stamp backup f
+    work="$(mktemp -d)"
+    trap 'rm -rf "$work"' RETURN
+    manifest="$work/patches.json"
+    fetch_manifest "$manifest"
+
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    backup="$BACKUPS/render-patch-$stamp"
+    mkdir -p "$backup"
+    for f in "${ALLOWED[@]}"; do cp -a "$CODE/$f" "$backup/"; done
+    chown -R psquare:psquare "$backup"
+    log "backup created at $backup"
+
+    rollback() {
+        log "render patch failed; restoring backup"
+        local rf
+        for rf in "${ALLOWED[@]}"; do cp -a "$backup/$rf" "$CODE/$rf"; done
+    }
+
+    if ! python3 - "$manifest" "$CODE" <<'PY'
+import json,pathlib,sys
+manifest=pathlib.Path(sys.argv[1]); code=pathlib.Path(sys.argv[2]).resolve()
+allowed={'app.py','production_renderer.py'}
+data=json.loads(manifest.read_text(encoding='utf-8'))
+if data.get('version') != 1 or not isinstance(data.get('patches'),list): raise SystemExit('invalid manifest')
+texts={}
+for name in allowed:
+    path=(code/name).resolve()
+    if path.parent != code or not path.is_file(): raise SystemExit(f'invalid target {name}')
+    texts[name]=path.read_text(encoding='utf-8')
+applied=[]; skipped=[]
+for patch in data['patches']:
+    pid=patch.get('id'); marker=patch.get('marker'); mf=patch.get('marker_file'); reps=patch.get('replacements')
+    if not pid or not marker or mf not in allowed or not isinstance(reps,list) or not reps: raise SystemExit(f'invalid patch {pid!r}')
+    if marker in texts[mf]: skipped.append(pid); continue
+    for item in reps:
+        name=item.get('file'); old=item.get('old'); new=item.get('new'); expected=item.get('count',1)
+        if name not in allowed or not isinstance(old,str) or not isinstance(new,str) or not isinstance(expected,int) or expected < 1:
+            raise SystemExit(f'invalid replacement in {pid}')
+        actual=texts[name].count(old)
+        if actual != expected: raise SystemExit(f'{pid}: expected {expected} occurrence(s) in {name}, found {actual}')
+        texts[name]=texts[name].replace(old,new,expected)
+    if marker not in texts[mf]: raise SystemExit(f'{pid}: marker not installed')
+    applied.append(pid)
+for name,text in texts.items(): (code/name).write_text(text,encoding='utf-8')
+print('PATCHES_APPLIED=' + (','.join(applied) if applied else 'none'))
+print('PATCHES_SKIPPED=' + (','.join(skipped) if skipped else 'none'))
+PY
+    then
+        rollback
+        exit 4
+    fi
+
+    for f in "${ALLOWED[@]}"; do
+        if ! python3 -m py_compile "$CODE/$f"; then
+            rollback
+            echo "Python syntax validation failed: $f" >&2
+            exit 5
+        fi
+    done
+
+    if ! restart_worker_safe; then
+        rollback
+        restart_worker_safe || true
+        exit 6
+    fi
+
+    log "growth renderer patch applied and worker safely reloaded; autopilot was not restarted"
+    status
+}
+
+case "$ACTION" in
+    status) status ;;
+    apply-if-idle) apply_manifest ;;
+    *) echo "Allowed actions: status | apply-if-idle" >&2; exit 2 ;;
+esac
