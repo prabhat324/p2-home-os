@@ -1,51 +1,89 @@
 ---
-- name: Inspect exact Project Osho CTA and end-card render path
+- name: Preflight Project Osho growth renderer patch
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Read exact CTA/end-card implementation and call sites
+    - name: Validate manifest replacements, FFmpeg CTA filter, and worker job state without changing files
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker
         echo "NOW=$(date -Ins)"
+        manifest=$(mktemp)
+        jobs=$(mktemp)
+        trap 'rm -f "$manifest" "$jobs"' EXIT
 
-        echo '=== APP END CARD FUNCTION ==='
-        start=$(grep -n '^def append_brand_endcard(' app.py | head -1 | cut -d: -f1)
-        end=$(grep -n '^def job_path(' app.py | head -1 | cut -d: -f1)
-        if [ -n "$start" ] && [ -n "$end" ]; then sed -n "${start},$((end-1))p" app.py; fi
-
-        echo '=== APP END CARD CALL SITES ==='
-        grep -nC 10 'append_brand_endcard' app.py || true
-
-        echo '=== PRODUCTION RENDER FUNCTION ==='
-        start=$(grep -n '^def render_production_reel(' production_renderer.py | head -1 | cut -d: -f1)
-        if [ -n "$start" ]; then sed -n "${start},$((start+220))p" production_renderer.py; fi
-
-        echo '=== CTA REFERENCES ==='
-        grep -nC 8 -E 'CTA_DURATION|FOLLOW|SUBSCRIBE|cta|end.card|end_card' production_renderer.py app.py visual_planner.py || true
-
-        echo '=== LATEST METADATA TEMPLATE MARKERS ==='
-        for f in $(find /srv/osho/metadata -maxdepth 1 -type f -name '*.json' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -4 | cut -d' ' -f2-); do
-          echo "META=$f"
-          python3 - "$f" <<'PY'
-        import json,sys
-        try:
-            d=json.load(open(sys.argv[1],encoding='utf-8'))
-        except Exception as e:
-            print('ERROR='+str(e)); raise SystemExit
-        for k in ('reel_id','title','render_profile','template_version','caption','description'):
-            if k in d:
-                v=d[k]
-                if isinstance(v,str) and len(v)>300: v=v[:300]+'...'
-                print(f'{k}={v}')
+        echo '=== MANIFEST ==='
+        curl -fsSL --max-time 10 "https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-render-managed/patches.json?cb=$(date +%s)" -o "$manifest"
+        python3 - "$manifest" . <<'PY'
+        import json,pathlib,sys
+        m=json.load(open(sys.argv[1],encoding='utf-8'))
+        code=pathlib.Path(sys.argv[2])
+        allowed={'app.py','production_renderer.py'}
+        print('MANIFEST_VERSION=' + str(m.get('version')))
+        print('PATCH_COUNT=' + str(len(m.get('patches',[]))))
+        ok=True
+        for p in m.get('patches',[]):
+            print('PATCH_ID=' + str(p.get('id')))
+            marker=p.get('marker'); mf=p.get('marker_file')
+            if mf not in allowed: print('INVALID_MARKER_FILE=' + str(mf)); ok=False; continue
+            text=(code/mf).read_text(encoding='utf-8')
+            if marker in text:
+                print('PATCH_STATE=already_applied'); continue
+            for r in p.get('replacements',[]):
+                name=r.get('file'); expected=r.get('count',1)
+                if name not in allowed: print('INVALID_TARGET=' + str(name)); ok=False; continue
+                count=(code/name).read_text(encoding='utf-8').count(r.get('old',''))
+                print(f'REPLACEMENT={name}:expected={expected}:found={count}')
+                if count != expected: ok=False
+        print('REPLACEMENT_PREFLIGHT=' + ('pass' if ok else 'fail'))
+        if not ok: raise SystemExit(8)
         PY
-        done
+
+        echo '=== PYTHON SYNTAX CURRENT ==='
+        python3 -m py_compile app.py production_renderer.py && echo PY_COMPILE=pass
+
+        echo '=== FFMPEG CTA FILTER ==='
+        font=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+        if [ -f "$font" ]; then echo FONT_PRESENT=yes; else echo FONT_PRESENT=no; fi
+        if ffmpeg -hide_banner -loglevel error -f lavfi -i 'color=c=black:s=1080x1920:d=0.08:r=30' \
+          -vf "drawtext=fontfile=$font:text='MORE OSHO - SUBSCRIBE':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.45:boxborderw=16:x=(w-text_w)/2:y=h*0.72:enable='between(t,0,0.08)'" \
+          -frames:v 1 -f null - >/dev/null 2>&1; then
+          echo FFMPEG_GROWTH_FILTER=pass
+        else
+          echo FFMPEG_GROWTH_FILTER=fail
+        fi
+
+        echo '=== WORKER JOB STATE ==='
+        if curl -fsS --max-time 4 http://127.0.0.1:8800/jobs -o "$jobs"; then
+          echo WORKER_JOBS_REACHABLE=yes
+          python3 - "$jobs" <<'PY'
+        import json,sys
+        obj=json.load(open(sys.argv[1],encoding='utf-8'))
+        rows=obj if isinstance(obj,list) else obj.get('jobs',[]) if isinstance(obj,dict) else []
+        if not isinstance(rows,list): rows=[]
+        terminal={'completed','complete','failed','cancelled','canceled','published','done'}
+        active=[]
+        for r in rows:
+            if not isinstance(r,dict): continue
+            status=str(r.get('status') or r.get('stage') or '').lower()
+            if status and status not in terminal:
+                active.append((str(r.get('id') or r.get('job_id') or '?'),status))
+        print('WORKER_JOB_COUNT=' + str(len(rows)))
+        print('WORKER_ACTIVE_JOBS=' + str(len(active)))
+        for x in active[:8]: print('ACTIVE_JOB=' + ':'.join(x))
+        PY
+        else
+          echo WORKER_JOBS_REACHABLE=no
+        fi
+
+        echo '=== PIPELINE ==='
+        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && $4=="python3" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/) {print}' || true
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show exact CTA render path
+    - name: Show growth renderer preflight
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
