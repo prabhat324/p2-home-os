@@ -1,31 +1,30 @@
 ---
-- name: Diagnose Project Osho publisher privilege boundary
+- name: Diagnose Project Osho bounded patch helpers
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect sudo allowlist and Osho maintenance helper
+    - name: Inspect managed and render patch helpers
       ansible.builtin.shell: |
         set -o pipefail
-        echo '=== ID ==='
-        id
-        echo '=== SUDO ALLOWLIST ==='
-        sudo -n -l 2>&1 || true
-        echo '=== HELPER METADATA ==='
-        ls -l /usr/local/sbin/p2ops-osho-maintenance 2>&1 || true
-        echo '=== HELPER CONTENT ==='
-        if [ -r /usr/local/sbin/p2ops-osho-maintenance ]; then
-          sed -n '1,320p' /usr/local/sbin/p2ops-osho-maintenance
-        else
-          echo 'HELPER_READABLE=no'
-        fi
-        echo '=== WORKER OWNERSHIP ==='
-        stat -c '%U:%G %a %n' /srv/compose/osho-worker /srv/compose/osho-worker/youtube_uploader.py 2>&1 || true
+        for helper in \
+          /usr/local/sbin/p2ops-osho-managed-patch \
+          /usr/local/sbin/p2ops-osho-render-patch \
+          /usr/local/sbin/p2ops-osho-qa-fix \
+          /usr/local/sbin/p2ops-osho-dual-gpu-ranker; do
+          echo "=== $helper ==="
+          ls -l "$helper" 2>&1 || true
+          if [ -r "$helper" ]; then
+            sed -n '1,420p' "$helper"
+          else
+            echo 'HELPER_READABLE=no'
+          fi
+        done
       args:
         executable: /bin/bash
       register: diag
       changed_when: false
       failed_when: false
 
-    - name: Show privilege diagnostic
+    - name: Show patch-helper diagnostic
       ansible.builtin.debug:
         msg: "{{ diag.stdout_lines }}"
