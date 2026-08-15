@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-analytics-review-20260815-0940",
-  "operation": "youtube-analytics-runtime",
+  "request_id": "osho-publisher-fix-20260815-0945",
+  "operation": "osho-publisher-fix",
   "target": "compute-01"
 }
