@@ -1,36 +1,37 @@
 ---
-- name: Inspect Project Osho rendering and metadata pipeline
+- name: Inspect Project Osho growth template internals
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect renderer files, functions, and recent artifacts
+    - name: Read production renderer, visual planner, caption, and CTA blocks
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker
         echo "NOW=$(date -Ins)"
-        echo '=== RENDER/METADATA FILES ==='
-        find . -maxdepth 2 -type f \( \
-          -iname '*render*' -o -iname '*reel*' -o -iname '*caption*' -o \
-          -iname '*subtitle*' -o -iname '*metadata*' -o -iname '*upload*' \
-        \) -printf '%p\n' | sort | head -120
-        echo '=== CODE REFERENCES ==='
-        grep -RInE --include='*.py' 'ffmpeg|drawtext|subtitles=|ass=|caption|subtitle|1080|1920|crop=|scale=|zoom|loudnorm|metadata|title|description|hashtags' . \
-          | grep -vE '/backups?/|\.backup|__pycache__' \
-          | head -260 || true
-        echo '=== AUTOPILOT RENDER BLOCKS ==='
-        grep -nE 'render|reel|caption|subtitle|metadata|upload' osho_autopilot.py | head -120 || true
-        echo '=== RECENT RENDERS ==='
-        find /srv/osho -type f \( -name '*.mp4' -o -name '*.ass' -o -name '*.srt' \) -printf '%T@ %p %s bytes\n' 2>/dev/null \
-          | sort -nr | head -30
-        echo '=== RECENT METADATA JSON ==='
-        find /srv/osho -type f -name '*.json' -printf '%T@ %p\n' 2>/dev/null \
-          | sort -nr | grep -Ei 'metadata|publish|reel|render|candidate' | head -30 || true
+        echo '=== PRODUCTION RENDERER FUNCTIONS ==='
+        grep -nE '^def |CAPTION|caption_|cta|CTA|endcard|scene|broll|visual|hook' production_renderer.py | head -220 || true
+        echo '=== PRODUCTION RENDER CORE 1980-2175 ==='
+        sed -n '1980,2175p' production_renderer.py
+        echo '=== PRODUCTION SCENE BUILD 1560-1815 ==='
+        sed -n '1560,1815p' production_renderer.py
+        echo '=== AI VISUAL FINAL COMPOSE 450-550 ==='
+        sed -n '450,550p' ai_visual_renderer.py
+        echo '=== VISUAL PLANNER ==='
+        sed -n '1,240p' visual_planner.py
+        echo '=== WORKER CURRENT SHORTS FILTER 610-710 ==='
+        sed -n '610,710p' app.py
+        echo '=== METADATA STRATEGY 1220-1455 ==='
+        sed -n '1220,1455p' app.py
+        echo '=== LATEST ASS CAPTION SAMPLE ==='
+        latest_ass=$(find /srv/osho/work -type f -name 'clip-*.ass' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)
+        echo "ASS=$latest_ass"
+        [ -n "$latest_ass" ] && sed -n '1,120p' "$latest_ass" || true
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show renderer inspection
+    - name: Show growth template internals
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
