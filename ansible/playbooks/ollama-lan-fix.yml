@@ -1,0 +1,36 @@
+---
+- name: Repair Ollama LAN access on compute-01
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Apply bounded Ollama LAN firewall rule
+      ansible.builtin.command:
+        cmd: sudo -n /usr/local/sbin/p2ops-ollama-lan-firewall allow-lan
+      register: repair
+      changed_when: "'OLLAMA_LAN_RULE=added' in repair.stdout"
+
+    - name: Show firewall repair result
+      ansible.builtin.debug:
+        msg: "{{ repair.stdout_lines }}"
+
+- name: Verify Ollama LAN access from all nodes
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Probe Ollama endpoint
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "SOURCE_HOST=$(hostname)"
+        echo -n 'PING='; ping -c 1 -W 1 192.168.0.31 >/dev/null 2>&1 && echo ok || echo fail
+        echo -n 'TCP_11434='; timeout 3 bash -c '</dev/tcp/192.168.0.31/11434' >/dev/null 2>&1 && echo ok || echo fail
+        echo -n 'HTTP_ROOT='; curl -sS --max-time 3 http://192.168.0.31:11434/ 2>&1 || true
+        echo
+      args:
+        executable: /bin/bash
+      register: probe
+      changed_when: false
+      failed_when: false
+
+    - name: Show verification
+      ansible.builtin.debug:
+        msg: "{{ probe.stdout_lines }}"
