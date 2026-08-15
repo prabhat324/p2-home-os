@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-discord-alerts-20260815-1549",
-  "operation": "osho-discord-deploy",
-  "target": "compute-01"
+  "request_id": "p2-dashboard-route-20260815-1135",
+  "operation": "p2-dashboard-route",
+  "target": "core-01"
 }
