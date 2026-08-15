@@ -70,19 +70,8 @@
 
         echo '=== SUMMARY ==='
         if [ -f "$summary" ]; then
-          python3 - "$summary" <<'PY'
-import json, sys
-p = sys.argv[1]
-try:
-    data = json.load(open(p, encoding='utf-8'))
-except Exception as exc:
-    print(f'SUMMARY_PARSE_ERROR={exc}')
-    raise SystemExit(0)
-print('SUMMARY_FILE=' + p)
-for key in ('source_id','candidates_considered','approved_count','genuine_approvals'):
-    if key in data:
-        print(f'{key.upper()}={data[key]}')
-PY
+          echo "SUMMARY_FILE=$summary"
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); [print(f"{k.upper()}={d[k]}") for k in ("source_id","candidates_considered","approved_count","genuine_approvals") if k in d]' "$summary" 2>/dev/null || true
         else
           echo 'SUMMARY_MISSING'
         fi
