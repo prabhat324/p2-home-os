@@ -1,114 +1,69 @@
 # Storage Architecture
 
-## Current Media Drive
+## 8 TB media storage
 
-- Device: Seagate Expansion Desktop
-- Capacity: approximately 8 TB
-- Linux device: `/dev/sda2`
+- Device: Seagate Expansion Desktop 8 TB
+- Physical host: `core-01` / `media-server`
 - Mount point: `/mnt/media`
-- Filesystem: NTFS
-- Approximate usage at initial setup: 716 GB used
-- Purpose: replaceable entertainment media and general storage
+- Purpose: Jellyfin media and general family-accessible media storage
 
-## Current Media Folders
+compute-01 consumes the library read-only over NFSv4.2:
 
-- `/mnt/media/Movies`
-- `/mnt/media/TV Shows`
-- `/mnt/media/Music`
-- `/mnt/media/Private Movies`
-- `/mnt/media/Collections`
-- `/mnt/media/Other`
-- `/mnt/media/Downloads`
-- `/mnt/media/Documentaries`
-- `/mnt/media/Open Movies`
-- `/mnt/media/Public Domain Movies`
-- `/mnt/media/Backups`
+```text
+192.168.0.203:/mnt/media -> /mnt/media
+```
 
-## Private Movies
+This keeps the disk physically attached to the always-on storage node while moving Jellyfin transcoding and application work to the GPU node.
 
-- Host path: `/mnt/media/Private Movies`
-- Jellyfin library access should be restricted by user permissions.
-- For complete separation from watch history, use a dedicated Jellyfin user with access only to the private library.
+## 3 TB private photo storage
 
-## Planned Family Vault
+The 3 TB drive is the private primary photo library.
 
-- Device: WD My Passport 3 TB
-- Planned mount point: `/mnt/family`
-- Planned filesystem: ext4
-- Purpose:
-  - Photos
-  - Family videos
-  - Documents
-  - Phone backups
-  - Immich data
-  - Private archives
+Confirmed Immich view:
 
-## Planned Backup Drive
+```text
+/mnt/photos-primary
+```
 
-- Device: WD 2 TB
-- Planned mount point: `/mnt/backup`
-- Planned filesystem: ext4
-- Purpose: versioned backups of the Family Vault
+Inside Immich the mount is read-only, protecting the original photo library from application-side deletion or modification.
 
-## Planned Migration
+The source drive has contained legacy material under directories such as `Old Images on Drive`; existing source structure should not be reorganized casually during indexing.
 
-1. Copy approximately 1 TB of existing photos from the 3 TB drive to a temporary directory on `/mnt/media`.
-2. Verify file count, directory count and total size.
-3. Format the 3 TB drive as ext4.
-4. Mount it permanently at `/mnt/family`.
-5. Restore the photos.
-6. Install and validate Immich.
-7. Format the 2 TB drive as ext4.
-8. Mount it at `/mnt/backup`.
-9. Create the first verified backup.
-10. Keep the temporary 8 TB copy until all verification is complete.
+## 2 TB backup storage
 
-# Storage Architecture
+The 2 TB WD drive is reserved for backup of the private photo library.
 
-## Media Drive
+Current documentation status: **designated, but active mount/scheduled-backup state has not been re-verified in this documentation pass.** Do not claim backup coverage until a current mount and successful backup run are verified.
 
-- Device: Seagate Expansion 8 TB
-- Mount point: `/mnt/media`
-- Filesystem: NTFS
-- Purpose: replaceable entertainment media
+## Project Osho data
 
-Important folders:
+Durable Project Osho state belongs under:
 
-- `/mnt/media/Movies`
-- `/mnt/media/TV Shows`
-- `/mnt/media/Music`
-- `/mnt/media/Private Movies`
-- `/mnt/media/Downloads`
-- `/mnt/media/Documentaries`
-- `/mnt/media/Public Domain Movies`
-- `/mnt/media/Backups`
+```text
+/srv/osho
+```
 
-## Planned Family Vault
+Application code/configuration is under:
 
-- Device: WD My Passport 3 TB
-- Planned mount point: `/mnt/family`
-- Planned filesystem: ext4
-- Purpose:
-  - Photos
-  - Family videos
-  - Documents
-  - Phone backups
-  - Immich storage
+```text
+/srv/compose/osho-worker
+```
 
-## Planned Backup Drive
+Keep durable job state, transcripts, renders, metadata, and YouTube receipts separate from application code.
 
-- Device: WD 2 TB
-- Planned mount point: `/mnt/backup`
-- Planned filesystem: ext4
-- Purpose: backup of selected Family Vault data
+## Storage principles
 
-## Migration Plan
+- Original/private photos should be mounted read-only into photo-management applications where practical.
+- Media can be replaceable; private photos and publishing receipts are not.
+- Backups must be verified, not inferred from a mounted disk.
+- Prefer stable mount points over `/dev/sdX` names.
+- Before formatting or repurposing a drive, verify source and destination file counts/sizes and retain a second copy until validation is complete.
 
-1. Copy existing photos from the 3 TB drive to `/mnt/media/Photo Migration`.
-2. Verify file count and total size.
-3. Format the 3 TB drive as ext4.
-4. Mount it at `/mnt/family`.
-5. Restore the photos.
-6. Install Immich.
-7. Format and mount the 2 TB backup drive.
-8. Create and verify the first backup.
+## Verification commands
+
+```bash
+findmnt /mnt/media
+findmnt /mnt/photos-primary || true
+df -h /mnt/media /mnt/photos-primary 2>/dev/null || true
+lsblk -f
+```
