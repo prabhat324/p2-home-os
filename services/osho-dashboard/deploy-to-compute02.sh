@@ -17,7 +17,7 @@ ssh "$TARGET" "
     REMOTE_DIR='$REMOTE_DIR'
     BACKUP_DIR='$BACKUP_DIR'
     cd \"\$REMOTE_DIR\"
-    for item in Dockerfile requirements.txt compose.yml app/main.py app/static/index.html; do
+    for item in .dockerignore Dockerfile requirements.txt compose.yml app/main.py app/static/index.html; do
         if [ -f \"\$item\" ]; then
             mkdir -p \"\$BACKUP_DIR/\$(dirname \"\$item\")\"
             cp -a \"\$item\" \"\$BACKUP_DIR/\$item\"
@@ -27,6 +27,7 @@ ssh "$TARGET" "
 
 # Application/build files are updated from Git.
 rsync -av \
+    "$SCRIPT_DIR/.dockerignore" \
     "$SCRIPT_DIR/Dockerfile" \
     "$SCRIPT_DIR/requirements.txt" \
     "$TARGET:$REMOTE_DIR/"
