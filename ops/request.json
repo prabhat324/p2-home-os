@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-upload-block-snapshot-20260815-0953",
-  "operation": "osho-publisher-diagnose",
+  "request_id": "osho-publisher-fix-20260815-0955",
+  "operation": "osho-publisher-fix",
   "target": "compute-01"
 }
