@@ -1,5 +1,5 @@
 site_name: P² Home OS
-site_description: Home server, networking and smart-home operations manual
+site_description: Home infrastructure, compute, storage, AI and automation operations manual
 site_author: Prabhat
 site_url: http://docs.home.arpa
 
@@ -47,12 +47,29 @@ nav:
   - Home: index.md
   - System:
       - Overview: 01-system-overview.md
+      - Architecture:
+          - Network Topology: 01-architecture/network-topology.md
+          - Service Map: 01-architecture/service-map.md
       - Hardware Inventory: 02-hardware-inventory.md
       - Network: 03-network.md
       - Storage: 04-storage.md
+  - Nodes:
+      - core-01 / media-server: 02-core/core-01.md
+      - compute-01: 03-compute/compute-01.md
+      - compute-01 As-Built: compute-01-as-built.md
+      - compute-02: 03-compute/compute-02.md
+      - compute-03: 03-compute/compute-03.md
   - Applications:
-      - Docker Services: 05-services.md
-      - Smart Home: 06-smart-home.md
+      - Services: 05-services.md
+      - Smart Home & Voice: 06-smart-home.md
+  - Project Osho:
+      - Overview: 12-project-osho/index.md
+      - Architecture: 12-project-osho/architecture.md
+      - Pipeline: 12-project-osho/pipeline.md
+      - Services & Paths: 12-project-osho/services-and-paths.md
+      - Dashboard: 12-project-osho/dashboard.md
+      - YouTube Publishing: 12-project-osho/youtube-publishing.md
+      - Operations: 12-project-osho/operations.md
   - Operations:
       - Backup Strategy: 07-backups.md
       - Maintenance: 08-maintenance.md
