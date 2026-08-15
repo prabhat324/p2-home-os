@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-pipeline-watch-publish-20260815-0522",
-  "operation": "osho-publish-audit",
+  "request_id": "osho-first-growth-check-20260815-0559",
+  "operation": "osho-status",
   "target": "compute-01"
 }
