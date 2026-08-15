@@ -6,6 +6,7 @@ import json
 import os
 import pathlib
 import re
+import select
 import subprocess
 import sys
 import time
@@ -136,7 +137,11 @@ def main() -> int:
                 post("⚠️ Project Osho journal watcher restarted.")
                 time.sleep(3)
                 proc = journal_process()
-            line = proc.stdout.readline().strip() if proc.stdout else ""
+            line = ""
+            if proc.stdout:
+                ready, _, _ = select.select([proc.stdout], [], [], 1.0)
+                if ready:
+                    line = proc.stdout.readline().strip()
             if line and EVENT_RE.search(line):
                 icon = "🔴" if URGENT_RE.search(line) else "🔵"
                 post(f"{icon} **Osho pipeline**\n{line[-1800:]}")
