@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-v054-core-root-deploy-20260815",
-  "operation": "dashboard-deploy",
+  "request_id": "mavrick-external-speaker-test-20260815-01",
+  "operation": "mavrick-speaker-test",
   "target": "compute-02"
 }
