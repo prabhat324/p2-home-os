@@ -1,31 +1,33 @@
 ---
-- name: Inspect Project Osho maintenance boundary on compute-01
+- name: Inspect Project Osho write boundary on compute-01
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect scoped helper and live file permissions
+    - name: Inspect automation identity and target writability
       ansible.builtin.shell: |
         set -u
-        echo '=== HELPER PERMISSIONS ==='
-        ls -l /usr/local/sbin/p2ops-osho-maintenance 2>/dev/null || true
-        echo '=== HELPER SOURCE ==='
-        sed -n '1,260p' /usr/local/sbin/p2ops-osho-maintenance 2>/dev/null || true
-        echo '=== HELPER STATUS ==='
-        sudo -n /usr/local/sbin/p2ops-osho-maintenance status 2>&1 || true
-        echo '=== TARGET FILE PERMISSIONS ==='
-        ls -l \
+        echo '=== IDENTITY ==='
+        id
+        echo '=== DIRECTORY PERMISSIONS ==='
+        namei -l /srv/compose/osho-worker/boundary_consensus.py 2>/dev/null || true
+        echo '=== WRITABILITY ==='
+        for f in \
           /srv/compose/osho-worker/boundary_consensus.py \
           /srv/compose/osho-worker/verify_reel_transcript.py \
-          /srv/compose/osho-worker/transcript_stability.py \
-          /srv/compose/osho-worker/osho_autopilot.py 2>/dev/null || true
-        echo '=== CURRENT PIPELINE ==='
+          /srv/compose/osho-worker/transcript_stability.py; do
+          if [ -w "$f" ]; then echo "WRITABLE=yes $f"; else echo "WRITABLE=no $f"; fi
+        done
+        if [ -w /srv/compose/osho-worker ]; then echo 'DIR_WRITABLE=yes'; else echo 'DIR_WRITABLE=no'; fi
+        echo '=== SUDO RULES ==='
+        sudo -n -l 2>&1 || true
+        echo '=== PIPELINE ==='
         pgrep -af 'osho_autopilot.py|hook_ranker_v5.py|retention_qa_v4.py' 2>/dev/null || true
       args:
         executable: /bin/bash
-      register: helper_diag
+      register: write_diag
       changed_when: false
       failed_when: false
 
-    - name: Show maintenance boundary
+    - name: Show write boundary
       ansible.builtin.debug:
-        msg: "{{ helper_diag.stdout_lines }}"
+        msg: "{{ write_diag.stdout_lines }}"
