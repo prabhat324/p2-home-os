@@ -1,0 +1,46 @@
+---
+- name: Diagnose repeated Mavrick model digest mismatches
+  hosts: compute-02
+  gather_facts: false
+  tasks:
+    - name: Inspect Ollama runtime storage and corruption evidence
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "=== OLLAMA SERVICE ==="
+        systemctl show ollama.service -p User -p Group -p Environment -p ExecStart --no-pager 2>&1 || true
+        getent passwd ollama || true
+        ps -eo user,pid,etimes,cmd | grep '[o]llama serve' || true
+        curl -fsS http://127.0.0.1:11434/api/version || true
+        echo
+        echo "=== FILESYSTEM ==="
+        df -Th /
+        df -ih /
+        findmnt -no SOURCE,FSTYPE,OPTIONS /
+        echo "=== MODEL LOCATIONS ==="
+        for root in /usr/share/ollama/.ollama/models /var/lib/ollama/.ollama/models /var/lib/ollama/models /home/ollama/.ollama/models; do
+          if [[ -e "$root" ]]; then
+            echo "MODEL_ROOT=$root"
+            namei -l "$root" || true
+            du -sh "$root" 2>/dev/null || true
+            find "$root/blobs" -maxdepth 1 -type f -printf '%f %s bytes\n' 2>/dev/null | tail -20 || true
+            blob="$root/blobs/sha256-9c60bdd691c1897bbfe5ddbc67336848e18c346b7ee2ab8541b135f208e5bb38"
+            if [[ -r "$blob" ]]; then
+              echo "TARGET_BLOB=$blob"
+              stat "$blob"
+              sha256sum "$blob"
+            fi
+          fi
+        done
+        echo "=== OLLAMA LOGS ==="
+        journalctl -u ollama.service -n 120 --no-pager 2>&1 | tail -120 || true
+        echo "=== KERNEL IO ERRORS ==="
+        journalctl -k --since '-2 hours' --no-pager 2>&1           | grep -Ei 'nvme|i/o error|corrupt|checksum|ext4|btrfs|xfs|mce|edac|hardware error'           | tail -80 || true
+      args:
+        executable: /bin/bash
+      register: diagnosis
+      changed_when: false
+      failed_when: false
+
+    - name: Show model corruption diagnosis
+      ansible.builtin.debug:
+        msg: "{{ diagnosis.stdout_lines }}"
