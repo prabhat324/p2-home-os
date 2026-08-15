@@ -1,84 +1,159 @@
 /* P² Home Command Center */
 
+:root {
+  --p2-panel: rgba(15, 23, 42, 0.78);
+  --p2-panel-soft: rgba(30, 41, 59, 0.62);
+  --p2-border: rgba(148, 163, 184, 0.14);
+  --p2-border-hover: rgba(139, 92, 246, 0.42);
+}
+
 body {
   background-attachment: fixed;
 }
 
 #page_container {
-  max-width: 1850px;
-  margin-left: auto;
-  margin-right: auto;
+  max-width: 1880px;
+  margin: 0 auto;
+  padding-left: 1.1rem;
+  padding-right: 1.1rem;
 }
 
-.service-card {
-  border: 1px solid rgba(255, 255, 255, 0.09);
+/* Header + health overview -------------------------------------------------- */
+#information-widgets {
+  position: relative;
+  margin-bottom: 1.15rem;
+}
+
+/* Homepage keeps greeting + Glances in #widgets-wrap. Turn that area into a
+   deliberate grid: greeting on its own row, then one card per host. */
+#widgets-wrap {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem !important;
+  align-items: stretch;
+  width: 100%;
+  padding-top: 0.1rem;
+}
+
+#widgets-wrap > .information-widget-greeting:first-child {
+  grid-column: 1 / -1;
+  min-height: 3.4rem;
+  max-width: calc(100% - 18rem);
+  display: flex;
+  align-items: center;
+}
+
+#information-widgets-right {
+  position: absolute !important;
+  top: 0.1rem !important;
+  right: 0 !important;
+  margin: 0 !important;
+  z-index: 10;
+  min-width: 16rem;
+  max-width: 17rem;
+}
+
+.information-widget-resource,
+.information-widget-datetime {
+  border: 1px solid var(--p2-border);
+  border-radius: 14px;
+  background: var(--p2-panel-soft);
   box-shadow:
-    0 10px 30px rgba(0, 0, 0, 0.24),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    0 10px 28px rgba(0, 0, 0, 0.20),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  backdrop-filter: blur(14px);
+}
+
+/* Keep the four host widgets uniform and compact. */
+.information-widget-glances {
+  min-width: 0 !important;
+  width: 100% !important;
+  align-self: stretch !important;
+}
+
+.information-widget-glances .information-widget-resource {
+  margin-right: 0.35rem !important;
+}
+
+/* Service cards ------------------------------------------------------------ */
+.service-card {
+  border: 1px solid var(--p2-border);
+  border-radius: 14px;
+  background: var(--p2-panel);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.025);
   transition:
-    transform 170ms ease,
-    border-color 170ms ease,
-    box-shadow 170ms ease;
+    transform 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
 }
 
 .service-card:hover {
-  transform: translateY(-4px);
-  border-color: rgba(56, 189, 248, 0.42);
+  transform: translateY(-2px);
+  border-color: var(--p2-border-hover);
   box-shadow:
-    0 18px 42px rgba(0, 0, 0, 0.34),
-    0 0 28px rgba(56, 189, 248, 0.10);
+    0 14px 34px rgba(0, 0, 0, 0.28),
+    0 0 20px rgba(139, 92, 246, 0.07);
 }
 
 .service-title {
   font-weight: 700;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.012em;
 }
 
 .service-description {
-  opacity: 0.72;
+  opacity: 0.68;
 }
 
-.information-widget-resource {
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 14px;
-  box-shadow:
-    0 10px 28px rgba(0, 0, 0, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(14px);
+/* Stronger visual hierarchy between operational groups. */
+.service-group {
+  margin-top: 1.05rem !important;
 }
 
+.service-group-name,
 h1,
 h2 {
   letter-spacing: -0.025em;
 }
 
-/* Keep the greeting at top-left and pin Homepage's right-side info widgets
-   (currently the datetime widget) to the top-right, independent of the
-   height of the stacked Glances widgets on the left. */
-#information-widgets {
-  position: relative;
-}
-
-#information-widgets-right {
-  position: absolute !important;
-  top: 0 !important;
-  right: 0 !important;
-  margin: 0 !important;
-  align-self: flex-start !important;
-  z-index: 10;
-}
-
-/* Preserve space for the top-right datetime on normal desktop widths. */
-@media (min-width: 768px) {
-  #widgets-wrap > .information-widget-greeting:first-child {
-    max-width: calc(100% - 34rem);
+/* Avoid giant cards on wide displays. */
+@media (min-width: 1280px) {
+  .services-group > div,
+  .service-group > div {
+    gap: 0.65rem !important;
   }
 }
 
-/* On narrow screens, return to normal flow so the widget cannot overlap. */
+/* Tablet: two host cards per row; datetime remains in the greeting row. */
+@media (max-width: 1180px) {
+  #widgets-wrap {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Mobile: everything returns to normal flow, eliminating any possibility of
+   the date/time covering metrics. */
 @media (max-width: 767px) {
+  #page_container {
+    padding-left: 0.65rem;
+    padding-right: 0.65rem;
+  }
+
+  #widgets-wrap {
+    grid-template-columns: 1fr;
+  }
+
+  #widgets-wrap > .information-widget-greeting:first-child {
+    grid-column: 1;
+    max-width: none;
+  }
+
   #information-widgets-right {
     position: static !important;
-    margin-left: auto !important;
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+    margin: 0.65rem 0 0 !important;
   }
 }
