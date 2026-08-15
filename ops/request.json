@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-json-hardening-snapshot-20260815-0104",
+  "request_id": "osho-clean-orphan-watcher-20260815-0107",
   "operation": "osho-status",
   "target": "compute-01"
 }
