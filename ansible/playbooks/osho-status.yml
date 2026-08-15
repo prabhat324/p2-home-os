@@ -1,22 +1,25 @@
 ---
-- name: Inspect Project Osho boundary model call loop
+- name: Capture exact Project Osho boundary review block
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Read boundary model request and loop
+    - name: Read exact imports request and review loop
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker
-        echo '=== ASK MODEL ==='
-        sed -n '370,500p' boundary_consensus.py
-        echo '=== MODEL LOOP REFERENCES ==='
-        grep -nE 'for model in MODELS|ask_model\(|MODELS' boundary_consensus.py 2>/dev/null || true
-        echo '=== MODEL LOOP CONTEXT ==='
-        line=$(grep -n 'for model in MODELS' boundary_consensus.py | head -1 | cut -d: -f1)
-        if [ -n "$line" ]; then
-          start=$((line - 35)); [ "$start" -lt 1 ] && start=1
-          end=$((line + 100))
-          sed -n "${start},${end}p" boundary_consensus.py
+        echo '=== IMPORTS AND CONSTANTS ==='
+        sed -n '1,28p' boundary_consensus.py
+        echo '=== ASK MODEL EXACT ==='
+        start=$(grep -n '^def ask_model(' boundary_consensus.py | head -1 | cut -d: -f1)
+        end=$(grep -n '^def validate_opening(' boundary_consensus.py | head -1 | cut -d: -f1)
+        if [ -n "$start" ] && [ -n "$end" ]; then
+          sed -n "${start},$((end-1))p" boundary_consensus.py
+        fi
+        echo '=== REVIEW LOOP EXACT ==='
+        start=$(grep -n '^    results = \[\]' boundary_consensus.py | tail -1 | cut -d: -f1)
+        end=$(grep -n '^    usable = \[' boundary_consensus.py | tail -1 | cut -d: -f1)
+        if [ -n "$start" ] && [ -n "$end" ]; then
+          sed -n "${start},$((end-1))p" boundary_consensus.py
         fi
       args:
         executable: /bin/bash
@@ -24,6 +27,6 @@
       changed_when: false
       failed_when: false
 
-    - name: Show boundary call loop
+    - name: Show exact boundary blocks
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
