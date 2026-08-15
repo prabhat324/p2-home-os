@@ -1,90 +1,59 @@
 ---
-- name: Diagnose Project Osho idle and publishing gaps
+- name: Diagnose Project Osho continuous source feeder
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect source-state DB, rejections, and continuous-work supply
+    - name: Inspect catalog supply and feeder services/scripts
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker || exit 1
         echo "NOW=$(date -Ins)"
-        echo '=== AUTOPILOT / GPU ==='
-        systemctl show osho-autopilot.service -p ActiveState -p SubState -p ExecMainStatus -p ExecMainStartTimestamp -p MainPID --no-pager 2>/dev/null || true
+        echo '=== PIPELINE ==='
+        systemctl show osho-autopilot.service -p ActiveState -p SubState -p MainPID --no-pager 2>/dev/null || true
         ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/ || $0 ~ /boundary_consensus.py/ || $0 ~ /production_renderer.py/) {print}' || true
-        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu --format=csv,noheader 2>/dev/null || true
+        echo '=== OSHO SYSTEMD UNITS/TIMERS ==='
+        systemctl list-unit-files --no-legend 2>/dev/null | grep -Ei 'osho|catalog|buffer|ingest|download' || true
+        systemctl list-timers --all --no-legend 2>/dev/null | grep -Ei 'osho|catalog|buffer|ingest|download' || true
 
-        echo '=== SQLITE DISCOVERY + SOURCE STATUS ==='
+        echo '=== CATALOG SCHEMA / COUNTS / NEXT SOURCES ==='
         python3 - <<'PY'
-        import json, pathlib, sqlite3
-        roots=[pathlib.Path('/srv/osho'), pathlib.Path('/srv/compose/osho-worker')]
-        files=[]
-        for root in roots:
-            if root.exists():
-                files += list(root.rglob('*.sqlite')) + list(root.rglob('*.db'))
-        seen=set()
-        for p in sorted(files):
-            rp=str(p.resolve())
-            if rp in seen: continue
-            seen.add(rp)
-            try:
-                con=sqlite3.connect(rp)
-                con.row_factory=sqlite3.Row
-                tables=[r[0] for r in con.execute("select name from sqlite_master where type='table' and name not like 'sqlite_%'")]
-                print('DB='+rp+' TABLES='+','.join(tables))
-                for t in tables:
-                    cols=[r[1] for r in con.execute(f'pragma table_info({t})')]
-                    if 'source_id' not in cols: continue
-                    select=[c for c in ('source_id','status','reason','title','updated_at','created_at','attempts') if c in cols]
-                    order='source_id'
-                    rows=con.execute('select '+','.join(select)+f' from {t} order by {order} desc limit 40').fetchall()
-                    print('SOURCE_TABLE='+t+' ROWS_SHOWN='+str(len(rows)))
-                    for r in reversed(rows): print('SOURCE_ROW='+json.dumps(dict(r),ensure_ascii=False,sort_keys=True))
-                    if 'status' in cols:
-                        for s,n in con.execute(f'select status,count(*) from {t} group by status order by count(*) desc'):
-                            print(f'STATUS_COUNT={t}|{s}|{n}')
-                con.close()
-            except Exception as e:
-                print('DB_ERROR='+rp+'|'+repr(e))
+        import json, sqlite3
+        p='/srv/osho/library/catalog/catalog.sqlite'
+        con=sqlite3.connect(p); con.row_factory=sqlite3.Row
+        cols=[r[1] for r in con.execute('pragma table_info(discourses)')]
+        print('DISCOURSE_COLS='+','.join(cols))
+        print('DISCOURSE_TOTAL='+str(con.execute('select count(*) from discourses').fetchone()[0]))
+        if 'rights_confirmed' in cols:
+            for r,n in con.execute('select rights_confirmed,count(*) from discourses group by rights_confirmed order by rights_confirmed'):
+                print(f'RIGHTS_COUNT={r}|{n}')
+        if 'download_status' in cols:
+            for s,n in con.execute('select coalesce(download_status,"<null>"),count(*) from discourses group by download_status order by count(*) desc'):
+                print(f'DOWNLOAD_STATUS_COUNT={s}|{n}')
+        if 'local_file' in cols:
+            print('LOCAL_FILE_PRESENT='+str(con.execute("select count(*) from discourses where local_file is not null and local_file<>''").fetchone()[0]))
+        wanted=[c for c in ('source_number','source_id','title','rights_confirmed','download_status','local_file','source_url','audio_url','url','download_url') if c in cols]
+        rows=con.execute('select '+','.join(wanted)+' from discourses where source_number>=30 order by source_number limit 30').fetchall()
+        for row in rows: print('NEXT_SOURCE='+json.dumps(dict(row),ensure_ascii=False,sort_keys=True))
+        # Eligible-but-unbuffered summary
+        wh=[]
+        if 'rights_confirmed' in cols: wh.append('rights_confirmed=1')
+        if 'download_status' in cols: wh.append("coalesce(download_status,'')<>'buffered'")
+        if wh:
+            q='select count(*) from discourses where '+' and '.join(wh)
+            print('RIGHTS_CONFIRMED_NOT_BUFFERED='+str(con.execute(q).fetchone()[0]))
+        con.close()
         PY
 
-        echo '=== SOURCE AUDIO ==='
-        python3 - <<'PY'
-        import pathlib,re
-        root=pathlib.Path('/srv/osho/library/audio'); rows=[]
-        for p in root.glob('*') if root.exists() else []:
-            if p.is_file():
-                m=re.match(r'(\d{6})',p.name)
-                if m: rows.append((int(m.group(1)),p.name))
-        rows.sort(); print('SOURCE_AUDIO_COUNT='+str(len(rows))); print('SOURCE_MAX='+('%06d'%rows[-1][0] if rows else 'none'))
-        for sid,name in rows[-20:]: print(f'SOURCE_AUDIO={sid:06d}|{name}')
-        PY
-
-        echo '=== LATEST AUTOPILOT FILE LOGS ==='
-        find /srv/osho/logs/autopilot -maxdepth 1 -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -30 || true
-        echo '=== RECENT SOURCE OUTCOMES 000013-000029 ==='
-        for sid in $(seq -w 13 29); do
-          s="00${sid}"
-          echo "--- SOURCE $s ---"
-          for f in /srv/osho/logs/autopilot/${s}* /srv/osho/logs/${s}*; do
-            [ -f "$f" ] || continue
-            echo "FILE=$f"
-            grep -Ei 'NO SAFE|GENUINE|APPROV|SKIP|PUBLISH|REJECT|FAIL|ERROR|SAVED|TIMEOUT|candidate' "$f" | tail -35 || true
-          done
-        done
-
-        echo '=== PENDING RENDERS ==='
-        find /srv/osho/renders/pending -maxdepth 1 -type f -printf '%T@ %f\n' 2>/dev/null | sort -nr | head -50 || true
-        echo '=== RECEIPTS ==='
-        find /srv/osho/youtube/receipts -maxdepth 1 -type f -name '*.json' -printf '%T@ %f\n' 2>/dev/null | sort -nr | head -30 || true
-
-        echo '=== KEY AUTOPILOT CODE ==='
-        sed -n '80,180p;960,1070p;1780,1925p' osho_autopilot.py
+        echo '=== FEEDER-LIKE FILES ==='
+        find /srv/compose/osho-worker /srv/osho -maxdepth 4 -type f 2>/dev/null | grep -Ei '(catalog|buffer|ingest|download|source).*(py|sh|service|timer|json|yaml|yml)$' | head -200 || true
+        echo '=== CODE REFERENCES TO DOWNLOAD/CATALOG ==='
+        grep -RniE 'download_status|rights_confirmed|catalog.sqlite|yt-dlp|youtube_dl|local_file|buffered' /srv/compose/osho-worker --include='*.py' --include='*.sh' 2>/dev/null | head -260 || true
       args:
         executable: /bin/bash
       register: diag
       changed_when: false
       failed_when: false
 
-    - name: Show idle/publishing diagnostic
+    - name: Show continuous-source diagnostic
       ansible.builtin.debug:
         msg: "{{ diag.stdout_lines }}"
