@@ -1,66 +1,55 @@
 ---
-- name: Diagnose Project Osho dashboard routes and analytics
+- name: Diagnose Project Osho dashboard ready-count semantics
   hosts: compute-02
   gather_facts: false
   tasks:
-    - name: Check dashboard HTTP routes and safe analytics summary
+    - name: Inspect live dashboard payload and ready-count implementation
       ansible.builtin.shell: |
-        set -eu
+        set -o pipefail
         base='http://127.0.0.1:8787'
 
-        for path in / /analytics /health /api/dashboard /api/analytics; do
-          code="$(curl -sS -o /dev/null -w '%{http_code}' "${base}${path}" 2>/dev/null || true)"
-          printf 'HTTP_%s=%s\n' "$(printf '%s' "$path" | sed 's#^/$#root#; s#^/##; s#[^A-Za-z0-9]#_#g')" "$code"
-        done
+        echo '=== DASHBOARD HEALTH ==='
+        curl -fsS "${base}/health" 2>/dev/null || true
+        echo
 
-        health="$(curl -fsS "${base}/health" 2>/dev/null || true)"
-        [ -z "$health" ] || printf 'HEALTH=%s\n' "$health"
-
-        for path in \
-          /srv/compose/osho-dashboard/app/server.py \
-          /srv/compose/osho-dashboard/app/static/analytics.html; do
-          if [ -f "$path" ]; then
-            printf 'FILE_PRESENT=%s SIZE=%s\n' "$path" "$(stat -c '%s' "$path")"
-          else
-            printf 'FILE_MISSING=%s\n' "$path"
-          fi
-        done
-
-        echo 'DEPLOYED_DOCKERFILE_BEGIN'
-        grep -E '^(FROM|COPY|ADD|CMD|ENTRYPOINT)' /srv/compose/osho-dashboard/Dockerfile 2>/dev/null || true
-        echo 'DEPLOYED_DOCKERFILE_END'
-
-        helper='/usr/local/sbin/p2ops-osho-dashboard'
-        if [ -r "$helper" ]; then
-          echo 'HELPER_DOWNLOAD_LINES_BEGIN'
-          grep -En 'raw.githubusercontent|curl|wget|Dockerfile|main.py|index.html|server.py|analytics.html' "$helper" 2>/dev/null \
-            | sed -E 's/(token|secret|key)=([^ ]+)/\1=[REDACTED]/Ig' | head -80 || true
-          echo 'HELPER_DOWNLOAD_LINES_END'
-        else
-          echo 'HELPER_READABLE=no'
-        fi
-
-        payload="$(curl -fsS "${base}/api/analytics" 2>/dev/null || true)"
+        echo '=== DASHBOARD API SAFE SUMMARY ==='
+        payload="$(curl -fsS "${base}/api/dashboard" 2>/dev/null || true)"
         if [ -n "$payload" ]; then
-          ANALYTICS_PAYLOAD="$payload" python3 - <<'PY'
+          DASHBOARD_PAYLOAD="$payload" python3 - <<'PY'
         import json, os
-        d=json.loads(os.environ['ANALYTICS_PAYLOAD'])
-        a=d.get('analytics') or {}
-        channel=a.get('channel') or a.get('channel_summary') or a.get('channel_stats') or {}
-        videos=a.get('videos') or a.get('video_stats') or []
-        print('ANALYTICS_STATUS=' + str(d.get('status')))
-        print('ANALYTICS_AGE_SECONDS=' + str(d.get('age_seconds')))
-        print('ANALYTICS_LAST_SEEN=' + str(d.get('last_seen')))
-        print('CHANNEL_TITLE=' + str(channel.get('channel_title') or a.get('channel_title') or ''))
-        print('CHANNEL_VIEWS=' + str(channel.get('public_view_count') or channel.get('view_count') or a.get('public_view_count') or a.get('channel_views') or ''))
-        print('SUBSCRIBERS=' + str(channel.get('subscriber_count') or a.get('subscriber_count') or a.get('subscribers') or ''))
-        print('CHANNEL_VIDEOS=' + str(channel.get('video_count') or a.get('video_count') or a.get('channel_video_count') or ''))
-        print('TRACKED_VIDEOS=' + str(len(videos)))
-        for i,v in enumerate(sorted(videos, key=lambda x: float(x.get('public_views') or 0), reverse=True)[:10], 1):
-            safe={'rank':i,'video_id':v.get('video_id') or v.get('youtube_id'),'title':v.get('title') or v.get('reel_id'),'public_views':v.get('public_views'),'engaged_views':v.get('engaged_views'),'watch_minutes':v.get('estimated_minutes_watched'),'average_view_percentage':v.get('average_view_percentage'),'subscribers_gained':v.get('subscribers_gained')}
-            print('VIDEO=' + json.dumps(safe, separators=(',',':')))
+        d=json.loads(os.environ['DASHBOARD_PAYLOAD'])
+        def walk(obj, path=''):
+            if isinstance(obj, dict):
+                for k,v in obj.items():
+                    p=f'{path}.{k}' if path else k
+                    if any(x in k.lower() for x in ('ready','publish','upload','skip','pending','queue','source','receipt')):
+                        if isinstance(v,(str,int,float,bool)) or v is None:
+                            print(f'{p}={v}')
+                        elif isinstance(v,(list,dict)):
+                            print(f'{p}_TYPE={type(v).__name__} SIZE={len(v)}')
+                    walk(v,p)
+            elif isinstance(obj,list):
+                for i,v in enumerate(obj[:50]):
+                    walk(v,f'{path}[{i}]')
+        walk(d)
         PY
         fi
+
+        echo '=== DEPLOYED FILES ==='
+        find /srv/compose/osho-dashboard -maxdepth 3 -type f \
+          \( -name '*.py' -o -name '*.html' -o -name '*.js' \) -print 2>/dev/null | sort
+
+        echo '=== READY REFERENCES ==='
+        grep -RniE 'ready|published|uploaded|skipped|pending|receipts|state_reconciliation|summary' \
+          /srv/compose/osho-dashboard/app /srv/compose/osho-dashboard 2>/dev/null \
+          | head -320 || true
+
+        echo '=== SERVER CONTEXT ==='
+        for f in /srv/compose/osho-dashboard/app/server.py /srv/compose/osho-dashboard/server.py; do
+          [ -f "$f" ] || continue
+          echo "--- $f ---"
+          grep -nEi 'ready|summary|dashboard|published|uploaded|skipped|pending' "$f" | head -120 || true
+        done
       args:
         executable: /bin/bash
       register: dashboard_diag
