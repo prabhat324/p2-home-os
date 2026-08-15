@@ -1,74 +1,33 @@
 ---
-- name: Diagnose Project Osho ranker and QA on compute-01
+- name: Diagnose Project Osho QA model paths on compute-01
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Collect live pipeline diagnostics
+    - name: Collect exact QA model and GPU handoff code
       ansible.builtin.shell: |
         set -u
         cd /srv/compose/osho-worker
-        echo '=== SERVICE ==='
-        systemctl is-active osho-autopilot.service 2>/dev/null || true
-        systemctl show osho-autopilot.service -p ActiveState -p SubState -p MainPID --no-pager 2>/dev/null || true
+        echo '=== RETENTION QA MODEL OCCURRENCES ==='
+        grep -nE 'qwen3|llama3\.1|ollama|LARGE-V3|large-v3|GPU STAGE' retention_qa_v4.py 2>/dev/null || true
 
-        echo '=== PROCESSES ==='
-        pids="$(pgrep -d, -f 'osho_autopilot.py|hook_ranker_v5.py|retention_qa_v4.py' 2>/dev/null || true)"
-        pgrep -af 'osho_autopilot.py|hook_ranker_v5.py|retention_qa_v4.py' 2>/dev/null || true
-        if [ -n "$pids" ]; then
-          ps -o pid=,etime=,pcpu=,pmem=,stat=,args= -p "$pids" 2>/dev/null || true
-        fi
-
-        echo '=== MODELS ==='
-        ollama list 2>/dev/null || true
-        echo '--- PS ---'
-        ollama ps 2>/dev/null || true
-
-        echo '=== AUTOPILOT MODEL CONFIG ==='
-        grep -nE 'qwen3:8b|qwen3:4b|qwen3:4b-instruct|--model|def stop_llms' osho_autopilot.py 2>/dev/null || true
-
-        echo '=== RANKER CONFIG ==='
-        grep -nE 'OLLAMA_URL|timeout=|attempts|MODEL RETRY|except' hook_ranker_v5.py 2>/dev/null | head -100 || true
-
-        echo '=== RETENTION QA MODEL CONFIG ==='
-        grep -nE 'OLLAMA|MODEL|model|timeout=|urlopen|api/chat|attempt|retry|except' retention_qa_v4.py 2>/dev/null | head -160 || true
-
-        echo '=== SOURCE 000004 ARTIFACTS ==='
-        for f in \
-          /srv/osho/candidates/000004.hook-ranked-v5.json \
-          /srv/osho/logs/autopilot/000004-hook-v5.log \
-          /srv/osho/logs/autopilot/000004-qa-v4.log; do
-          if [ -e "$f" ]; then
-            stat -c '%n size=%s mtime=%y' "$f"
-          else
-            echo "MISSING $f"
-          fi
+        echo '=== CONTEXT AROUND MODEL OCCURRENCES ==='
+        for n in $(grep -nE 'qwen3|llama3\.1' retention_qa_v4.py 2>/dev/null | cut -d: -f1 | head -20); do
+          start=$((n-8)); [ "$start" -lt 1 ] && start=1
+          end=$((n+12))
+          echo "--- lines $start-$end ---"
+          sed -n "${start},${end}p" retention_qa_v4.py
         done
 
-        echo '=== QA LOG BEFORE ==='
-        qa=/srv/osho/logs/autopilot/000004-qa-v4.log
-        if [ -f "$qa" ]; then
-          stat -c 'QA_SIZE_BEFORE=%s QA_MTIME_BEFORE=%Y' "$qa"
-          tail -80 "$qa" 2>/dev/null || true
-        fi
-
-        echo '=== 12 SECOND LIVENESS SAMPLE ==='
-        sleep 12
+        echo '=== CURRENT QA PROGRESS ==='
+        pgrep -af 'osho_autopilot.py|retention_qa_v4.py|hook_ranker_v5.py' 2>/dev/null || true
         ollama ps 2>/dev/null || true
-        pgrep -af 'osho_autopilot.py|hook_ranker_v5.py|retention_qa_v4.py' 2>/dev/null || true
-        if [ -f "$qa" ]; then
-          stat -c 'QA_SIZE_AFTER=%s QA_MTIME_AFTER=%Y' "$qa"
-          tail -30 "$qa" 2>/dev/null || true
-        fi
-
-        echo '=== RECENT SOURCE-000004 RELATED FILES ==='
-        find /srv/osho -maxdepth 5 -type f -name '*000004*' -printf '%T@ %TY-%Tm-%TdT%TH:%TM:%TS %p\n' 2>/dev/null \
-          | sort -nr | head -40 || true
+        tail -100 /srv/osho/logs/autopilot/000004-qa-v4.log 2>/dev/null || true
       args:
         executable: /bin/bash
-      register: pipeline_diag
+      register: qa_code
       changed_when: false
       failed_when: false
 
-    - name: Show live pipeline diagnostics
+    - name: Show exact QA code
       ansible.builtin.debug:
-        msg: "{{ pipeline_diag.stdout_lines }}"
+        msg: "{{ qa_code.stdout_lines }}"
