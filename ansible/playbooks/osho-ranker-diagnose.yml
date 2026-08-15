@@ -1,33 +1,76 @@
 ---
-- name: Inspect Project Osho write boundary on compute-01
+- name: Verify Project Osho QA repair and pipeline progress on compute-01
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect automation identity and target writability
+    - name: Collect live Osho verification data
       ansible.builtin.shell: |
         set -u
-        echo '=== IDENTITY ==='
-        id
-        echo '=== DIRECTORY PERMISSIONS ==='
-        namei -l /srv/compose/osho-worker/boundary_consensus.py 2>/dev/null || true
-        echo '=== WRITABILITY ==='
+        cd /srv/compose/osho-worker
+
+        echo '=== SERVICE ==='
+        systemctl is-active osho-autopilot.service 2>/dev/null || true
+        systemctl show osho-autopilot.service -p ActiveState -p SubState -p MainPID --no-pager 2>/dev/null || true
+
+        echo '=== SCOPED QA FIX STATUS ==='
+        sudo -n /usr/local/sbin/p2ops-osho-qa-fix status 2>&1 || true
+
+        echo '=== ACTIVE PIPELINE BEFORE ==='
+        pgrep -af 'osho_autopilot.py|hook_ranker_v5.py|retention_qa_v4.py|render|youtube' 2>/dev/null || true
+        ollama ps 2>/dev/null || true
+
+        echo '=== ACTIVE MODEL REFERENCES ==='
+        printf 'boundary_consensus: '
+        grep -nE 'qwen3:4b-instruct|qwen3:8b|llama3\.1:8b' boundary_consensus.py 2>/dev/null | head -20 || true
+        printf 'verify_reel_transcript: '
+        grep -nE 'qwen3:4b-instruct|qwen3:8b|GPU STAGE' verify_reel_transcript.py 2>/dev/null | head -20 || true
+        printf 'transcript_stability: '
+        grep -nE 'qwen3:4b-instruct|qwen3:8b|llama3\.1:8b' transcript_stability.py 2>/dev/null | head -20 || true
+
+        echo '=== SOURCE 000005 ARTIFACTS ==='
         for f in \
-          /srv/compose/osho-worker/boundary_consensus.py \
-          /srv/compose/osho-worker/verify_reel_transcript.py \
-          /srv/compose/osho-worker/transcript_stability.py; do
-          if [ -w "$f" ]; then echo "WRITABLE=yes $f"; else echo "WRITABLE=no $f"; fi
+          /srv/osho/candidates/000005.hook-ranked-v5.json \
+          /srv/osho/logs/autopilot/000005-hook-v5.log \
+          /srv/osho/logs/autopilot/000005-qa-v4.log \
+          /srv/osho/transcripts/000005.retention-qa-v4.json; do
+          if [ -e "$f" ]; then stat -c '%n size=%s mtime=%y' "$f"; else echo "MISSING $f"; fi
         done
-        if [ -w /srv/compose/osho-worker ]; then echo 'DIR_WRITABLE=yes'; else echo 'DIR_WRITABLE=no'; fi
-        echo '=== SUDO RULES ==='
-        sudo -n -l 2>&1 || true
-        echo '=== PIPELINE ==='
-        pgrep -af 'osho_autopilot.py|hook_ranker_v5.py|retention_qa_v4.py' 2>/dev/null || true
+
+        echo '=== 000005 RANK TAIL ==='
+        tail -80 /srv/osho/logs/autopilot/000005-hook-v5.log 2>/dev/null || true
+
+        echo '=== 000005 QA TAIL ==='
+        tail -160 /srv/osho/logs/autopilot/000005-qa-v4.log 2>/dev/null || true
+
+        echo '=== RECENT MODEL/TIMEOUT EVIDENCE ==='
+        grep -RInE 'MODEL: qwen3:8b|MODEL: qwen3:4b-instruct|ERROR: timed out|GPU STAGE: stopping' \
+          /srv/osho/logs/autopilot/*-qa-v4.log 2>/dev/null | tail -80 || true
+
+        echo '=== RECENT AUTOPILOT JOURNAL ==='
+        journalctl -u osho-autopilot.service -n 100 --no-pager 2>/dev/null | tail -100 || true
+
+        echo '=== 20 SECOND LIVENESS SAMPLE ==='
+        before_rank=$(stat -c %Y /srv/osho/logs/autopilot/000005-hook-v5.log 2>/dev/null || echo 0)
+        before_qa=$(stat -c %Y /srv/osho/logs/autopilot/000005-qa-v4.log 2>/dev/null || echo 0)
+        sleep 20
+        after_rank=$(stat -c %Y /srv/osho/logs/autopilot/000005-hook-v5.log 2>/dev/null || echo 0)
+        after_qa=$(stat -c %Y /srv/osho/logs/autopilot/000005-qa-v4.log 2>/dev/null || echo 0)
+        echo "RANK_MTIME_BEFORE=$before_rank AFTER=$after_rank"
+        echo "QA_MTIME_BEFORE=$before_qa AFTER=$after_qa"
+        pgrep -af 'osho_autopilot.py|hook_ranker_v5.py|retention_qa_v4.py|render|youtube' 2>/dev/null || true
+        ollama ps 2>/dev/null || true
+        tail -50 /srv/osho/logs/autopilot/000005-hook-v5.log 2>/dev/null || true
+        tail -100 /srv/osho/logs/autopilot/000005-qa-v4.log 2>/dev/null || true
+
+        echo '=== MOST RECENT OSHO AUTOPILOT LOG FILES ==='
+        find /srv/osho/logs/autopilot -maxdepth 1 -type f -printf '%T@ %TY-%Tm-%TdT%TH:%TM:%TS %p\n' 2>/dev/null \
+          | sort -nr | head -20 || true
       args:
         executable: /bin/bash
-      register: write_diag
+      register: verify_diag
       changed_when: false
       failed_when: false
 
-    - name: Show write boundary
+    - name: Show live Osho verification
       ansible.builtin.debug:
-        msg: "{{ write_diag.stdout_lines }}"
+        msg: "{{ verify_diag.stdout_lines }}"
