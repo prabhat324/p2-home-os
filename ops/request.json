@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-ranker-resume-verify-20260815-1036",
-  "operation": "osho-ranker-diagnose",
+  "request_id": "osho-recovery-e2e-20260815-1038",
+  "operation": "osho-publisher-diagnose",
   "target": "compute-01"
 }
