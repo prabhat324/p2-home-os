@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-notifications-diagnose-20260815-1521",
-  "operation": "osho-notifications-diagnose",
-  "target": "compute-01"
+  "request_id": "p2-command-center-deploy-20260815-1114",
+  "operation": "dashboard-deploy",
+  "target": "compute-02"
 }
