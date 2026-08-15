@@ -19,7 +19,7 @@
         fi
 
         current_has_analytics=no
-        if grep -qsE '(^|["'"'])/analytics|analytics' \
+        if grep -qsi analytics \
           /srv/compose/osho-dashboard/app/main.py \
           /srv/compose/osho-dashboard/app/static/index.html 2>/dev/null; then
           current_has_analytics=yes
@@ -39,7 +39,7 @@
           | while IFS= read -r dir; do
               [ -n "$dir" ] || continue
               has_analytics=no
-              if grep -qsE '(^|["'"'])/analytics|analytics' \
+              if grep -qsi analytics \
                 "$dir/app/main.py" "$dir/app/static/index.html" 2>/dev/null; then
                 has_analytics=yes
               fi
