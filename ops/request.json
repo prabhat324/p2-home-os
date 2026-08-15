@@ -1,5 +1,5 @@
 {
-  "request_id": "glances-storage-compose-inventory-20260815",
-  "operation": "home-dashboard-inventory",
-  "target": "all"
+  "request_id": "core01-glances-access-diagnose-20260815",
+  "operation": "status",
+  "target": "core-01"
 }
