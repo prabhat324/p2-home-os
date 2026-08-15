@@ -1,26 +1,38 @@
 ---
-- name: Locate Project Osho worker job-state files
+- name: Verify Project Osho worker job-file host path
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Read worker job path helpers and live state files
+    - name: Inspect WORK constant and persisted job states
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker
         echo "NOW=$(date -Ins)"
-        echo '=== JOB PATH HELPERS ==='
-        grep -nE 'def job_path|def write_job|JOB.*DIR|JOBS|job_path\(' app.py | head -120 || true
-        echo '=== CONTEXT AROUND job_path ==='
-        line=$(grep -n '^def job_path' app.py | head -1 | cut -d: -f1)
-        [ -n "$line" ] && sed -n "$((line-15)),$((line+60))p" app.py || true
-        echo '=== POSSIBLE JOB JSON FILES ==='
-        find /srv/osho /srv/compose/osho-worker -maxdepth 4 -type f -name 'OSHO-*.json' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -30 || true
+        echo '=== WORK CONSTANT ==='
+        grep -nE '^WORK[[:space:]]*=|OSHO.*WORK|/data/work|/srv/osho/work' app.py | head -40 || true
+        echo '=== HOST JOB FILES ==='
+        python3 - <<'PY'
+        import json, pathlib
+        roots=[pathlib.Path('/srv/osho/work'), pathlib.Path('/srv/compose/osho-worker/work')]
+        terminal={'complete','completed','failed','cancelled','canceled','published','done'}
+        for root in roots:
+            files=sorted(root.glob('*/job.json'), key=lambda p:p.stat().st_mtime, reverse=True) if root.exists() else []
+            print(f'ROOT={root} EXISTS={root.exists()} JOB_FILES={len(files)}')
+            active=[]
+            for p in files[:20]:
+                try: d=json.loads(p.read_text())
+                except Exception: continue
+                status=str(d.get('status') or d.get('stage') or '').lower()
+                print(f'JOB={p.parent.name}|status={status}|mtime={p.stat().st_mtime}')
+                if status and status not in terminal: active.append(p.parent.name+':'+status)
+            print('ACTIVE=' + (','.join(active) if active else 'none'))
+        PY
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show worker job-state locations
+    - name: Show worker job-file state
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
