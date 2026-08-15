@@ -25,10 +25,10 @@ ssh "$TARGET" "
     done
 "
 
+# Application/build files are updated from Git.
 rsync -av \
     "$SCRIPT_DIR/Dockerfile" \
     "$SCRIPT_DIR/requirements.txt" \
-    "$SCRIPT_DIR/compose.yml" \
     "$TARGET:$REMOTE_DIR/"
 
 rsync -av \
@@ -38,6 +38,15 @@ rsync -av \
 rsync -av \
     "$SCRIPT_DIR/app/static/index.html" \
     "$TARGET:$REMOTE_DIR/app/static/index.html"
+
+# Preserve an existing live compose.yml because it may contain host-specific settings.
+# Install the repository baseline only when no compose file exists remotely.
+if ! ssh "$TARGET" "test -f '$REMOTE_DIR/compose.yml'"; then
+    rsync -av "$SCRIPT_DIR/compose.yml" "$TARGET:$REMOTE_DIR/compose.yml"
+    echo "Installed repository baseline compose.yml"
+else
+    echo "Preserved existing compute-02 compose.yml"
+fi
 
 ssh "$TARGET" "
     set -e
