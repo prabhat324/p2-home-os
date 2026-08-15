@@ -1,42 +1,51 @@
 ---
-- name: Inspect Project Osho rendering and growth-editing pipeline
+- name: Inspect exact Project Osho CTA and end-card render path
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect live renderer, captions, reframing, audio, metadata, and upload code
+    - name: Read exact CTA/end-card implementation and call sites
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker
         echo "NOW=$(date -Ins)"
-        echo '=== PIPELINE FILES ==='
-        find . -maxdepth 2 -type f \( -name '*.py' -o -name '*.sh' \) -printf '%p\n' | sort
 
-        echo '=== RENDER / CAPTION / EDIT REFERENCES ==='
-        grep -RniE --include='*.py' --include='*.sh' \
-          'ffmpeg|subtitle|caption|ass|drawtext|crop|scale|1080|1920|reel|render|zoom|loudnorm|audio|fade|overlay|font|vertical' . \
-          | head -260 || true
+        echo '=== APP END CARD FUNCTION ==='
+        start=$(grep -n '^def append_brand_endcard(' app.py | head -1 | cut -d: -f1)
+        end=$(grep -n '^def job_path(' app.py | head -1 | cut -d: -f1)
+        if [ -n "$start" ] && [ -n "$end" ]; then sed -n "${start},$((end-1))p" app.py; fi
 
-        echo '=== AUTOPILOT RENDER CALLS ==='
-        grep -nE 'render|reel|caption|subtitle|metadata|title|upload|ffmpeg' osho_autopilot.py | head -180 || true
+        echo '=== APP END CARD CALL SITES ==='
+        grep -nC 10 'append_brand_endcard' app.py || true
 
-        echo '=== CANDIDATE RENDERER FILES ==='
-        for f in $(grep -RIlE --include='*.py' 'ffmpeg|drawtext|subtitles|1080:1920|1920|render' . | head -12); do
-          echo "----- FILE: $f -----"
-          sed -n '1,260p' "$f" | head -260
+        echo '=== PRODUCTION RENDER FUNCTION ==='
+        start=$(grep -n '^def render_production_reel(' production_renderer.py | head -1 | cut -d: -f1)
+        if [ -n "$start" ]; then sed -n "${start},$((start+220))p" production_renderer.py; fi
+
+        echo '=== CTA REFERENCES ==='
+        grep -nC 8 -E 'CTA_DURATION|FOLLOW|SUBSCRIBE|cta|end.card|end_card' production_renderer.py app.py visual_planner.py || true
+
+        echo '=== LATEST METADATA TEMPLATE MARKERS ==='
+        for f in $(find /srv/osho/metadata -maxdepth 1 -type f -name '*.json' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -4 | cut -d' ' -f2-); do
+          echo "META=$f"
+          python3 - "$f" <<'PY'
+        import json,sys
+        try:
+            d=json.load(open(sys.argv[1],encoding='utf-8'))
+        except Exception as e:
+            print('ERROR='+str(e)); raise SystemExit
+        for k in ('reel_id','title','render_profile','template_version','caption','description'):
+            if k in d:
+                v=d[k]
+                if isinstance(v,str) and len(v)>300: v=v[:300]+'...'
+                print(f'{k}={v}')
+        PY
         done
-
-        echo '=== RECENT OUTPUT PROBE ==='
-        latest=$(find /srv/osho -type f -name '*.mp4' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)
-        if [ -n "$latest" ]; then
-          echo "LATEST_MP4=$latest"
-          ffprobe -v error -show_entries format=duration:stream=index,codec_type,codec_name,width,height,r_frame_rate,bit_rate -of json "$latest" 2>/dev/null || true
-        fi
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show render-growth inspection
+    - name: Show exact CTA render path
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
