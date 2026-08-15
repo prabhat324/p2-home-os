@@ -1,5 +1,5 @@
 {
-  "request_id": "core01-glances-access-diagnose-20260815",
-  "operation": "status",
-  "target": "core-01"
+  "request_id": "osho-upload-function-1786812121710",
+  "operation": "osho-publisher-diagnose",
+  "target": "compute-01"
 }
