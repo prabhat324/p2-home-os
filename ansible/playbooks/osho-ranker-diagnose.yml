@@ -1,36 +1,31 @@
 ---
-- name: Inspect active Project Osho QA helper contexts on compute-01
+- name: Inspect Project Osho maintenance boundary on compute-01
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Show active helper code around stale model references
+    - name: Inspect scoped helper and live file permissions
       ansible.builtin.shell: |
         set -u
-        cd /srv/compose/osho-worker
-        echo '=== RETENTION QA LEGACY CALLS ==='
-        grep -n 'legacy\.' retention_qa_v4.py 2>/dev/null || true
-
-        echo '=== QA GATE MODEL CONTEXT ==='
-        sed -n '850,930p' qa_gate_v062.py 2>/dev/null || true
-
-        echo '=== BOUNDARY CONSENSUS ==='
-        sed -n '1,130p' boundary_consensus.py 2>/dev/null || true
-
-        echo '=== TRANSCRIPT STABILITY ==='
-        sed -n '1,120p' transcript_stability.py 2>/dev/null || true
-
-        echo '=== VERIFY REEL TRANSCRIPT ==='
-        sed -n '1,155p' verify_reel_transcript.py 2>/dev/null || true
-
+        echo '=== HELPER PERMISSIONS ==='
+        ls -l /usr/local/sbin/p2ops-osho-maintenance 2>/dev/null || true
+        echo '=== HELPER SOURCE ==='
+        sed -n '1,260p' /usr/local/sbin/p2ops-osho-maintenance 2>/dev/null || true
+        echo '=== HELPER STATUS ==='
+        sudo -n /usr/local/sbin/p2ops-osho-maintenance status 2>&1 || true
+        echo '=== TARGET FILE PERMISSIONS ==='
+        ls -l \
+          /srv/compose/osho-worker/boundary_consensus.py \
+          /srv/compose/osho-worker/verify_reel_transcript.py \
+          /srv/compose/osho-worker/transcript_stability.py \
+          /srv/compose/osho-worker/osho_autopilot.py 2>/dev/null || true
         echo '=== CURRENT PIPELINE ==='
         pgrep -af 'osho_autopilot.py|hook_ranker_v5.py|retention_qa_v4.py' 2>/dev/null || true
-        ollama ps 2>/dev/null || true
       args:
         executable: /bin/bash
-      register: qa_context
+      register: helper_diag
       changed_when: false
       failed_when: false
 
-    - name: Show QA helper contexts
+    - name: Show maintenance boundary
       ansible.builtin.debug:
-        msg: "{{ qa_context.stdout_lines }}"
+        msg: "{{ helper_diag.stdout_lines }}"
