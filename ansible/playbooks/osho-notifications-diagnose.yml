@@ -3,29 +3,18 @@
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect notification implementation without reading secret values
+    - name: Inspect notification implementation
       ansible.builtin.shell: |
         set -o pipefail
         echo "NOW=$(date -Ins)"
-        echo '=== SERVICE ==='
+        echo "=== SERVICE ==="
         systemctl show osho-autopilot.service -p ActiveState -p SubState -p FragmentPath -p DropInPaths --no-pager 2>/dev/null || true
-        systemctl cat osho-autopilot.service 2>/dev/null | sed -E 's#(https?://)[^[:space:]"]+#\1[REDACTED]#g' || true
-        echo '=== CANDIDATE FILES ==='
-        find /srv/compose/osho-worker /srv/osho -maxdepth 4 -type f \
-          \( -name '*.py' -o -name '*.sh' -o -name '*.service' -o -name '*.timer' \) \
-          -print 2>/dev/null | sort | head -250
-        echo '=== FILES REFERENCING NOTIFICATIONS ==='
-        grep -RIlE 'smtp|sendmail|email|mailgun|notify|notification|webhook|discord' \
-          /srv/compose/osho-worker /srv/osho 2>/dev/null | sort | head -150 || true
-        echo '=== RELEVANT SOURCE LINES (URLS REDACTED) ==='
-        grep -RInE 'send_email|send_mail|smtp|sendmail|notify|notification|webhook|discord' \
-          /srv/compose/osho-worker \
-          --include='*.py' --include='*.sh' --include='*.service' --include='*.timer' \
-          2>/dev/null | head -300 | sed -E 's#(https?://)[^[:space:]"'"']+#\1[REDACTED]#g' || true
-        echo '=== RECENT AUTOPILOT LOG EVENT SHAPES ==='
-        journalctl -u osho-autopilot.service --since '24 hours ago' --no-pager 2>/dev/null \
-          | grep -Ei 'start|stop|candidate|approval|queue|render|complete|fail|upload|publish|email|notify' \
-          | tail -160 || true
+        echo "=== FILES REFERENCING NOTIFICATIONS ==="
+        grep -RIlE "smtp|sendmail|email|mailgun|notify|notification|webhook|discord" /srv/compose/osho-worker /srv/osho 2>/dev/null | sort | head -150 || true
+        echo "=== RELEVANT SOURCE LINES ==="
+        grep -RInE "send_email|send_mail|smtp|sendmail|notify|notification|webhook|discord" /srv/compose/osho-worker --include="*.py" --include="*.sh" --include="*.service" --include="*.timer" 2>/dev/null | head -300 || true
+        echo "=== RECENT AUTOPILOT EVENT SHAPES ==="
+        journalctl -u osho-autopilot.service --since "24 hours ago" --no-pager 2>/dev/null | grep -Ei "start|stop|candidate|approval|queue|render|complete|fail|upload|publish|email|notify" | tail -160 || true
       args:
         executable: /bin/bash
       register: notification_diag
