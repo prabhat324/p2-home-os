@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ ${EUID} -ne 0 ]]; then
+    echo "This helper must run as root via sudo." >&2
+    exit 1
+fi
+
+CONTAINER="osho-worker"
+MODEL_NAME="models--Systran--faster-whisper-medium"
+TELEMETRY_SERVICE="osho-dashboard-heartbeat.service"
+
+log() {
+    printf '[p2ops-osho-maintenance] %s\n' "$*"
+}
+
+models_dir() {
+    local dir=""
+    if command -v docker >/dev/null 2>&1 && docker inspect "$CONTAINER" >/dev/null 2>&1; then
+        dir="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/models"}}{{.Source}}{{end}}{{end}}' "$CONTAINER" 2>/dev/null || true)"
+    fi
+    if [[ -z "$dir" ]]; then
+        dir="/srv/osho/models"
+    fi
+
+    local resolved
+    resolved="$(realpath -m "$dir")"
+    case "$resolved" in
+        /srv/osho/models|/srv/osho/models/*) ;;
+        *)
+            echo "Refusing unexpected models directory: $resolved" >&2
+            exit 2
+            ;;
+    esac
+    printf '%s\n' "$resolved"
+}
+
+status() {
+    local dir model_dir
+    dir="$(models_dir)"
+    model_dir="$dir/$MODEL_NAME"
+
+    echo "HOST=$(hostname)"
+    echo "TELEMETRY_SERVICE=$(systemctl is-active "$TELEMETRY_SERVICE" 2>/dev/null || true)"
+    echo "AUTOPILOT_SERVICE=$(systemctl is-active osho-autopilot.service 2>/dev/null || true)"
+    echo "RANKER_PROCS=$(pgrep -fc '[h]ook_ranker_v5.py' 2>/dev/null || true)"
+    echo "MODELS_DIR=$dir"
+    if [[ -d "$model_dir" ]]; then
+        echo "WHISPER_CACHE=present"
+    else
+        echo "WHISPER_CACHE=missing"
+    fi
+}
+
+restart_dashboard_telemetry() {
+    log "restarting $TELEMETRY_SERVICE"
+    systemctl restart "$TELEMETRY_SERVICE"
+    systemctl is-active --quiet "$TELEMETRY_SERVICE"
+    log "$TELEMETRY_SERVICE is active"
+}
+
+fix_whisper_cache() {
+    local dir model_dir uid gid
+    dir="$(models_dir)"
+    model_dir="$dir/$MODEL_NAME"
+
+    if [[ ! -d "$model_dir" ]]; then
+        echo "Whisper model cache not found: $model_dir" >&2
+        exit 3
+    fi
+
+    uid=""
+    gid=""
+    if command -v docker >/dev/null 2>&1 \
+        && docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -qx true; then
+        uid="$(docker exec "$CONTAINER" id -u 2>/dev/null || true)"
+        gid="$(docker exec "$CONTAINER" id -g 2>/dev/null || true)"
+    fi
+
+    if [[ -z "$uid" || -z "$gid" ]]; then
+        uid="$(id -u psquare)"
+        gid="$(id -g psquare)"
+    fi
+
+    log "repairing $model_dir for UID:GID ${uid}:${gid}"
+    chown -R "${uid}:${gid}" "$model_dir"
+    chmod -R u+rwX "$model_dir"
+
+    if command -v docker >/dev/null 2>&1 \
+        && docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -qx true; then
+        docker exec "$CONTAINER" sh -lc '
+            set -eu
+            test -r /models/models--Systran--faster-whisper-medium
+            test -w /models/models--Systran--faster-whisper-medium
+            for d in refs trees; do
+                if [ -d "/models/models--Systran--faster-whisper-medium/$d" ]; then
+                    test -w "/models/models--Systran--faster-whisper-medium/$d"
+                fi
+            done
+        '
+    fi
+
+    log "Whisper cache permissions verified"
+}
+
+usage() {
+    cat <<'EOF'
+Usage: p2ops-osho-maintenance <action>
+
+Allowed actions:
+  status
+  restart-dashboard-telemetry
+  fix-whisper-cache
+  apply-safe-fixes
+EOF
+}
+
+case "${1:-}" in
+    status)
+        status
+        ;;
+    restart-dashboard-telemetry)
+        restart_dashboard_telemetry
+        ;;
+    fix-whisper-cache)
+        fix_whisper_cache
+        ;;
+    apply-safe-fixes)
+        fix_whisper_cache
+        restart_dashboard_telemetry
+        ;;
+    *)
+        usage >&2
+        exit 2
+        ;;
+esac
