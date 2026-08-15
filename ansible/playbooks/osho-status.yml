@@ -1,32 +1,26 @@
 ---
-- name: Capture exact Project Osho boundary review block
+- name: Deploy Project Osho dual GPU boundary consensus
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Read exact imports request and review loop
+    - name: Apply managed Osho patches
       ansible.builtin.shell: |
         set -o pipefail
+        echo '=== BEFORE ==='
+        sudo -n /usr/local/sbin/p2ops-osho-managed-patch status
+        echo '=== APPLY ==='
+        sudo -n /usr/local/sbin/p2ops-osho-managed-patch apply
+        echo '=== VERIFY SOURCE ==='
         cd /srv/compose/osho-worker
-        echo '=== IMPORTS AND CONSTANTS ==='
-        sed -n '1,28p' boundary_consensus.py
-        echo '=== ASK MODEL EXACT ==='
-        start=$(grep -n '^def ask_model(' boundary_consensus.py | head -1 | cut -d: -f1)
-        end=$(grep -n '^def validate_opening(' boundary_consensus.py | head -1 | cut -d: -f1)
-        if [ -n "$start" ] && [ -n "$end" ]; then
-          sed -n "${start},$((end-1))p" boundary_consensus.py
-        fi
-        echo '=== REVIEW LOOP EXACT ==='
-        start=$(grep -n '^    results = \[\]' boundary_consensus.py | tail -1 | cut -d: -f1)
-        end=$(grep -n '^    usable = \[' boundary_consensus.py | tail -1 | cut -d: -f1)
-        if [ -n "$start" ] && [ -n "$end" ]; then
-          sed -n "${start},$((end-1))p" boundary_consensus.py
-        fi
+        grep -nE 'OSHO_BOUNDARY_DUAL_GPU_V1|REMOTE_QWEN_URL|ThreadPoolExecutor|MODEL ENDPOINT' boundary_consensus.py || true
+        python3 -m py_compile boundary_consensus.py
+        echo '=== PIPELINE ==='
+        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && $4=="python3" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/ || $0 ~ /boundary_consensus.py/) {print}' || true
       args:
         executable: /bin/bash
       register: result
       changed_when: false
-      failed_when: false
 
-    - name: Show exact boundary blocks
+    - name: Show boundary deployment
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
