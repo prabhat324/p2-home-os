@@ -127,9 +127,9 @@ else
   echo "Runner is already configured; keeping the existing registration."
 fi
 
-sudo "${RUNNER_DIR}/svc.sh" install "${RUNNER_USER}" 2>/dev/null || true
-sudo "${RUNNER_DIR}/svc.sh" start
-sudo "${RUNNER_DIR}/svc.sh" status || true
+sudo bash -lc "cd '${RUNNER_DIR}' && ./svc.sh install '${RUNNER_USER}'" 2>/dev/null || true
+sudo bash -lc "cd '${RUNNER_DIR}' && ./svc.sh start"
+sudo bash -lc "cd '${RUNNER_DIR}' && ./svc.sh status" || true
 
 echo
 echo "Control-plane bootstrap complete."
