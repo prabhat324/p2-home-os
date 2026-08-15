@@ -52,6 +52,9 @@ case "${operation}" in
   osho-ranker-diagnose)
     [[ "${target}" == "compute-01" ]] || { echo "osho-ranker-diagnose is restricted to compute-01" >&2; exit 2; }
     playbook="playbooks/osho-ranker-diagnose.yml" ;;
+  osho-publisher-diagnose)
+    [[ "${target}" == "compute-01" ]] || { echo "osho-publisher-diagnose is restricted to compute-01" >&2; exit 2; }
+    playbook="playbooks/osho-publisher-diagnose.yml" ;;
   osho-qa-fix)
     [[ "${target}" == "compute-01" ]] || { echo "osho-qa-fix is restricted to compute-01" >&2; exit 2; }
     playbook="playbooks/osho-qa-fix.yml" ;;
