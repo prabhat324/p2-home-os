@@ -1,5 +1,5 @@
 {
-  "request_id": "compute03-glances-install-20260814-2253",
-  "operation": "compute-monitoring-bootstrap",
-  "target": "compute-03"
+  "request_id": "compute03-dashboard-card-20260814-2256",
+  "operation": "home-dashboard-deploy",
+  "target": "core-01"
 }
