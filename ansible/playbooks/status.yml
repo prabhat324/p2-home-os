@@ -12,6 +12,16 @@
         echo "LOAD=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || true)"
         echo "MEMORY=$(free -h 2>/dev/null | awk '/^Mem:/ {print $3 "/" $2}' || true)"
         echo "ROOT=$(df -hP / 2>/dev/null | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}' || true)"
+        echo '=== FILESYSTEMS ==='
+        df -hPT -x tmpfs -x devtmpfs 2>/dev/null || true
+        echo '=== GLANCES FILESYSTEMS ==='
+        curl -fsS --max-time 4 http://127.0.0.1:61208/api/4/fs 2>/dev/null | python3 -c '
+        import json,sys
+        try: rows=json.load(sys.stdin)
+        except Exception: rows=[]
+        for x in rows if isinstance(rows,list) else []:
+            print("|".join(str(x.get(k,"")) for k in ("mnt_point","device_name","fs_type","size","used","free","percent")))
+        ' || true
       args:
         executable: /bin/bash
       register: host_status
