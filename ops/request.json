@@ -1,5 +1,5 @@
 {
-  "request_id": "home-dashboard-compose-20260814-2226",
-  "operation": "home-dashboard-inventory",
-  "target": "all"
+  "request_id": "home-dashboard-deploy-20260814-2234",
+  "operation": "home-dashboard-deploy",
+  "target": "core-01"
 }
