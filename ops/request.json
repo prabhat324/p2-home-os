@@ -1,5 +1,5 @@
 {
-  "request_id": "status-20260814-2129",
-  "operation": "status",
-  "target": "all"
+  "request_id": "gpu-20260814-2130",
+  "operation": "gpu-status",
+  "target": "gpu_nodes"
 }
