@@ -3,53 +3,48 @@
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect autopilot process tree, journal and processing row
+    - name: Inspect autopilot runtime, service config and loop state
       ansible.builtin.shell: |
         set -o pipefail
+        cd /srv/compose/osho-worker
         echo "NOW=$(date -Ins)"
-        echo '=== SERVICE ==='
-        systemctl is-active osho-autopilot.service 2>/dev/null || true
-        systemctl show osho-autopilot.service -p MainPID -p ActiveEnterTimestamp -p ExecMainStartTimestamp -p NRestarts --no-pager 2>/dev/null || true
-        echo '=== PROCESS TREE ==='
-        ps -eo pid,ppid,etimes,state,wchan:32,comm,args --forest | grep -E 'osho_autopilot|hook_ranker_v5|retention_qa_v4|ollama|llama-server|ffmpeg|yt-dlp' | grep -v grep || true
-        echo '=== AUTOPILOT CHILDREN ==='
         apid="$(systemctl show -p MainPID --value osho-autopilot.service 2>/dev/null || true)"
+        echo "AUTOPILOT_PID=${apid:-none}"
+        echo '=== SERVICE CONFIG ==='
+        systemctl cat osho-autopilot.service --no-pager 2>/dev/null || true
+        echo '=== PROCESS SNAPSHOT ==='
         if [ -n "$apid" ] && [ "$apid" != 0 ]; then
-          ps -o pid,ppid,etimes,state,wchan:40,comm,args --ppid "$apid" 2>/dev/null || true
-          cat "/proc/$apid/wchan" 2>/dev/null | sed 's/^/AUTOPILOT_WCHAN=/' || true
+          ps -p "$apid" -o pid,ppid,etimes,time,%cpu,%mem,state,wchan:32,comm,args 2>/dev/null || true
+          echo '--- children ---'
+          ps -o pid,ppid,etimes,time,%cpu,state,wchan:32,comm,args --ppid "$apid" 2>/dev/null || true
+          echo '--- open fds ---'
+          ls -l "/proc/$apid/fd" 2>/dev/null | tail -40 || true
+          echo '--- status ---'
+          grep -E 'State|Threads|voluntary_ctxt_switches|nonvoluntary_ctxt_switches' "/proc/$apid/status" 2>/dev/null || true
+          t1="$(awk '{print $14+$15}' /proc/$apid/stat 2>/dev/null || echo 0)"
+          sleep 2
+          t2="$(awk '{print $14+$15}' /proc/$apid/stat 2>/dev/null || echo 0)"
+          echo "CPU_TICKS_DELTA=$((t2-t1))"
         fi
-        echo '=== PROCESSING ROWS ==='
+        echo '=== PROCESSING / PENDING HEAD ==='
         python3 - <<'PY'
         import sqlite3
         from pathlib import Path
         db=Path('/srv/osho/library/catalog/catalog.sqlite')
         c=sqlite3.connect(f'file:{db}?mode=ro&immutable=1',uri=True,timeout=2)
         c.row_factory=sqlite3.Row
-        rows=c.execute("SELECT * FROM osho_autopilot_state WHERE lower(trim(status))='processing'").fetchall()
-        print('PROCESSING_COUNT='+str(len(rows)))
-        for r in rows:
-            d=dict(r)
-            print('PROCESSING_ROW='+repr(d))
+        for status in ('processing','pending'):
+            rows=c.execute("SELECT * FROM osho_autopilot_state WHERE lower(trim(status))=? ORDER BY source_number LIMIT 8",(status,)).fetchall()
+            print(status.upper()+'_COUNT_SHOWN='+str(len(rows)))
+            for r in rows: print(status.upper()+'_ROW='+repr(dict(r)))
         c.close()
         PY
-        echo '=== SOURCE 000029 FILES ==='
-        ls -l --time-style=long-iso /srv/osho/candidates/000029* /srv/osho/transcripts/000029* /srv/osho/logs/autopilot/000029* 2>/dev/null || true
-        echo '=== RANK RESULT SUMMARY ==='
-        python3 - <<'PY'
-        import json,pathlib
-        p=pathlib.Path('/srv/osho/candidates/000029.hook-ranked-v5.json')
-        if p.exists():
-            d=json.loads(p.read_text())
-            print('TYPE='+type(d).__name__)
-            if isinstance(d,dict):
-                print('KEYS='+','.join(sorted(d.keys())))
-                for k in ('source_id','candidates','ranked','survivors','top','approved'):
-                    v=d.get(k)
-                    if isinstance(v,list): print(f'{k.upper()}_COUNT={len(v)}')
-                    elif v is not None: print(f'{k.upper()}={v!r}')
-        PY
-        echo '=== JOURNAL TAIL ==='
-        journalctl -u osho-autopilot.service --since '2026-08-15 02:50:00' --no-pager -n 160 2>/dev/null || true
+        echo '=== AUTOPILOT LOOP CODE ==='
+        grep -nE 'def main|while True|sleep\(|processing|pending|hook_ranker_v5|run_v5_and_qa|stop_llms' osho_autopilot.py | tail -100 || true
+        echo '=== AUTOPILOT FILE TAIL ==='
+        tail -180 osho_autopilot.py || true
+        echo '=== POSSIBLE LOG FILES ==='
+        find /srv/osho/logs -maxdepth 2 -type f -printf '%T@ %TY-%Tm-%TdT%TH:%TM:%TS %p\n' 2>/dev/null | sort -nr | head -30 || true
       args:
         executable: /bin/bash
       register: diag
