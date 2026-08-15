@@ -19,6 +19,23 @@
             echo "PORT_${port}=CLOSED"
           fi
         done
+
+        echo '=== GPU ==='
+        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total --format=csv,noheader 2>/dev/null || true
+        echo '=== GPU PROCESSES ==='
+        nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>/dev/null || true
+
+        if ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq ':8800$'; then
+          echo '=== WORKER API PATHS ==='
+          curl -fsS --max-time 3 http://127.0.0.1:8800/openapi.json 2>/dev/null \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print(" ".join(sorted(d.get("paths",{}))))' 2>/dev/null || true
+        fi
+
+        if [ "$(hostname -s)" = "compute-01" ] && [ -f /srv/compose/osho-worker/osho_autopilot.py ]; then
+          echo '=== AUTOPILOT LOCAL / REMOTE EXECUTION REFERENCES ==='
+          grep -nE 'run_v5_and_qa|hook_ranker_v5|retention_qa_v4|8800|compute-03|worker|requests\.|urlopen|subprocess' \
+            /srv/compose/osho-worker/osho_autopilot.py 2>/dev/null | head -120 || true
+        fi
       args:
         executable: /bin/bash
       register: osho_status
