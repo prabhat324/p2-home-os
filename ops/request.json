@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-model-assert-20260815-1619",
-  "operation": "mavrick-inventory",
-  "target": "compute-02"
+  "request_id": "gpu-temp-verify-after-dashboard-100-20260815",
+  "operation": "gpu-status",
+  "target": "gpu_nodes"
 }
