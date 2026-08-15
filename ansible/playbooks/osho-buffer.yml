@@ -1,0 +1,32 @@
+---
+- name: Maintain Project Osho rolling source buffer
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Request safe rolling-buffer refill
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - /usr/local/sbin/p2ops-osho-buffer
+          - refill-now
+      register: refill
+      changed_when: true
+
+    - name: Show refill request
+      ansible.builtin.debug:
+        msg: "{{ refill.stdout_lines }}"
+
+    - name: Read rolling-buffer status
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - /usr/local/sbin/p2ops-osho-buffer
+          - status
+      register: status
+      changed_when: false
+
+    - name: Show rolling-buffer status
+      ansible.builtin.debug:
+        msg: "{{ status.stdout_lines }}"
