@@ -38,6 +38,10 @@ class WorkerHeartbeat(BaseModel):
     whisper_model: str | None = None
     device: str | None = None
     compute_type: str | None = None
+    load_1m: float | None = None
+    disk_free_gb: float | None = None
+    autopilot_status: str | None = None
+    telemetry_version: str | None = None
     notes: str | None = None
 
 
@@ -71,6 +75,10 @@ WORKER_COLUMNS = {
     "whisper_model": "TEXT",
     "device": "TEXT",
     "compute_type": "TEXT",
+    "load_1m": "REAL",
+    "disk_free_gb": "REAL",
+    "autopilot_status": "TEXT",
+    "telemetry_version": "TEXT",
     "notes": "TEXT",
 }
 
@@ -136,6 +144,10 @@ def db():
             whisper_model TEXT,
             device TEXT,
             compute_type TEXT,
+            load_1m REAL,
+            disk_free_gb REAL,
+            autopilot_status TEXT,
+            telemetry_version TEXT,
             notes TEXT,
             last_seen TEXT
         )
@@ -183,10 +195,13 @@ def worker_heartbeat(heartbeat: WorkerHeartbeat):
             service, service_version, worker_port,
             gpu_name, gpu_utilization, vram_used_mb, vram_total_mb,
             gpu_temperature_c, gpu_power_w, ollama_model,
-            whisper_model, device, compute_type, notes, last_seen
+            whisper_model, device, compute_type,
+            load_1m, disk_free_gb, autopilot_status, telemetry_version,
+            notes, last_seen
         )
         VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?
         )
         ON CONFLICT(name) DO UPDATE SET
             status = excluded.status,
@@ -208,6 +223,10 @@ def worker_heartbeat(heartbeat: WorkerHeartbeat):
             whisper_model = COALESCE(excluded.whisper_model, workers.whisper_model),
             device = COALESCE(excluded.device, workers.device),
             compute_type = COALESCE(excluded.compute_type, workers.compute_type),
+            load_1m = excluded.load_1m,
+            disk_free_gb = excluded.disk_free_gb,
+            autopilot_status = excluded.autopilot_status,
+            telemetry_version = COALESCE(excluded.telemetry_version, workers.telemetry_version),
             notes = excluded.notes,
             last_seen = excluded.last_seen
         """,
@@ -232,6 +251,10 @@ def worker_heartbeat(heartbeat: WorkerHeartbeat):
             heartbeat.whisper_model,
             heartbeat.device,
             heartbeat.compute_type,
+            heartbeat.load_1m,
+            heartbeat.disk_free_gb,
+            heartbeat.autopilot_status,
+            heartbeat.telemetry_version,
             heartbeat.notes,
             now,
         ),
