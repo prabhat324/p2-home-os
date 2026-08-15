@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "patches": [
+    {
+      "id": "shorts-growth-template-v1",
+      "marker": "OSHO_GROWTH_TEMPLATE_V1",
+      "marker_file": "production_renderer.py",
+      "replacements": [
+        {
+          "file": "production_renderer.py",
+          "old": "CTA_DURATION = 4.0",
+          "new": "# OSHO_GROWTH_TEMPLATE_V1\nCTA_DURATION = 1.4",
+          "count": 1
+        },
+        {
+          "file": "production_renderer.py",
+          "old": "    video_filter = (\n        f\"ass={ass}\"\n    )",
+          "new": "    cta_start = max(0.0, spoken - CTA_DURATION)\n\n    video_filter = (\n        f\"ass={ass},\"\n        \"drawtext=\"\n        \"fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:\"\n        \"text='MORE OSHO - SUBSCRIBE':\"\n        \"fontcolor=white:\"\n        \"fontsize=48:\"\n        \"box=1:\"\n        \"boxcolor=black@0.45:\"\n        \"boxborderw=16:\"\n        \"x=(w-text_w)/2:\"\n        \"y=h*0.72:\"\n        f\"enable='between(t,{cta_start:.3f},{spoken:.3f})'\"\n    )",
+          "count": 1
+        },
+        {
+          "file": "production_renderer.py",
+          "old": "            \"osho-v0.6.2\",",
+          "new": "            \"osho-growth-v1\",",
+          "count": 1
+        },
+        {
+          "file": "production_renderer.py",
+          "old": "        \"cta_duration\":\n            CTA_DURATION,\n\n        \"total_duration\":",
+          "new": "        \"cta_duration\":\n            CTA_DURATION,\n\n        \"cta_mode\":\n            \"in_content_overlay\",\n\n        \"growth_template\":\n            \"osho-growth-v1\",\n\n        \"total_duration\":",
+          "count": 1
+        },
+        {
+          "file": "app.py",
+          "old": "            append_brand_endcard(\n                output\n            )",
+          "new": "            print(\n                \"GROWTH TEMPLATE APPLIED: osho-growth-v1\",\n                flush=True,\n            )",
+          "count": 1
+        }
+      ]
+    }
+  ]
+}
