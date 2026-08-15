@@ -154,6 +154,7 @@ def microphone_loop() -> None:
         "-r", "16000", "-c", "1", "-t", "raw",
     ]
     while not STOP.is_set():
+        proc = None
         try:
             proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             active: list[np.ndarray] = []
@@ -189,10 +190,15 @@ def microphone_loop() -> None:
         except Exception as exc:
             log("microphone_retry", error=type(exc).__name__)
         finally:
-            try:
-                proc.terminate()
-            except Exception:
-                pass
+            if proc is not None:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=2)
+                except Exception:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
         STOP.wait(3)
 
 def transcriber_loop() -> None:
