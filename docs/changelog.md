@@ -7,8 +7,12 @@
 - Added full Project Osho documentation section.
 - Documented distributed architecture across compute-01, compute-02, and compute-03.
 - Documented V5 candidate ranking, retention QA, render/publish states, skip-vs-fail behavior, YouTube receipts, reconciliation, and idempotency requirements.
-- Documented Osho dashboard/control-plane behavior and worker status model.
 - Added operational runbook and troubleshooting guidance.
+- Added source-controlled Project Osho Dashboard v0.4 under `services/osho-dashboard/`.
+- Dashboard v0.4 adds dynamic compute-03 visibility, GPU/VRAM/temperature/power telemetry, worker/Whisper/Ollama details, load, free disk, heartbeat age, compute-01 autopilot state, and stale/offline/degraded worker health.
+- Added `Skipped` and `Queued` dashboard counters, assigned-worker support, and clickable latest YouTube upload links.
+- Added a standard telemetry heartbeat agent and systemd service for compute-01 and compute-03.
+- Added safe compute-02 deployment tooling that preserves the existing SQLite runtime database and backs up deployed source/config before replacement.
 
 ### Compute cluster
 
