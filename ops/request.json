@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-discord-redeploy-20260815-1536",
-  "operation": "osho-discord-deploy",
+  "request_id": "osho-discord-snapshot-20260815-1542",
+  "operation": "osho-discord-snapshot",
   "target": "compute-01"
 }
