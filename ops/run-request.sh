@@ -49,6 +49,9 @@ case "${operation}" in
   mavrick-model-pull)
     [[ "${target}" == "compute-02" ]] || { echo "mavrick-model-pull is restricted to compute-02" >&2; exit 2; }
     playbook="playbooks/mavrick-model-pull.yml" ;;
+  mavrick-model-diagnose)
+    [[ "${target}" == "compute-02" ]] || { echo "mavrick-model-diagnose is restricted to compute-02" >&2; exit 2; }
+    playbook="playbooks/mavrick-model-diagnose.yml" ;;
   mavrick-speaker-test)
     [[ "${target}" == "compute-02" ]] || { echo "mavrick-speaker-test is restricted to compute-02" >&2; exit 2; }
     playbook="playbooks/mavrick-speaker-test.yml" ;;
