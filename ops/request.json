@@ -1,5 +1,5 @@
 {
-  "request_id": "ollama-status-20260815-1010",
-  "operation": "ollama-status",
+  "request_id": "osho-idle-publish-gap-20260815-1011",
+  "operation": "osho-status",
   "target": "compute-01"
 }
