@@ -1,69 +1,28 @@
 ---
-- name: Verify Project Osho Growth Template V1 rollout
+- name: Inspect Project Osho worker API for safe render deployment
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect renderer deployment and first Growth V1 artifacts
+    - name: Inspect worker health and OpenAPI routes
       ansible.builtin.shell: |
         set -o pipefail
         echo "NOW=$(date -Ins)"
-        echo '=== RENDER HELPER ==='
-        if [ -x /usr/local/sbin/p2ops-osho-render-patch ]; then
-          sudo -n /usr/local/sbin/p2ops-osho-render-patch status 2>&1 || true
-        else
-          echo 'RENDER_HELPER=not-installed'
-        fi
-
-        echo '=== LIVE MARKERS ==='
+        echo '=== HEALTH ==='
+        curl -fsS --max-time 4 http://127.0.0.1:8800/health 2>&1 || true
+        echo
+        echo '=== OPENAPI JOB/STATUS ROUTES ==='
+        curl -fsS --max-time 4 http://127.0.0.1:8800/openapi.json 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); [(print(path, sorted(methods))) for path,methods in d.get("paths",{}).items() if any(k in path.lower() for k in ("job","health","status"))]' || true
+        echo '=== APP ROUTE DEFINITIONS ==='
         cd /srv/compose/osho-worker
-        printf 'GROWTH_MARKER='; grep -q 'OSHO_GROWTH_TEMPLATE_V1' production_renderer.py && echo yes || echo no
-        printf 'PROFILE='; grep -o 'osho-growth-v1' production_renderer.py | head -1 || true
-        printf 'CAPTION_SIZE='; grep -m1 '^CAPTION_SIZE' production_renderer.py || true
-        printf 'CTA_DURATION='; grep -m1 '^CTA_DURATION' production_renderer.py || true
-        printf 'SCENE_CADENCE='; grep -A4 -n '^def semantic_beats' production_renderer.py | head -8 || true
-        printf 'ENDCARD_CALLS='; grep -c '^[[:space:]]*append_brand_endcard(' app.py || true
-        printf 'GROWTH_LOG_CALLS='; grep -c 'GROWTH TEMPLATE APPLIED: osho-growth-v1' app.py || true
-
-        echo '=== PIPELINE ==='
-        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && $4=="python3" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/) {print}' || true
-
-        echo '=== FIRST GROWTH ARTIFACT SEARCH ==='
-        python3 - <<'PY'
-        import json, pathlib, os
-        roots=[pathlib.Path('/srv/osho'), pathlib.Path('/srv/compose/osho-worker')]
-        hits=[]
-        for root in roots:
-            if not root.exists(): continue
-            for p in root.rglob('*.json'):
-                try:
-                    if '/backups/' in str(p): continue
-                    text=p.read_text(encoding='utf-8', errors='ignore')
-                except Exception:
-                    continue
-                if 'osho-growth-v1' not in text:
-                    continue
-                try: obj=json.loads(text)
-                except Exception: obj={}
-                hits.append((p.stat().st_mtime, str(p), obj))
-        hits.sort()
-        print('GROWTH_ARTIFACT_COUNT=' + str(len(hits)))
-        if hits:
-            ts,path,obj=hits[0]
-            print('FIRST_GROWTH_PATH=' + path)
-            print('FIRST_GROWTH_MTIME=' + str(ts))
-            for key in ('reel_id','source_id','youtube_title','title','production_profile','growth_template','output'):
-                if isinstance(obj,dict) and obj.get(key) is not None:
-                    print('FIRST_' + key.upper() + '=' + str(obj.get(key)))
-        PY
-
-        echo '=== RECENT RECEIPTS / PUBLISHED ==='
-        find /srv/osho -type f \( -iname '*receipt*.json' -o -path '*/published/*' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -15 || true
+        grep -nE '@app\.(get|post|put|delete|patch)\(' app.py | head -100 || true
+        echo '=== CURRENT PROCESSES ==='
+        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/ || $0 ~ /ffmpeg/ || $0 ~ /uvicorn/) {print}' || true
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show Growth V1 rollout state
+    - name: Show worker API inspection
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
