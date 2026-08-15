@@ -92,6 +92,19 @@
           "count": 1
         }
       ]
+    },
+    {
+      "id": "youtube-global-publish-interval-v2",
+      "marker": "OSHO_GLOBAL_UPLOAD_MIN_INTERVAL_V2",
+      "marker_file": "app.py",
+      "replacements": [
+        {
+          "file": "app.py",
+          "old": "                    # OSHO_GLOBAL_UPLOAD_MIN_INTERVAL_V1\n                    # Serialize automated uploads and enforce a global\n                    # 29-minute minimum interval using durable public\n                    # YouTube receipts as the source of truth.\n                    import fcntl as _fcntl\n                    import time as _time\n\n                    _yt_state = Path(\n                        os.environ.get(\n                            \"OSHO_YOUTUBE_STATE_DIR\",\n                            \"/data/youtube\",\n                        )\n                    )\n                    _yt_receipts = _yt_state / \"receipts\"\n                    _yt_receipts.mkdir(\n                        parents=True,\n                        exist_ok=True,\n                    )",
+          "new": "                    # OSHO_GLOBAL_UPLOAD_MIN_INTERVAL_V1\n                    # OSHO_GLOBAL_UPLOAD_MIN_INTERVAL_V2\n                    # Serialize automated uploads and enforce a global\n                    # 29-minute minimum interval using durable public\n                    # YouTube receipts as the source of truth. Fail closed\n                    # if the authoritative receipt store is unavailable.\n                    import fcntl as _fcntl\n                    import time as _time\n\n                    _yt_state = Path(\n                        os.environ.get(\n                            \"OSHO_YOUTUBE_STATE_DIR\",\n                            \"/data/youtube\",\n                        )\n                    )\n                    _yt_receipts = _yt_state / \"receipts\"\n                    if not _yt_receipts.is_dir():\n                        raise RuntimeError(\n                            \"YouTube receipt store unavailable; \"\n                            \"refusing upload without spacing evidence: \"\n                            f\"{_yt_receipts}\"\n                        )",
+          "count": 1
+        }
+      ]
     }
   ]
 }
