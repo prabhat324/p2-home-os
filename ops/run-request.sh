@@ -52,6 +52,9 @@ case "${operation}" in
   osho-maintenance)
     [[ "${target}" == "compute-01" ]] || { echo "osho-maintenance is restricted to compute-01" >&2; exit 2; }
     playbook="playbooks/osho-maintenance.yml" ;;
+  osho-buffer)
+    [[ "${target}" == "compute-01" ]] || { echo "osho-buffer is restricted to compute-01" >&2; exit 2; }
+    playbook="playbooks/osho-buffer.yml" ;;
   osho-publish-audit)
     [[ "${target}" == "compute-01" ]] || { echo "osho-publish-audit is restricted to compute-01" >&2; exit 2; }
     playbook="playbooks/osho-publish-audit.yml" ;;
