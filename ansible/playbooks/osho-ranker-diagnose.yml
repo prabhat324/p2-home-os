@@ -1,33 +1,30 @@
 ---
-- name: Diagnose Project Osho QA model paths on compute-01
+- name: Locate stale Project Osho 8B QA dependencies on compute-01
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Collect exact QA model and GPU handoff code
+    - name: Search worker source for stale models and GPU handoff text
       ansible.builtin.shell: |
         set -u
         cd /srv/compose/osho-worker
-        echo '=== RETENTION QA MODEL OCCURRENCES ==='
-        grep -nE 'qwen3|llama3\.1|ollama|LARGE-V3|large-v3|GPU STAGE' retention_qa_v4.py 2>/dev/null || true
+        echo '=== QWEN 8B OCCURRENCES ==='
+        grep -RIn --include='*.py' --include='*.sh' --include='*.service' \
+          -E 'qwen3:8b|Qwen3 8B|llama3\.1:8b|GPU STAGE: stopping' . 2>/dev/null | head -240 || true
 
-        echo '=== CONTEXT AROUND MODEL OCCURRENCES ==='
-        for n in $(grep -nE 'qwen3|llama3\.1' retention_qa_v4.py 2>/dev/null | cut -d: -f1 | head -20); do
-          start=$((n-8)); [ "$start" -lt 1 ] && start=1
-          end=$((n+12))
-          echo "--- lines $start-$end ---"
-          sed -n "${start},${end}p" retention_qa_v4.py
-        done
+        echo '=== QA IMPORTS ==='
+        sed -n '1,140p' retention_qa_v4.py 2>/dev/null || true
 
-        echo '=== CURRENT QA PROGRESS ==='
-        pgrep -af 'osho_autopilot.py|retention_qa_v4.py|hook_ranker_v5.py' 2>/dev/null || true
+        echo '=== CURRENT PIPELINE ==='
+        pgrep -af 'osho_autopilot.py|hook_ranker_v5.py|retention_qa_v4.py' 2>/dev/null || true
         ollama ps 2>/dev/null || true
-        tail -100 /srv/osho/logs/autopilot/000004-qa-v4.log 2>/dev/null || true
+        echo '--- 000005 rank log tail ---'
+        tail -50 /srv/osho/logs/autopilot/000005-hook-v5.log 2>/dev/null || true
       args:
         executable: /bin/bash
-      register: qa_code
+      register: stale_model
       changed_when: false
       failed_when: false
 
-    - name: Show exact QA code
+    - name: Show stale model search
       ansible.builtin.debug:
-        msg: "{{ qa_code.stdout_lines }}"
+        msg: "{{ stale_model.stdout_lines }}"
