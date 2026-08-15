@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-pipeline-watch-20260815-0336-status",
-  "operation": "osho-status",
+  "request_id": "osho-pipeline-watch-20260815-0337-publish-audit",
+  "operation": "osho-publish-audit",
   "target": "compute-01"
 }
