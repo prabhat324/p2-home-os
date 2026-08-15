@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-live-progress-reporter-deploy-20260815-1220",
-  "operation": "osho-progress-deploy",
-  "target": "compute-01"
+  "request_id": "mavrick-ready-1786810895719",
+  "operation": "mavrick-inventory",
+  "target": "compute-02"
 }
