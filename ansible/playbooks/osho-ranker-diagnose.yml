@@ -1,56 +1,56 @@
 ---
-- name: Diagnose stalled Project Osho autopilot stage
+- name: Validate live Project Osho state after apparent stall
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect autopilot runtime, service config and loop state
+    - name: Compare SQLite live state and inspect latest rank result
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker
         echo "NOW=$(date -Ins)"
-        apid="$(systemctl show -p MainPID --value osho-autopilot.service 2>/dev/null || true)"
-        echo "AUTOPILOT_PID=${apid:-none}"
-        echo '=== SERVICE CONFIG ==='
-        systemctl cat osho-autopilot.service --no-pager 2>/dev/null || true
-        echo '=== PROCESS SNAPSHOT ==='
-        if [ -n "$apid" ] && [ "$apid" != 0 ]; then
-          ps -p "$apid" -o pid,ppid,etimes,time,%cpu,%mem,state,wchan:32,comm,args 2>/dev/null || true
-          echo '--- children ---'
-          ps -o pid,ppid,etimes,time,%cpu,state,wchan:32,comm,args --ppid "$apid" 2>/dev/null || true
-          echo '--- open fds ---'
-          ls -l "/proc/$apid/fd" 2>/dev/null | tail -40 || true
-          echo '--- status ---'
-          grep -E 'State|Threads|voluntary_ctxt_switches|nonvoluntary_ctxt_switches' "/proc/$apid/status" 2>/dev/null || true
-          t1="$(awk '{print $14+$15}' /proc/$apid/stat 2>/dev/null || echo 0)"
-          sleep 2
-          t2="$(awk '{print $14+$15}' /proc/$apid/stat 2>/dev/null || echo 0)"
-          echo "CPU_TICKS_DELTA=$((t2-t1))"
-        fi
-        echo '=== PROCESSING / PENDING HEAD ==='
+        echo '=== SERVICE / PROCS ==='
+        systemctl is-active osho-autopilot.service 2>/dev/null || true
+        pgrep -af 'osho_autopilot.py|hook_ranker_v5.py|retention_qa_v4.py' 2>/dev/null || true
+        echo '=== LIVE SQLITE STATE (WAL-AWARE) ==='
         python3 - <<'PY'
         import sqlite3
-        from pathlib import Path
-        db=Path('/srv/osho/library/catalog/catalog.sqlite')
-        c=sqlite3.connect(f'file:{db}?mode=ro&immutable=1',uri=True,timeout=2)
-        c.row_factory=sqlite3.Row
-        for status in ('processing','pending'):
-            rows=c.execute("SELECT * FROM osho_autopilot_state WHERE lower(trim(status))=? ORDER BY source_number LIMIT 8",(status,)).fetchall()
-            print(status.upper()+'_COUNT_SHOWN='+str(len(rows)))
-            for r in rows: print(status.upper()+'_ROW='+repr(dict(r)))
-        c.close()
+        db='/srv/osho/library/catalog/catalog.sqlite'
+        for label,uri in [
+            ('LIVE',f'file:{db}?mode=ro'),
+            ('IMMUTABLE',f'file:{db}?mode=ro&immutable=1'),
+        ]:
+            c=sqlite3.connect(uri,uri=True,timeout=2)
+            c.row_factory=sqlite3.Row
+            rows=c.execute("SELECT lower(trim(status)) status,count(*) count FROM osho_autopilot_state GROUP BY lower(trim(status)) ORDER BY status").fetchall()
+            print(label+'_COUNTS='+repr({r['status']:r['count'] for r in rows}))
+            latest=c.execute("SELECT * FROM osho_autopilot_state ORDER BY source_number DESC LIMIT 8").fetchall()
+            for r in latest: print(label+'_ROW='+repr(dict(r)))
+            c.close()
         PY
-        echo '=== AUTOPILOT LOOP CODE ==='
-        grep -nE 'def main|while True|sleep\(|processing|pending|hook_ranker_v5|run_v5_and_qa|stop_llms' osho_autopilot.py | tail -100 || true
-        echo '=== AUTOPILOT FILE TAIL ==='
-        tail -180 osho_autopilot.py || true
-        echo '=== POSSIBLE LOG FILES ==='
-        find /srv/osho/logs -maxdepth 2 -type f -printf '%T@ %TY-%Tm-%TdT%TH:%TM:%TS %p\n' 2>/dev/null | sort -nr | head -30 || true
+        echo '=== 000029 RANK RESULT ==='
+        python3 - <<'PY'
+        import json,pathlib
+        p=pathlib.Path('/srv/osho/candidates/000029.hook-ranked-v5.json')
+        print('EXISTS='+str(p.exists()))
+        if p.exists():
+            d=json.loads(p.read_text())
+            for k,v in d.items():
+                if isinstance(v,list): print(f'{k.upper()}_COUNT={len(v)}')
+                elif k in ('source_id','model','version','generated_at'): print(f'{k.upper()}={v!r}')
+        q=pathlib.Path('/srv/osho/transcripts/000029.retention-qa-v4.json')
+        print('QA_SUMMARY_EXISTS='+str(q.exists()))
+        PY
+        echo '=== RECENT AUTOPILOT LOG RESULTS ==='
+        for f in $(find /srv/osho/logs/autopilot -maxdepth 1 -type f -name '*-hook-v5.log' -printf '%T@ %p\n' | sort -nr | head -8 | awk '{print $2}'); do
+          echo "--- $f ---"
+          grep -E 'SAVED:|NO SAFE|SURVIVORS|FULL CLIPS|ERROR|timed out|MODEL' "$f" | tail -20 || true
+        done
       args:
         executable: /bin/bash
       register: diag
       changed_when: false
       failed_when: false
 
-    - name: Show stall diagnosis
+    - name: Show live-state validation
       ansible.builtin.debug:
         msg: "{{ diag.stdout_lines }}"
