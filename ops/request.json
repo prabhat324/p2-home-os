@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-ranker-dual-endpoint-structure-20260815-0016",
+  "request_id": "osho-ranker-loop-locate-20260815-0018",
   "operation": "osho-status",
-  "target": "osho_nodes"
+  "target": "compute-01"
 }
