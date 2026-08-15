@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="$REMOTE_DIR/backups/$STAMP"
 
-printf 'Deploying Project Osho Dashboard v0.4 to %s:%s\n' "$TARGET" "$REMOTE_DIR"
+printf 'Deploying Project Osho Dashboard v0.5 to %s:%s\n' "$TARGET" "$REMOTE_DIR"
 
 ssh "$TARGET" "mkdir -p '$REMOTE_DIR/app/static' '$REMOTE_DIR/data' '$BACKUP_DIR'"
 
