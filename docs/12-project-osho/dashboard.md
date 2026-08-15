@@ -7,27 +7,27 @@ The Project Osho dashboard is the human-visible surface for the zero-touch pipel
 1. What is Osho doing right now?
 2. Is every worker healthy?
 3. Which node owns the work?
-4. What happened to recent jobs and uploads?
+4. What happened to recent jobs, skips, failures and uploads?
 
 The dashboard backend runs on `compute-02`, keeping UI/control-plane responsibilities separate from GPU-heavy processing.
 
-## Version 0.4
+## Version 0.5
 
-As of 2026-08-14, dashboard v0.4 is source-controlled under:
+As of 2026-08-14, dashboard v0.5 is source-controlled under:
 
 ```text
 services/osho-dashboard/
 ```
 
-The production dashboard remains on compute-02 at:
+The production endpoint is:
 
 ```text
-http://compute-02:8787
+http://192.168.0.88:8787
 ```
 
-v0.4 is designed as an in-place upgrade of the existing v0.3 SQLite-backed dashboard. Its schema migration adds columns with `ALTER TABLE` and preserves the current `/data/osho.db` database.
+v0.5 is an in-place upgrade of the SQLite-backed dashboard. Existing `jobs`, `workers`, and `/data/osho.db` state are preserved. The backend adds a `state_snapshots` table for authoritative reconciliation.
 
-## v0.4 summary counters
+## Summary counters
 
 ```text
 Uploaded
@@ -38,7 +38,67 @@ Skipped
 Failed
 ```
 
-`Skipped` is intentionally separate from `Failed`. Project Osho can reject a source because it has no safe V5 candidate or no genuine retention approval; that is healthy pipeline behavior, not a failure.
+`Skipped` is intentionally separate from `Failed`. A source rejected because it has no safe V5 candidate or no genuine retention approval is healthy pipeline behavior, not a processing failure.
+
+## Authoritative state reconciliation
+
+Dashboard v0.5 no longer relies only on pushed dashboard job records for global counts.
+
+The compute-01 telemetry agent v1.2 reads these production sources **read-only**:
+
+```text
+/srv/osho/library/catalog/catalog.sqlite
+/srv/osho/youtube/receipts
+```
+
+Every 10 seconds compute-01 sends:
+
+```text
+POST /api/state/reconcile
+```
+
+The snapshot can include:
+
+```text
+published/uploaded count
+processing count
+ready count
+queued count
+skipped count
+failed count
+latest upload metadata
+raw osho_autopilot_state status counts
+```
+
+The dashboard trusts a reconciliation snapshot only while it is <= 90 seconds old. If it becomes stale, local dashboard state remains available as a fallback.
+
+Reconciliation is deliberately selective. If the authoritative table does not represent a category, the telemetry agent sends `null` rather than a fabricated zero, and the dashboard preserves its existing value for that category.
+
+### Upload truth
+
+Durable YouTube receipts are the preferred source for:
+
+```text
+Uploaded
+Latest Upload
+```
+
+The agent deduplicates receipts, reconstructs the YouTube URL from `video_id` when necessary, and sends the newest receipt as the latest published item.
+
+### Skip / processing truth
+
+`osho_autopilot_state` is the source for persisted skip and active/recovery state. Examples include:
+
+```text
+skipped
+processing
+remote_qa
+ready_to_upload
+queued
+failed
+```
+
+This means a source left in `processing` after an interrupted Autopilot run remains visible as persisted work requiring reconciliation rather than silently disappearing from the dashboard.
 
 ## Current job
 
@@ -57,7 +117,7 @@ YouTube URL
 error
 ```
 
-The `/api/jobs/update` payload now accepts an optional `worker` field. Controllers should populate it whenever work is assigned to `compute-01` or `compute-03`.
+The `/api/jobs/update` payload accepts an optional `worker` field. Controllers should populate it whenever work is assigned to `compute-01` or `compute-03`.
 
 ## Latest upload
 
@@ -89,7 +149,7 @@ GPU workers register dynamically through:
 POST /api/worker/heartbeat
 ```
 
-The v0.4 telemetry agent reports every 10 seconds and can expose:
+The telemetry agent reports every 10 seconds and can expose:
 
 ```text
 hostname / role
@@ -113,36 +173,35 @@ compute-01 autopilot systemd state
 telemetry-agent version
 ```
 
-This is particularly important for `compute-03`, which was previously invisible because the v0.3 dashboard only displayed workers that explicitly posted basic heartbeats.
+compute-03 also derives its active assignment from the catalog because it does not have compute-01's older dedicated operational heartbeat sender.
 
-## Verified compute-03 capabilities
+## Verified worker state
 
-compute-03 has a healthy Project Osho Worker API on TCP 8800 and has reported:
+compute-01 and compute-03 have both been observed registering successfully on dashboard v0.4.1 before the v0.5 reconciliation upgrade.
 
-```json
-{
-  "status": "ok",
-  "service": "Project Osho Worker",
-  "version": "0.6.2",
-  "whisper_model": "medium",
-  "device": "cuda",
-  "compute_type": "int8_float16"
-}
+compute-03 has reported:
+
+```text
+Project Osho Worker 0.6.2
+NVIDIA GeForce RTX 2060
+Whisper medium
+cuda
+int8_float16
 ```
 
-compute-03 has also successfully completed an isolated distributed job through transcription and `rendering_approved_clips`, producing a 1080x1920 H.264/AAC reel. It is therefore a proven processing worker, not merely a standby host.
+It has also successfully completed an isolated distributed job through transcription and `rendering_approved_clips`, producing a 1080x1920 H.264/AAC reel.
 
 ## Heartbeat health interpretation
 
 ```text
 online    heartbeat <= 30 seconds old and worker API healthy
 stale     heartbeat > 30 seconds old
- offline   heartbeat > 90 seconds old
+offline   heartbeat > 90 seconds old
 degraded  telemetry agent is alive but local worker API is unavailable
 unknown   heartbeat timestamp/state cannot be interpreted
 ```
 
-The dashboard refreshes every 3 seconds; telemetry agents post every 10 seconds.
+The UI refreshes every 3 seconds; telemetry agents post every 10 seconds.
 
 ## Telemetry deployment
 
@@ -158,17 +217,27 @@ systemd unit:
 osho-dashboard-heartbeat.service
 ```
 
-The service is intended to run on both compute-01 and compute-03 as user `psquare` and starts automatically at boot.
-
-Default destination:
+The service runs as `psquare`, starts automatically at boot, and uses fixed compute-02 Osho endpoints so telemetry does not depend on local DNS resolution:
 
 ```text
-http://compute-02:8787/api/worker/heartbeat
+http://192.168.0.88:8787/api/worker/heartbeat
+http://192.168.0.88:8787/api/state/reconcile
 ```
 
-## Database schema migration
+Telemetry v1.2 also knows:
 
-The v0.4 backend retains the existing `jobs` and `workers` tables and adds missing fields automatically. Important new worker columns include:
+```text
+OSHO_CATALOG_DB=/srv/osho/library/catalog/catalog.sqlite
+OSHO_RECEIPT_DIR=/srv/osho/youtube/receipts
+```
+
+Only compute-01 emits the global reconciliation snapshot.
+
+## Database schema
+
+The backend retains the existing `jobs` and `workers` tables.
+
+Important worker fields include:
 
 ```text
 role
@@ -192,13 +261,13 @@ autopilot_status
 telemetry_version
 ```
 
-The `jobs` table adds:
+v0.5 adds:
 
 ```text
-worker
+state_snapshots
 ```
 
-Runtime database files are ignored by Git and must not be committed.
+with one latest snapshot per source host. Runtime database files are ignored by Git and must not be committed.
 
 ## Stage vocabulary
 
@@ -211,6 +280,7 @@ transcribing
 candidate_extraction
 hook_ranking
 retention_qa
+remote_qa
 rendering
 rendering_approved_clips
 metadata
@@ -220,22 +290,6 @@ published
 skipped
 failed
 ```
-
-## Important events
-
-Meaningful zero-touch events include:
-
-```text
-NO SAFE V5 CANDIDATES
-0 GENUINE APPROVALS — SKIPPED
-RECONCILED AS PUBLISHED
-worker stale / offline / degraded
-upload started
-upload succeeded
-upload failed
-```
-
-A future activity/event stream should persist these as structured events rather than scrape terminal logs.
 
 ## Deployment safety
 
@@ -249,31 +303,22 @@ The deployment script:
 
 1. backs up the currently deployed source/config on compute-02;
 2. preserves `data/osho.db`;
-3. validates Docker Compose;
-4. rebuilds the container;
-5. checks `/health` and `/api/dashboard`.
+3. preserves an existing host-specific `compose.yml`;
+4. validates Docker Compose;
+5. rebuilds the dashboard container;
+6. checks `/health` and `/api/dashboard`.
 
 Detailed deployment instructions are in `services/osho-dashboard/README.md`.
 
 ## Hostname failure mode
 
-A previous dashboard outage was caused by cluster name resolution:
+A previous telemetry registration failure was caused by cluster name resolution:
 
 ```text
 curl: (6) Could not resolve host: compute-02
-ssh: Could not resolve hostname compute-02
 ```
 
-Troubleshoot in this order:
-
-```bash
-getent hosts compute-02
-ping -c 2 compute-02
-ssh compute-02
-curl -fsS http://compute-02:8787/health
-```
-
-Do not rewrite application code until name resolution and TCP reachability have been verified.
+The telemetry service now uses compute-02's fixed Osho control-plane IP (`192.168.0.88`) to avoid making worker registration depend on hostname resolution. Hostname consistency should still be repaired for SSH and general cluster administration, but it is no longer a prerequisite for dashboard heartbeats.
 
 ## Future improvements
 
