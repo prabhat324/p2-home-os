@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-model-pull-after-install-20260815-01",
-  "operation": "mavrick-model-pull",
-  "target": "compute-02"
+  "request_id": "first-growth-v1-check-20260815-1304",
+  "operation": "osho-publisher-diagnose",
+  "target": "compute-01"
 }
