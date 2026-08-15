@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-pipeline-watch-20260815-0339-loop-diagnose",
+  "request_id": "osho-pipeline-watch-20260815-0340-live-state",
   "operation": "osho-ranker-diagnose",
   "target": "compute-01"
 }
