@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ ${EUID} -ne 0 ]]; then
+    echo "This helper must run as root via sudo." >&2
+    exit 1
+fi
+
+case "$(hostname -s)" in
+    compute-01) ;;
+    *) echo "This helper is restricted to compute-01." >&2; exit 2 ;;
+esac
+
+ACTION="${1:-}"
+LAN="192.168.0.0/24"
+PORT="11434"
+COMMENT="P2 Ollama LAN"
+
+status() {
+    echo "HOST=$(hostname -s)"
+    echo -n "OLLAMA_SERVICE="; systemctl is-active ollama.service 2>/dev/null || true
+    echo -n "OLLAMA_LISTENER="; ss -lnt 2>/dev/null | grep -qE '(:11434)([[:space:]]|$)' && echo yes || echo no
+    echo "=== UFW STATUS ==="
+    ufw status numbered 2>&1
+    echo "=== OLLAMA RULES ==="
+    ufw status numbered 2>&1 | grep -E '11434|P2 Ollama LAN' || true
+}
+
+allow_lan() {
+    command -v ufw >/dev/null 2>&1 || { echo "ufw is required" >&2; exit 3; }
+    systemctl is-active --quiet ollama.service || { echo "Ollama service is not active" >&2; exit 4; }
+    ss -lnt 2>/dev/null | grep -qE '(:11434)([[:space:]]|$)' || { echo "Ollama is not listening on 11434" >&2; exit 4; }
+
+    if ufw status 2>/dev/null | grep -Eq '^11434/tcp[[:space:]]+ALLOW[[:space:]]+192\.168\.0\.0/24|^11434[[:space:]]+ALLOW[[:space:]]+192\.168\.0\.0/24'; then
+        echo "OLLAMA_LAN_RULE=already-present"
+    else
+        ufw allow from "$LAN" to any port "$PORT" proto tcp comment "$COMMENT"
+        echo "OLLAMA_LAN_RULE=added"
+    fi
+
+    status
+}
+
+case "$ACTION" in
+    status) status ;;
+    allow-lan) allow_lan ;;
+    *)
+        echo "Allowed actions: status | allow-lan" >&2
+        exit 2
+        ;;
+esac
