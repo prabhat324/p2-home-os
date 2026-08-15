@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-model-progress-20260815-01",
-  "operation": "mavrick-status",
+  "request_id": "mavrick-model-pull-digest-retry-20260815-03",
+  "operation": "mavrick-model-pull",
   "target": "compute-02"
 }
