@@ -9,6 +9,10 @@
         echo "NOW=$(date -Ins)"
         echo "=== SERVICE ==="
         systemctl show osho-autopilot.service -p ActiveState -p SubState -p FragmentPath -p DropInPaths --no-pager 2>/dev/null || true
+        echo "=== ACCESS ==="
+        id
+        sudo -n -l 2>&1 || true
+        stat -c "%A %U %G %n" /srv/compose/osho-worker /srv/compose/osho-worker/osho_autopilot.py /etc/systemd/system 2>/dev/null || true
         echo "=== FILES REFERENCING NOTIFICATIONS ==="
         grep -RIlE "smtp|sendmail|email|mailgun|notify|notification|webhook|discord" /srv/compose/osho-worker /srv/osho 2>/dev/null | sort | head -150 || true
         echo "=== RELEVANT SOURCE LINES ==="
