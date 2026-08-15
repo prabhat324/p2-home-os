@@ -1,0 +1,23 @@
+---
+- name: Recover Mavrick with the smaller verified Qwen vision model
+  hosts: compute-02
+  gather_facts: false
+  tasks:
+    - name: Pull qwen3-vl 2B and wait for digest verification
+      ansible.builtin.shell: |
+        set -euo pipefail
+        log=/home/p2ops/.local/state/mavrick-model-recover-2b.log
+        mkdir -p "$(dirname "$log")"
+        : > "$log"
+        curl -fsS -N --max-time 1800           -H "Content-Type: application/json"           -d '{"name":"qwen3-vl:2b","stream":true}'           http://127.0.0.1:11434/api/pull | tee "$log"
+        curl -fsS http://127.0.0.1:11434/api/tags           | jq -e '.models | any(.name == "qwen3-vl:2b" or .model == "qwen3-vl:2b")'
+        echo "MAVRICK_RECOVERY_MODEL=qwen3-vl:2b"
+        echo "MAVRICK_RECOVERY_STATE=verified"
+      args:
+        executable: /bin/bash
+      register: recovery
+      changed_when: true
+
+    - name: Show recovery result
+      ansible.builtin.debug:
+        msg: "{{ recovery.stdout_lines[-15:] }}"
