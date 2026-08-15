@@ -1,30 +1,36 @@
 ---
-- name: Locate stale Project Osho 8B QA dependencies on compute-01
+- name: Inspect active Project Osho QA helper contexts on compute-01
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Search worker source for stale models and GPU handoff text
+    - name: Show active helper code around stale model references
       ansible.builtin.shell: |
         set -u
         cd /srv/compose/osho-worker
-        echo '=== QWEN 8B OCCURRENCES ==='
-        grep -RIn --include='*.py' --include='*.sh' --include='*.service' \
-          -E 'qwen3:8b|Qwen3 8B|llama3\.1:8b|GPU STAGE: stopping' . 2>/dev/null | head -240 || true
+        echo '=== RETENTION QA LEGACY CALLS ==='
+        grep -n 'legacy\.' retention_qa_v4.py 2>/dev/null || true
 
-        echo '=== QA IMPORTS ==='
-        sed -n '1,140p' retention_qa_v4.py 2>/dev/null || true
+        echo '=== QA GATE MODEL CONTEXT ==='
+        sed -n '850,930p' qa_gate_v062.py 2>/dev/null || true
+
+        echo '=== BOUNDARY CONSENSUS ==='
+        sed -n '1,130p' boundary_consensus.py 2>/dev/null || true
+
+        echo '=== TRANSCRIPT STABILITY ==='
+        sed -n '1,120p' transcript_stability.py 2>/dev/null || true
+
+        echo '=== VERIFY REEL TRANSCRIPT ==='
+        sed -n '1,155p' verify_reel_transcript.py 2>/dev/null || true
 
         echo '=== CURRENT PIPELINE ==='
         pgrep -af 'osho_autopilot.py|hook_ranker_v5.py|retention_qa_v4.py' 2>/dev/null || true
         ollama ps 2>/dev/null || true
-        echo '--- 000005 rank log tail ---'
-        tail -50 /srv/osho/logs/autopilot/000005-hook-v5.log 2>/dev/null || true
       args:
         executable: /bin/bash
-      register: stale_model
+      register: qa_context
       changed_when: false
       failed_when: false
 
-    - name: Show stale model search
+    - name: Show QA helper contexts
       ansible.builtin.debug:
-        msg: "{{ stale_model.stdout_lines }}"
+        msg: "{{ qa_context.stdout_lines }}"
