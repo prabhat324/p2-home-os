@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-growth-v1-verify-20260815-0203",
+  "request_id": "osho-growth-worker-api-20260815-0205",
   "operation": "osho-status",
   "target": "compute-01"
 }
