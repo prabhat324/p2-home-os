@@ -71,6 +71,14 @@ Known systemd unit:
 osho-autopilot.service
 ```
 
+Dashboard telemetry should also run as:
+
+```text
+osho-dashboard-heartbeat.service
+```
+
+Dashboard v0.4 uses this agent to report compute-01 worker health, GPU utilization, VRAM, temperature, power, load, free disk, active Ollama model, Whisper runtime, and the live `osho-autopilot.service` state to compute-02 every 10 seconds.
+
 See [Project Osho](../12-project-osho/index.md) for the full pipeline documentation.
 
 ## GPU monitoring
