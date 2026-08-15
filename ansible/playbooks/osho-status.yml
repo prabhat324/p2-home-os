@@ -1,26 +1,47 @@
 ---
-- name: Deploy Project Osho dual GPU boundary consensus
+- name: Verify Project Osho dual GPU boundary runtime
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Apply managed Osho patches
+    - name: Collect immediate runtime evidence
       ansible.builtin.shell: |
         set -o pipefail
-        echo '=== BEFORE ==='
-        sudo -n /usr/local/sbin/p2ops-osho-managed-patch status
-        echo '=== APPLY ==='
-        sudo -n /usr/local/sbin/p2ops-osho-managed-patch apply
-        echo '=== VERIFY SOURCE ==='
+        echo "NOW=$(date -Ins)"
         cd /srv/compose/osho-worker
-        grep -nE 'OSHO_BOUNDARY_DUAL_GPU_V1|REMOTE_QWEN_URL|ThreadPoolExecutor|MODEL ENDPOINT' boundary_consensus.py || true
-        python3 -m py_compile boundary_consensus.py
-        echo '=== PIPELINE ==='
-        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && $4=="python3" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/ || $0 ~ /boundary_consensus.py/) {print}' || true
+
+        echo '=== PATCH STATUS ==='
+        sudo -n /usr/local/sbin/p2ops-osho-managed-patch status 2>&1 || true
+
+        echo '=== REAL PIPELINE ==='
+        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && $4=="python3" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/ || $0 ~ /boundary_consensus.py/ || $0 ~ /transcript_stability.py/) {print}' || true
+
+        echo '=== LOCAL GPU ==='
+        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu --format=csv,noheader 2>/dev/null || true
+
+        echo '=== REMOTE GPU/OLLAMA ==='
+        curl -fsS --max-time 3 http://192.168.0.158:11434/api/ps 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print([{"name":x.get("name"),"vram":x.get("size_vram")} for x in d.get("models",[])])' 2>/dev/null || true
+
+        echo '=== 000013 RANK SUMMARY ==='
+        rank=/srv/osho/logs/autopilot/000013-hook-v5.log
+        if [ -f "$rank" ]; then
+          echo "LOCAL_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-01$' "$rank" 2>/dev/null || true)"
+          echo "REMOTE_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-03$' "$rank" 2>/dev/null || true)"
+          echo "RETRIES=$(grep -c 'MODEL RETRY' "$rank" 2>/dev/null || true)"
+          echo "MODEL_FAILURES=$(grep -Ec 'HOOK MODEL FAILURE|CLIP MODEL FAILURE' "$rank" 2>/dev/null || true)"
+          tail -25 "$rank"
+        fi
+
+        echo '=== LATEST QA ENDPOINT EVIDENCE ==='
+        for qlog in $(find /srv/osho/logs/autopilot -maxdepth 1 -type f -name '*-qa-v4.log' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -3 | cut -d' ' -f2-); do
+          echo "QA_LOG=$qlog"
+          grep -E 'MODEL: qwen3:4b-instruct|MODEL: llama3.1:8b|MODEL ENDPOINT:|MODEL ENDPOINT FALLBACK:|FINAL CONSENSUS|BOUNDARY CONSENSUS:' "$qlog" 2>/dev/null | tail -30 || true
+        done
       args:
         executable: /bin/bash
       register: result
       changed_when: false
+      failed_when: false
 
-    - name: Show boundary deployment
+    - name: Show dual GPU boundary runtime
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
