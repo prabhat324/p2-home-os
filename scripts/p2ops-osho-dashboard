@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ACTION="${1:-}"
+REMOTE_DIR="/srv/compose/osho-dashboard"
+RAW_BASE="https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard"
+
+log() {
+    printf '[p2ops-osho-dashboard] %s\n' "$*"
+}
+
+status() {
+    echo "HOST=$(hostname)"
+    echo "DASHBOARD_DIR=$REMOTE_DIR"
+    echo "DASHBOARD_HEALTH=$(curl -fsS http://127.0.0.1:8787/health 2>/dev/null || echo unavailable)"
+    echo "COMPOSE_PRESENT=$([[ -f "$REMOTE_DIR/compose.yml" ]] && echo yes || echo no)"
+    echo "DATABASE_PRESENT=$([[ -f "$REMOTE_DIR/data/osho.db" ]] && echo yes || echo no)"
+}
+
+deploy_master() {
+    command -v curl >/dev/null
+    command -v docker >/dev/null
+    command -v python3 >/dev/null
+
+    [[ -d "$REMOTE_DIR" ]]
+    [[ -f "$REMOTE_DIR/compose.yml" ]]
+
+    local tmp stamp backup
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+
+    mkdir -p "$tmp/app/static"
+
+    log "downloading fixed dashboard files from master"
+    curl -fsSL "$RAW_BASE/Dockerfile" -o "$tmp/Dockerfile"
+    curl -fsSL "$RAW_BASE/requirements.txt" -o "$tmp/requirements.txt"
+    curl -fsSL "$RAW_BASE/app/main.py" -o "$tmp/app/main.py"
+    curl -fsSL "$RAW_BASE/app/static/index.html" -o "$tmp/app/static/index.html"
+
+    python3 -m py_compile "$tmp/app/main.py"
+    grep -q '<!doctype html>' "$tmp/app/static/index.html"
+
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    backup="$REMOTE_DIR/backups/${stamp}-git-helper"
+    mkdir -p "$backup/app/static"
+
+    for item in Dockerfile requirements.txt app/main.py app/static/index.html; do
+        if [[ -f "$REMOTE_DIR/$item" ]]; then
+            cp -a "$REMOTE_DIR/$item" "$backup/$item"
+        fi
+    done
+
+    log "backup created at $backup"
+
+    install -o psquare -g psquare -m 0664 "$tmp/Dockerfile" "$REMOTE_DIR/Dockerfile"
+    install -o psquare -g psquare -m 0664 "$tmp/requirements.txt" "$REMOTE_DIR/requirements.txt"
+    install -o psquare -g psquare -m 0664 "$tmp/app/main.py" "$REMOTE_DIR/app/main.py"
+    install -o psquare -g psquare -m 0664 "$tmp/app/static/index.html" "$REMOTE_DIR/app/static/index.html"
+
+    cd "$REMOTE_DIR"
+    docker compose config >/dev/null
+    docker compose up -d --build
+
+    sleep 3
+    curl -fsS http://127.0.0.1:8787/health
+    echo
+    log "dashboard deploy complete"
+}
+
+case "$ACTION" in
+    status)
+        status
+        ;;
+    deploy-master)
+        deploy_master
+        ;;
+    *)
+        echo "Allowed actions: status | deploy-master" >&2
+        exit 2
+        ;;
+esac
