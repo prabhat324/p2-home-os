@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ ${EUID} -ne 0 ]]; then
+  echo "This helper must run as root via sudo." >&2
+  exit 1
+fi
+
+case "$(hostname -s)" in
+  media-server|core-01) ;;
+  *) echo "This helper is restricted to core-01/media-server." >&2; exit 2 ;;
+esac
+
+ACTION="${1:-}"
+CADDYFILE="/opt/docker/compose/caddy/Caddyfile"
+BACKUPS="/opt/docker/compose/caddy/config-backups"
+NEW_UPSTREAM="http://192.168.0.88:8787/"
+
+require_files() {
+  [[ -f "$CADDYFILE" ]] || { echo "Missing $CADDYFILE" >&2; exit 3; }
+  command -v docker >/dev/null
+  command -v curl >/dev/null
+  command -v python3 >/dev/null
+}
+
+route_probe() {
+  local tmp
+  tmp="$(mktemp)"
+  trap 'rm -f "$tmp"' RETURN
+  if curl -fsS --max-time 6 -H 'Host: dashboard.home.arpa' http://127.0.0.1/ -o "$tmp"; then
+    echo "DASHBOARD_HTTP=ok"
+    if grep -q 'P² Home Command Center' "$tmp"; then
+      echo "DASHBOARD_PRODUCT=p2-command-center"
+    elif grep -qi 'homepage' "$tmp"; then
+      echo "DASHBOARD_PRODUCT=homepage"
+    else
+      echo "DASHBOARD_PRODUCT=other"
+    fi
+  else
+    echo "DASHBOARD_HTTP=unavailable"
+    echo "DASHBOARD_PRODUCT=unknown"
+  fi
+}
+
+status() {
+  require_files
+  echo "HOST=$(hostname -s)"
+  echo "NEW_UPSTREAM=$NEW_UPSTREAM"
+  echo "=== DASHBOARD ROUTES ==="
+  grep -A3 -B1 -E 'dashboard\.home\.arpa|homepage\.home\.arpa' "$CADDYFILE" || true
+  echo "=== NEW APP ==="
+  if curl -fsS --max-time 5 "$NEW_UPSTREAM" | grep -q 'P² Home Command Center'; then
+    echo "P2_APP=ready"
+  else
+    echo "P2_APP=unavailable-or-wrong-content"
+  fi
+  echo "=== LIVE ROUTE ==="
+  route_probe
+}
+
+validate_and_reload() {
+  if ! docker exec caddy caddy validate --config /etc/caddy/Caddyfile >/dev/null; then
+    echo "Caddy validation failed" >&2
+    return 1
+  fi
+  docker exec caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null
+  sleep 1
+}
+
+activate_custom() {
+  require_files
+  curl -fsS --max-time 6 "$NEW_UPSTREAM" | grep -q 'P² Home Command Center' || {
+    echo "Refusing: P2 Command Center is not healthy on compute-02" >&2
+    exit 4
+  }
+
+  local stamp backup
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$BACKUPS"
+  backup="$BACKUPS/Caddyfile-$stamp-before-p2-dashboard"
+  cp -a "$CADDYFILE" "$backup"
+
+  python3 - "$CADDYFILE" <<'PY'
+from pathlib import Path
+import re, sys
+p=Path(sys.argv[1])
+text=p.read_text()
+block='''http://dashboard.home.arpa {
+    reverse_proxy 192.168.0.88:8787
+}
+
+http://homepage.home.arpa {
+    reverse_proxy 127.0.0.1:3000
+}'''
+pat=re.compile(r'http://dashboard\.home\.arpa\s*\{.*?\}', re.S)
+if not pat.search(text):
+    raise SystemExit('dashboard.home.arpa block not found')
+text=pat.sub(block, text, count=1)
+# Avoid duplicate fallback route on repeated execution.
+first=text.find('http://homepage.home.arpa')
+if first >= 0:
+    second=text.find('http://homepage.home.arpa', first+1)
+    if second >= 0:
+        raise SystemExit('duplicate homepage.home.arpa route detected')
+p.write_text(text)
+PY
+
+  if ! validate_and_reload; then
+    cp -a "$backup" "$CADDYFILE"
+    docker exec caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null || true
+    exit 5
+  fi
+
+  if ! curl -fsS --max-time 6 -H 'Host: dashboard.home.arpa' http://127.0.0.1/ | grep -q 'P² Home Command Center'; then
+    echo "Post-change health check failed; rolling back" >&2
+    cp -a "$backup" "$CADDYFILE"
+    docker exec caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null || true
+    exit 6
+  fi
+
+  echo "P2_DASHBOARD_ROUTE=active"
+  echo "BACKUP=$backup"
+  status
+}
+
+restore_homepage() {
+  require_files
+  local stamp backup
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$BACKUPS"
+  backup="$BACKUPS/Caddyfile-$stamp-before-homepage-restore"
+  cp -a "$CADDYFILE" "$backup"
+
+  python3 - "$CADDYFILE" <<'PY'
+from pathlib import Path
+import re, sys
+p=Path(sys.argv[1]); text=p.read_text()
+pat=re.compile(r'http://dashboard\.home\.arpa\s*\{.*?\}', re.S)
+if not pat.search(text): raise SystemExit('dashboard.home.arpa block not found')
+text=pat.sub('''http://dashboard.home.arpa {
+    reverse_proxy 127.0.0.1:3000
+}''', text, count=1)
+text=re.sub(r'\n*http://homepage\.home\.arpa\s*\{.*?\}\n*', '\n\n', text, count=1, flags=re.S)
+p.write_text(text)
+PY
+
+  if ! validate_and_reload; then
+    cp -a "$backup" "$CADDYFILE"
+    docker exec caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null || true
+    exit 5
+  fi
+  echo "P2_DASHBOARD_ROUTE=homepage-restored"
+  status
+}
+
+case "$ACTION" in
+  status) status ;;
+  activate-custom) activate_custom ;;
+  restore-homepage) restore_homepage ;;
+  *) echo "Allowed actions: status | activate-custom | restore-homepage" >&2; exit 2 ;;
+esac
