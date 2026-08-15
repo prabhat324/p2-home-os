@@ -1,5 +1,5 @@
 {
-  "request_id": "home-dashboard-deploy-20260814-2234",
-  "operation": "home-dashboard-deploy",
-  "target": "core-01"
+  "request_id": "home-dashboard-verify-20260814-2236",
+  "operation": "home-dashboard-inventory",
+  "target": "all"
 }
