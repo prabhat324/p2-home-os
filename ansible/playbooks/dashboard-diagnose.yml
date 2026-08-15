@@ -8,43 +8,65 @@
         set -eu
         base='http://127.0.0.1:8787'
 
-        for path in / /analytics /health /api/dashboard; do
+        for path in / /analytics /health /api/dashboard /api/youtube /api/youtube/analytics; do
           code="$(curl -sS -o /dev/null -w '%{http_code}' "${base}${path}" 2>/dev/null || true)"
           printf 'HTTP_%s=%s\n' "$(printf '%s' "$path" | sed 's#^/$#root#; s#^/##; s#[^A-Za-z0-9]#_#g')" "$code"
         done
 
         health="$(curl -fsS "${base}/health" 2>/dev/null || true)"
-        if [ -n "$health" ]; then
-          printf 'HEALTH=%s\n' "$health"
-        fi
+        [ -z "$health" ] || printf 'HEALTH=%s\n' "$health"
 
         current_has_analytics=no
-        if grep -qsi analytics \
-          /srv/compose/osho-dashboard/app/main.py \
-          /srv/compose/osho-dashboard/app/static/index.html 2>/dev/null; then
+        if grep -qsi analytics /srv/compose/osho-dashboard/app/main.py /srv/compose/osho-dashboard/app/static/index.html 2>/dev/null; then
           current_has_analytics=yes
         fi
         printf 'CURRENT_SOURCE_HAS_ANALYTICS=%s\n' "$current_has_analytics"
 
-        backup_root='/srv/compose/osho-dashboard/backups'
-        if [ ! -d "$backup_root" ]; then
-          echo 'BACKUPS=none'
+        backup='/srv/compose/osho-dashboard/backups/20260814-210924'
+        if [ ! -d "$backup" ]; then
+          echo 'PRESERVED_BACKUP=missing'
           exit 0
         fi
+        echo "PRESERVED_BACKUP=$backup"
 
-        find "$backup_root" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
-          | sort -nr \
-          | head -5 \
-          | cut -d' ' -f2- \
-          | while IFS= read -r dir; do
-              [ -n "$dir" ] || continue
-              has_analytics=no
-              if grep -qsi analytics \
-                "$dir/app/main.py" "$dir/app/static/index.html" 2>/dev/null; then
-                has_analytics=yes
-              fi
-              printf 'BACKUP=%s ANALYTICS=%s\n' "$dir" "$has_analytics"
-            done
+        python3 - "$backup" <<'PY'
+        from pathlib import Path
+        import re, sys
+
+        root = Path(sys.argv[1])
+        files = [root / 'app/main.py', root / 'app/static/index.html']
+        keywords = re.compile(r'analytics|youtube|channel|views|subscriber|watch.?time|impression|ctr|oauth', re.I)
+        secretish = re.compile(r'(api[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token|authorization|bearer|AIza[0-9A-Za-z_-]+)', re.I)
+
+        for path in files:
+            print(f'FILE={path}')
+            if not path.exists():
+                print('MISSING=yes')
+                continue
+            lines = path.read_text(errors='replace').splitlines()
+            print(f'LINES={len(lines)}')
+            hits = [i for i, line in enumerate(lines) if keywords.search(line)]
+            ranges = []
+            for i in hits:
+                start, end = max(0, i-3), min(len(lines), i+4)
+                if ranges and start <= ranges[-1][1]:
+                    ranges[-1] = (ranges[-1][0], max(ranges[-1][1], end))
+                else:
+                    ranges.append((start, end))
+            shown = 0
+            for start, end in ranges:
+                if shown >= 180:
+                    break
+                print(f'--- {path.name}:{start+1}-{end} ---')
+                for n in range(start, end):
+                    text = lines[n]
+                    if secretish.search(text):
+                        text = '[REDACTED SECRET-LIKE LINE]'
+                    print(f'{n+1}: {text}')
+                    shown += 1
+                    if shown >= 180:
+                        break
+        PY
       args:
         executable: /bin/bash
       register: dashboard_diag
