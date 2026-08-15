@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 import json
+import urllib.error
+import urllib.request
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 
 import main as base
@@ -25,6 +27,31 @@ COMMAND_CENTER_ROUTES = (
     "/osho",
     "/alerts",
 )
+
+
+GLANCES_NODES = {
+    "core-01": "192.168.0.203",
+    "compute-01": "192.168.0.31",
+    "compute-02": "192.168.0.88",
+    "compute-03": "192.168.0.158",
+}
+GLANCES_PLUGINS = {"cpu", "mem", "fs", "uptime", "sensors"}
+
+
+@app.get("/api/glances/{node}/api/4/{plugin}")
+def glances_proxy(node: str, plugin: str):
+    host = GLANCES_NODES.get(node)
+    if host is None or plugin not in GLANCES_PLUGINS:
+        raise HTTPException(status_code=404, detail="Unknown node or plugin")
+    try:
+        req = urllib.request.Request(
+            f"http://{host}:61208/api/4/{plugin}",
+            headers={"User-Agent": "P2-Dashboard-Glances-Proxy/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=4) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=f"Glances unavailable for {node}") from exc
 
 
 OSHO_PROGRESS_STYLE = """
