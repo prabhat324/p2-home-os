@@ -19,6 +19,8 @@
         printf 'PROGRESS_BAR_FIELD=%s\n' "$(grep -q 'id="liveJobBar"' "$body" && echo yes || echo no)"
         printf 'STAGE_FIELD=%s\n' "$(grep -q 'id="liveJobStage"' "$body" && echo yes || echo no)"
         printf 'WORKER_FIELD=%s\n' "$(grep -q 'id="liveJobWorker"' "$body" && echo yes || echo no)"
+        printf 'JOB_WORKER_PREFERENCE=%s\n' "$(grep -q "job.worker || activeWorkers" "$body" && echo yes || echo no)"
+        printf 'TELEMETRY_LABEL=%s\n' "$(grep -q 'Telemetry updated' "$body" && echo yes || echo no)"
         printf 'REFRESH_3_SECONDS=%s\n' "$(grep -q 'setInterval(refreshLiveProcessing, 3000)' "$body" && echo yes || echo no)"
         rm -f "$body"
         echo '=== LIVE DASHBOARD API ==='
@@ -31,14 +33,13 @@
         print("CURRENT_JOB_TITLE="+str(j.get("title")))
         print("CURRENT_JOB_STAGE="+str(j.get("stage") or j.get("status")))
         print("CURRENT_JOB_PROGRESS="+str(j.get("progress")))
-        active=[]
-        jid=str(j.get("id") or j.get("job_id") or "")
+        print("CURRENT_JOB_WORKER="+str(j.get("worker")))
         for w in workers:
-            cur=str(w.get("current_job") or "")
-            stage=str(w.get("stage") or "").lower()
-            if (jid and cur and (cur==jid or cur in jid or jid in cur)) or (stage and stage not in ("idle","none","offline")):
-                active.append(str(w.get("name")))
-        print("ACTIVE_WORKERS="+("+".join(active) if active else "none"))
+            if w.get("name") == "compute-01":
+                print("C01_CURRENT_JOB="+str(w.get("current_job")))
+                print("C01_STAGE="+str(w.get("stage")))
+                print("C01_PROGRESS="+str(w.get("progress")))
+                print("C01_TELEMETRY_STATE="+str(w.get("telemetry_state")))
         '
       args:
         executable: /bin/bash
