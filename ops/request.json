@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-youtube-per-video-baseline-20260815-0120",
-  "operation": "youtube-analytics-diagnose",
-  "target": "osho_nodes"
+  "request_id": "osho-youtube-video-metrics-20260815-0122",
+  "operation": "youtube-analytics-runtime",
+  "target": "compute-01"
 }
