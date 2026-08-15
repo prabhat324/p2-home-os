@@ -3,8 +3,9 @@ set -euo pipefail
 
 ACTION="${1:-}"
 HOMEPAGE_DIR="/opt/docker/compose/homepage"
-CONFIG="$HOMEPAGE_DIR/config/services.yaml"
-RAW_FILE="https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/home-dashboard/services.yaml"
+SERVICES_CONFIG="$HOMEPAGE_DIR/config/services.yaml"
+WIDGETS_CONFIG="$HOMEPAGE_DIR/config/widgets.yaml"
+RAW_BASE="https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/home-dashboard"
 
 log() {
     printf '[p2ops-home-dashboard] %s\n' "$*"
@@ -12,10 +13,29 @@ log() {
 
 status() {
     echo "HOST=$(hostname)"
-    echo "CONFIG=$CONFIG"
-    echo "CONFIG_PRESENT=$([[ -f "$CONFIG" ]] && echo yes || echo no)"
+    echo "SERVICES_CONFIG=$SERVICES_CONFIG"
+    echo "SERVICES_PRESENT=$([[ -f "$SERVICES_CONFIG" ]] && echo yes || echo no)"
+    echo "WIDGETS_CONFIG=$WIDGETS_CONFIG"
+    echo "WIDGETS_PRESENT=$([[ -f "$WIDGETS_CONFIG" ]] && echo yes || echo no)"
     echo "HOMEPAGE_HTTP=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:3000/ 2>/dev/null || echo unavailable)"
     echo "HOMEPAGE_CONTAINER=$(docker inspect -f '{{.State.Status}}' homepage 2>/dev/null || echo unavailable)"
+}
+
+validate_yaml_list() {
+    local file="$1" label="$2"
+    python3 - "$file" "$label" <<'PY'
+import sys
+try:
+    import yaml
+except Exception as exc:
+    raise SystemExit(f"PyYAML is required for validation: {exc}")
+path, label = sys.argv[1], sys.argv[2]
+with open(path, encoding='utf-8') as fh:
+    data = yaml.safe_load(fh)
+if not isinstance(data, list) or not data:
+    raise SystemExit(f'{label} must contain a non-empty YAML list')
+print(f'Validated {label}: {len(data)} entries')
+PY
 }
 
 deploy_master() {
@@ -23,53 +43,49 @@ deploy_master() {
     command -v docker >/dev/null
     command -v python3 >/dev/null
     [[ -d "$HOMEPAGE_DIR/config" ]]
-    [[ -f "$CONFIG" ]]
+    [[ -f "$SERVICES_CONFIG" ]]
+    [[ -f "$WIDGETS_CONFIG" ]]
 
     local tmp stamp backup
     tmp="$(mktemp -d)"
     trap "rm -rf -- '$tmp'" EXIT
 
-    log "downloading source-controlled Homepage services from master"
-    curl -fsSL "$RAW_FILE" -o "$tmp/services.yaml"
+    log "downloading source-controlled Homepage services and widgets from master"
+    curl -fsSL "$RAW_BASE/services.yaml" -o "$tmp/services.yaml"
+    curl -fsSL "$RAW_BASE/widgets.yaml" -o "$tmp/widgets.yaml"
 
-    python3 - "$tmp/services.yaml" <<'PY'
-import sys
-try:
-    import yaml
-except Exception as exc:
-    raise SystemExit(f"PyYAML is required for validation: {exc}")
-with open(sys.argv[1], encoding='utf-8') as fh:
-    data = yaml.safe_load(fh)
-if not isinstance(data, list) or not data:
-    raise SystemExit('Homepage services.yaml must contain a non-empty list')
-print(f'Validated {len(data)} Homepage groups')
-PY
+    validate_yaml_list "$tmp/services.yaml" "services.yaml"
+    validate_yaml_list "$tmp/widgets.yaml" "widgets.yaml"
 
     stamp="$(date +%Y%m%d-%H%M%S)"
     backup="$HOMEPAGE_DIR/config-backups/config-${stamp}-control-plane"
     mkdir -p "$backup"
-    cp -a "$CONFIG" "$backup/services.yaml"
+    cp -a "$SERVICES_CONFIG" "$backup/services.yaml"
+    cp -a "$WIDGETS_CONFIG" "$backup/widgets.yaml"
     chown -R psquare:psquare "$backup"
     log "backup created at $backup"
 
-    install -o psquare -g psquare -m 0644 "$tmp/services.yaml" "$CONFIG"
+    install -o psquare -g psquare -m 0644 "$tmp/services.yaml" "$SERVICES_CONFIG"
+    install -o psquare -g psquare -m 0644 "$tmp/widgets.yaml" "$WIDGETS_CONFIG"
 
     if ! docker restart homepage >/dev/null; then
-        log "restart failed; restoring previous config"
-        install -o psquare -g psquare -m 0644 "$backup/services.yaml" "$CONFIG"
+        log "restart failed; restoring previous Homepage configs"
+        install -o psquare -g psquare -m 0644 "$backup/services.yaml" "$SERVICES_CONFIG"
+        install -o psquare -g psquare -m 0644 "$backup/widgets.yaml" "$WIDGETS_CONFIG"
         docker restart homepage >/dev/null || true
         exit 1
     fi
 
     sleep 3
     if ! curl -fsS --max-time 8 http://127.0.0.1:3000/ >/dev/null; then
-        log "Homepage health check failed; rolling back"
-        install -o psquare -g psquare -m 0644 "$backup/services.yaml" "$CONFIG"
+        log "Homepage health check failed; rolling back both configs"
+        install -o psquare -g psquare -m 0644 "$backup/services.yaml" "$SERVICES_CONFIG"
+        install -o psquare -g psquare -m 0644 "$backup/widgets.yaml" "$WIDGETS_CONFIG"
         docker restart homepage >/dev/null || true
         exit 1
     fi
 
-    log "Homepage resource deployment complete"
+    log "Homepage services + widgets deployment complete"
     status
 }
 
