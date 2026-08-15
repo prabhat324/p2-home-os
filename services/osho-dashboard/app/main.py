@@ -11,7 +11,7 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 DATA_DIR = Path("/data")
 DB_PATH = DATA_DIR / "osho.db"
-DASHBOARD_VERSION = "0.5.5"
+DASHBOARD_VERSION = "0.5.6"
 
 app = FastAPI(
     title="Project Osho Dashboard API",
