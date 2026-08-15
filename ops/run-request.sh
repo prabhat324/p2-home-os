@@ -28,6 +28,9 @@ case "${operation}" in
   status) playbook="playbooks/status.yml" ;;
   gpu-status) playbook="playbooks/gpu-status.yml" ;;
   osho-status) playbook="playbooks/osho-status.yml" ;;
+  osho-thermal-pause)
+    [[ "${target}" == "compute_nodes" ]] || { echo "osho-thermal-pause is restricted to compute_nodes" >&2; exit 2; }
+    playbook="playbooks/osho-thermal-pause.yml" ;;
   ollama-status)
     [[ "${target}" == "compute-01" ]] || { echo "ollama-status is restricted to compute-01" >&2; exit 2; }
     playbook="playbooks/ollama-status.yml" ;;
