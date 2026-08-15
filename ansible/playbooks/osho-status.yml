@@ -1,37 +1,31 @@
 ---
-- name: Inspect Project Osho growth template internals
+- name: Inspect Project Osho caption and scene timing functions
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Read production renderer, visual planner, caption, and CTA blocks
+    - name: Read exact caption and semantic beat logic
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker
         echo "NOW=$(date -Ins)"
-        echo '=== PRODUCTION RENDERER FUNCTIONS ==='
-        grep -nE '^def |CAPTION|caption_|cta|CTA|endcard|scene|broll|visual|hook' production_renderer.py | head -220 || true
-        echo '=== PRODUCTION RENDER CORE 1980-2175 ==='
-        sed -n '1980,2175p' production_renderer.py
-        echo '=== PRODUCTION SCENE BUILD 1560-1815 ==='
-        sed -n '1560,1815p' production_renderer.py
-        echo '=== AI VISUAL FINAL COMPOSE 450-550 ==='
-        sed -n '450,550p' ai_visual_renderer.py
-        echo '=== VISUAL PLANNER ==='
-        sed -n '1,240p' visual_planner.py
-        echo '=== WORKER CURRENT SHORTS FILTER 610-710 ==='
-        sed -n '610,710p' app.py
-        echo '=== METADATA STRATEGY 1220-1455 ==='
-        sed -n '1220,1455p' app.py
-        echo '=== LATEST ASS CAPTION SAMPLE ==='
-        latest_ass=$(find /srv/osho/work -type f -name 'clip-*.ass' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)
-        echo "ASS=$latest_ass"
-        [ -n "$latest_ass" ] && sed -n '1,120p' "$latest_ass" || true
+        echo '=== CONSTANTS ==='
+        sed -n '1,40p' production_renderer.py
+        echo '=== MAKE CENTER ASS ==='
+        start=$(grep -n '^def make_center_ass(' production_renderer.py | head -1 | cut -d: -f1)
+        end=$(grep -n '^def safe_run(' production_renderer.py | head -1 | cut -d: -f1)
+        [ -n "$start" ] && [ -n "$end" ] && sed -n "${start},$((end-1))p" production_renderer.py
+        echo '=== SEMANTIC BEATS ==='
+        start=$(grep -n '^def semantic_beats(' production_renderer.py | head -1 | cut -d: -f1)
+        end=$(grep -n '^def semantic_query(' production_renderer.py | head -1 | cut -d: -f1)
+        [ -n "$start" ] && [ -n "$end" ] && sed -n "${start},$((end-1))p" production_renderer.py
+        echo '=== RENDER CALLERS ==='
+        grep -RInE --include='*.py' 'make_center_ass\(|render_production_reel\(' . | grep -vE '/backups?/|\.bak|\.backup' | head -80 || true
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show growth template internals
+    - name: Show caption and scene timing functions
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
