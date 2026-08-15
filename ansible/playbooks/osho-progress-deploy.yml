@@ -1,0 +1,168 @@
+---
+- name: Deploy read-only Project Osho dashboard progress reporter
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Create unprivileged reporter directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - /home/p2ops/.local/bin
+        - /home/p2ops/.local/state
+
+    - name: Download source-controlled progress reporter
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/telemetry/osho-dashboard-progress-reporter.py
+        dest: /home/p2ops/.local/bin/osho-dashboard-progress-reporter.py
+        mode: "0755"
+        force: true
+      register: reporter_download
+
+    - name: Validate reporter Python syntax
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -m
+          - py_compile
+          - /home/p2ops/.local/bin/osho-dashboard-progress-reporter.py
+      changed_when: false
+
+    - name: Install unprivileged reporter watchdog
+      ansible.builtin.copy:
+        dest: /home/p2ops/.local/bin/osho-dashboard-progress-watchdog.sh
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          reporter=/home/p2ops/.local/bin/osho-dashboard-progress-reporter.py
+          state=/home/p2ops/.local/state
+          pidfile="$state/osho-progress-reporter.pid"
+          logfile="$state/osho-progress-reporter.log"
+          mkdir -p "$state"
+          if [[ -s "$pidfile" ]]; then
+              pid="$(cat "$pidfile" 2>/dev/null || true)"
+              if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+                  cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+                  if [[ "$cmd" == *osho-dashboard-progress-reporter.py* ]]; then
+                      exit 0
+                  fi
+              fi
+          fi
+          rm -f "$pidfile"
+          nohup /usr/bin/python3 "$reporter" >>"$logfile" 2>&1 </dev/null &
+          echo $! > "$pidfile"
+
+    - name: Detect user cron support
+      ansible.builtin.shell: |
+        if command -v crontab >/dev/null 2>&1; then
+          echo CRONTAB=yes
+        else
+          echo CRONTAB=no
+        fi
+        systemctl is-active cron.service 2>/dev/null || true
+        systemctl is-enabled cron.service 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      register: cron_support
+      changed_when: false
+
+    - name: Install watchdog cron entry when supported
+      ansible.builtin.shell: |
+        set -euo pipefail
+        marker='# P2OPS_OSHO_PROGRESS_REPORTER'
+        line='* * * * * /home/p2ops/.local/bin/osho-dashboard-progress-watchdog.sh'
+        current="$(crontab -l 2>/dev/null || true)"
+        filtered="$(printf '%s\n' "$current" | grep -Fv "$marker" | grep -Fv '/home/p2ops/.local/bin/osho-dashboard-progress-watchdog.sh' || true)"
+        {
+          printf '%s\n' "$filtered"
+          printf '%s\n' "$marker"
+          printf '%s\n' "$line"
+        } | sed '/^$/N;/^\n$/D' | crontab -
+      args:
+        executable: /bin/bash
+      when: "'CRONTAB=yes' in cron_support.stdout"
+      register: cron_install
+      changed_when: true
+
+    - name: Restart only the unprivileged reporter process
+      ansible.builtin.shell: |
+        set -euo pipefail
+        pidfile=/home/p2ops/.local/state/osho-progress-reporter.pid
+        if [[ -s "$pidfile" ]]; then
+          pid="$(cat "$pidfile" 2>/dev/null || true)"
+          if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+            cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+            if [[ "$cmd" == *osho-dashboard-progress-reporter.py* ]]; then
+              kill "$pid" || true
+              for _ in {1..20}; do
+                kill -0 "$pid" 2>/dev/null || break
+                sleep 0.1
+              done
+            fi
+          fi
+        fi
+        rm -f "$pidfile"
+        /home/p2ops/.local/bin/osho-dashboard-progress-watchdog.sh
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Allow reporter to publish telemetry
+      ansible.builtin.pause:
+        seconds: 8
+
+    - name: Verify reporter and live dashboard current job
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '=== REPORTER ==='
+        pidfile=/home/p2ops/.local/state/osho-progress-reporter.pid
+        pid="$(cat "$pidfile" 2>/dev/null || true)"
+        echo "PID=$pid"
+        if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+          echo REPORTER_ACTIVE=yes
+          tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true
+          echo
+        else
+          echo REPORTER_ACTIVE=no
+        fi
+        echo '=== PERSISTENCE ==='
+        if command -v crontab >/dev/null 2>&1; then
+          echo CRONTAB=yes
+          crontab -l 2>/dev/null | grep -A1 -F '# P2OPS_OSHO_PROGRESS_REPORTER' || true
+          echo "CRON_SERVICE=$(systemctl is-active cron.service 2>/dev/null || true)"
+        else
+          echo CRONTAB=no
+        fi
+        echo '=== REPORTER LOG ==='
+        tail -30 /home/p2ops/.local/state/osho-progress-reporter.log 2>/dev/null || true
+        echo '=== LIVE DASHBOARD ==='
+        curl -fsS --max-time 5 http://192.168.0.88:8787/api/dashboard | python3 -c '
+        import json,sys
+        d=json.load(sys.stdin); s=d.get("summary") or {}; j=d.get("current_job") or {}; workers=d.get("workers") or []
+        print("PROCESSING="+str(s.get("processing")))
+        print("CURRENT_JOB_PRESENT="+str(bool(j)).lower())
+        print("CURRENT_JOB_ID="+str(j.get("id")))
+        print("CURRENT_JOB_TITLE="+str(j.get("title")))
+        print("CURRENT_JOB_STAGE="+str(j.get("stage")))
+        print("CURRENT_JOB_PROGRESS="+str(j.get("progress")))
+        print("CURRENT_JOB_WORKER="+str(j.get("worker")))
+        for w in workers:
+            if w.get("name") == "compute-01":
+                print("C01_CURRENT_JOB="+str(w.get("current_job")))
+                print("C01_STAGE="+str(w.get("stage")))
+                print("C01_PROGRESS="+str(w.get("progress")))
+                print("C01_TELEMETRY="+str(w.get("telemetry_state")))
+        '
+      args:
+        executable: /bin/bash
+      register: verify
+      changed_when: false
+      failed_when: false
+
+    - name: Show progress reporter verification
+      ansible.builtin.debug:
+        msg:
+          - "{{ cron_support.stdout_lines }}"
+          - "{{ verify.stdout_lines }}"
