@@ -1,32 +1,32 @@
 ---
-- name: Sample Project Osho dual GPU utilization
+- name: Inspect Project Osho ranker and QA overlap
   hosts: osho_nodes
   gather_facts: false
   tasks:
-    - name: Sample real ranker workload
+    - name: Collect overlap state
       ansible.builtin.shell: |
         set -o pipefail
         echo "HOST=$(hostname -s)"
-        echo "OSHO_ROLE={{ osho_role | default('unknown') }}"
-        echo '=== GPU UTILIZATION SAMPLE ==='
-        for i in $(seq 1 12); do
-          printf '%s ' "$(date +%H:%M:%S)"
-          nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu --format=csv,noheader 2>/dev/null || true
-          sleep 1
-        done
+        date -Ins
+        echo '=== GPU ==='
+        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu --format=csv,noheader 2>/dev/null || true
+        echo '=== OSHO PROCESSES ==='
+        pgrep -af '[h]ook_ranker_v5.py|[r]etention_qa_v4.py|[b]oundary_consensus.py|[v]erify_reel_transcript.py|[t]ranscript_stability.py' 2>/dev/null || true
 
         if [ "$(hostname -s)" = "compute-01" ]; then
-          echo '=== CURRENT RANKER ==='
-          pgrep -af '^/usr/bin/python3 hook_ranker_v5.py|^/usr/bin/python3 /srv/compose/osho-worker/hook_ranker_v5.py' 2>/dev/null || true
-          echo '=== 000011 DUAL GPU LOG ==='
-          grep -E 'DUAL GPU ENDPOINTS|MODEL WORKERS|HOOK [0-9]+/|CLIP [0-9]+/|MODEL RETRY|MODEL ENDPOINT FAILOVER' \
-            /srv/osho/logs/autopilot/000011-hook-v5.log 2>/dev/null | tail -70 || true
+          echo '=== LOCAL OLLAMA PS ==='
+          curl -fsS --max-time 3 http://127.0.0.1:11434/api/ps 2>/dev/null \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print([{"name":x.get("name"),"size_vram":x.get("size_vram")} for x in d.get("models",[])])' || true
+          echo '=== 000010 QA TAIL ==='
+          tail -80 /srv/osho/logs/autopilot/000010-qa-v4.log 2>/dev/null || true
+          echo '=== 000011 RANK TAIL ==='
+          grep -E 'DUAL GPU|MODEL WORKERS|HOOK [0-9]+/|CLIP [0-9]+/|MODEL RETRY|FAILOVER' /srv/osho/logs/autopilot/000011-hook-v5.log 2>/dev/null | tail -55 || true
         fi
 
         if [ "$(hostname -s)" = "compute-03" ]; then
-          echo '=== REMOTE OLLAMA LOADED ==='
-          curl -fsS --max-time 4 http://192.168.0.158:11434/api/ps 2>/dev/null \
-            | python3 -c 'import json,sys; d=json.load(sys.stdin); print([{"name":x.get("name"),"size_vram":x.get("size_vram"),"expires_at":x.get("expires_at")} for x in d.get("models",[])])' || true
+          echo '=== REMOTE OLLAMA PS ==='
+          curl -fsS --max-time 3 http://192.168.0.158:11434/api/ps 2>/dev/null \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print([{"name":x.get("name"),"size_vram":x.get("size_vram")} for x in d.get("models",[])])' || true
         fi
       args:
         executable: /bin/bash
@@ -34,6 +34,6 @@
       changed_when: false
       failed_when: false
 
-    - name: Show real dual GPU sample
+    - name: Show overlap state
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
