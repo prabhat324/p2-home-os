@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-qa-watch-rerun-20260814-2359",
-  "operation": "osho-ranker-diagnose",
-  "target": "compute-01"
+  "request_id": "osho-status-gpu-distribution-20260815-0005",
+  "operation": "osho-status",
+  "target": "osho_nodes"
 }
