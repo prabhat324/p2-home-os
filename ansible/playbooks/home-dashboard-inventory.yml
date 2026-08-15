@@ -1,0 +1,70 @@
+---
+- name: Inventory homelab dashboard and live resources
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Collect safe dashboard and service inventory
+      ansible.builtin.shell: |
+        set -u
+        echo "HOST=$(hostname)"
+
+        echo 'DASHBOARD_DNS_BEGIN'
+        getent hosts dashboard.home.arpa 2>/dev/null || true
+        echo 'DASHBOARD_DNS_END'
+
+        echo 'DASHBOARD_HTTP_BEGIN'
+        if command -v curl >/dev/null 2>&1; then
+          code="$(curl -sS -o /tmp/p2-home-dashboard.$$.html -w '%{http_code}' --max-time 3 http://dashboard.home.arpa/ 2>/dev/null || true)"
+          echo "HTTP_CODE=${code:-unavailable}"
+          if [ -s /tmp/p2-home-dashboard.$$.html ]; then
+            python3 - /tmp/p2-home-dashboard.$$.html <<'PY'
+        from pathlib import Path
+        import re, sys
+        text=Path(sys.argv[1]).read_text(errors='replace')
+        m=re.search(r'<title[^>]*>(.*?)</title>', text, re.I|re.S)
+        print('TITLE=' + (re.sub(r'\s+',' ',m.group(1)).strip() if m else ''))
+        for marker in ('Homepage','Homarr','Dashy','Homer'):
+            if marker.lower() in text.lower():
+                print('DASHBOARD_PRODUCT_HINT=' + marker)
+        PY
+          fi
+          rm -f /tmp/p2-home-dashboard.$$.html
+        fi
+        echo 'DASHBOARD_HTTP_END'
+
+        echo 'LISTENING_PORTS_BEGIN'
+        ss -lnt 2>/dev/null | awk 'NR>1 {addr=$4; sub(/^.*:/,"",addr); if (addr ~ /^[0-9]+$/) print addr}' | sort -n -u | paste -sd, - || true
+        echo 'LISTENING_PORTS_END'
+
+        echo 'RUNNING_RELEVANT_SERVICES_BEGIN'
+        systemctl list-units --type=service --state=running --no-legend 2>/dev/null \
+          | awk '{print $1}' \
+          | grep -Ei 'docker|containerd|jellyfin|ollama|immich|home-assistant|homeassistant|tailscale|smb|samba|nfs|caddy|nginx|apache|homepage|homarr|dashy|homer|osho|piper|whisper' \
+          | sort -u || true
+        echo 'RUNNING_RELEVANT_SERVICES_END'
+
+        echo 'DOCKER_CONTAINERS_BEGIN'
+        if command -v docker >/dev/null 2>&1; then
+          docker ps --format '{{"{{"}}.Names{{"}}"}}|{{"{{"}}.Image{{"}}"}}|{{"{{"}}.Ports{{"}}"}}' 2>/dev/null | head -100 || echo 'docker-list-unavailable'
+        fi
+        echo 'DOCKER_CONTAINERS_END'
+
+        echo 'COMPOSE_FILES_BEGIN'
+        find /srv/compose /opt /home -maxdepth 5 -type f \( -name 'compose.yml' -o -name 'compose.yaml' -o -name 'docker-compose.yml' -o -name 'docker-compose.yaml' \) 2>/dev/null \
+          | sort | head -120 || true
+        echo 'COMPOSE_FILES_END'
+
+        echo 'DASHBOARD_CONFIG_CANDIDATES_BEGIN'
+        find /srv/compose /opt /home /etc -maxdepth 6 -type f \
+          \( -name 'services.yaml' -o -name 'services.yml' -o -name 'settings.yaml' -o -name 'settings.yml' -o -name 'widgets.yaml' -o -name 'widgets.yml' -o -name 'bookmarks.yaml' -o -name 'bookmarks.yml' -o -name 'config.yml' -o -name 'config.yaml' \) 2>/dev/null \
+          | grep -Ei 'homepage|homarr|dashy|homer|dashboard' \
+          | sort | head -120 || true
+        echo 'DASHBOARD_CONFIG_CANDIDATES_END'
+      args:
+        executable: /bin/bash
+      register: inventory
+      changed_when: false
+
+    - name: Print safe dashboard inventory
+      ansible.builtin.debug:
+        msg: "{{ inventory.stdout_lines }}"
