@@ -1,90 +1,61 @@
 ---
-- name: Watch active Project Osho source through repaired QA completion
+- name: Diagnose stalled Project Osho autopilot stage
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Follow active source until QA completes or pipeline advances
+    - name: Inspect autopilot process tree, journal and processing row
       ansible.builtin.shell: |
-        set -u
-        cd /srv/compose/osho-worker
-
-        initial_source="$(pgrep -af 'retention_qa_v4.py|hook_ranker_v5.py' 2>/dev/null \
-          | sed -nE 's/.*(retention_qa_v4.py|hook_ranker_v5.py) ([0-9]{6}).*/\2/p' \
-          | head -1)"
-        if [ -z "$initial_source" ]; then
-          initial_source="$(find /srv/osho/logs/autopilot -maxdepth 1 -type f -name '*-hook-v5.log' -printf '%T@ %f\n' 2>/dev/null \
-            | sort -nr | head -1 | sed -nE 's/^[^ ]+ ([0-9]{6})-hook-v5\.log$/\1/p')"
-        fi
-
-        echo "INITIAL_SOURCE=${initial_source:-none}"
-        echo "STARTED_AT=$(date -Is)"
-        sudo -n /usr/local/sbin/p2ops-osho-qa-fix status 2>&1 || true
-
-        if [ -z "$initial_source" ]; then
-          echo 'NO_ACTIVE_SOURCE'
-          exit 0
-        fi
-
-        rank="/srv/osho/logs/autopilot/${initial_source}-hook-v5.log"
-        qa="/srv/osho/logs/autopilot/${initial_source}-qa-v4.log"
-        summary="/srv/osho/transcripts/${initial_source}.retention-qa-v4.json"
-
-        outcome="timeout"
-        for i in $(seq 1 48); do
-          now="$(date +%H:%M:%S)"
-          rank_lines=$(wc -l < "$rank" 2>/dev/null || echo 0)
-          qa_lines=$(wc -l < "$qa" 2>/dev/null || echo 0)
-          active="$(pgrep -af 'retention_qa_v4.py|hook_ranker_v5.py' 2>/dev/null \
-            | sed -nE 's/.*(retention_qa_v4.py|hook_ranker_v5.py) ([0-9]{6}).*/\2/p' \
-            | head -1)"
-          printf 'WATCH %02d %s active=%s rank_lines=%s qa_lines=%s summary=%s\n' \
-            "$i" "$now" "${active:-none}" "$rank_lines" "$qa_lines" "$([ -f "$summary" ] && echo yes || echo no)"
-
-          if [ -f "$summary" ]; then
-            outcome="qa-summary-created"
-            break
-          fi
-          if [ -n "$active" ] && [ "$active" != "$initial_source" ]; then
-            outcome="pipeline-advanced-to-$active"
-            break
-          fi
-          sleep 10
-        done
-
-        echo "WATCH_OUTCOME=$outcome"
-        echo "FINISHED_AT=$(date -Is)"
-
-        echo '=== SERVICE / PROCESSES ==='
+        set -o pipefail
+        echo "NOW=$(date -Ins)"
+        echo '=== SERVICE ==='
         systemctl is-active osho-autopilot.service 2>/dev/null || true
-        pgrep -af 'osho_autopilot.py|hook_ranker_v5.py|retention_qa_v4.py|render|youtube' 2>/dev/null || true
-        ollama ps 2>/dev/null || true
-
-        echo '=== RANK FINAL TAIL ==='
-        tail -120 "$rank" 2>/dev/null || true
-
-        echo '=== QA FINAL TAIL ==='
-        tail -220 "$qa" 2>/dev/null || true
-
-        echo '=== QA REPAIR PROOF ==='
-        grep -nE 'GPU STAGE: stopping|MODEL: |ERROR: timed out|FINAL CONSENSUS|GENUINE APPROVALS|SUMMARY:' "$qa" 2>/dev/null || true
-
-        echo '=== SUMMARY ==='
-        if [ -f "$summary" ]; then
-          echo "SUMMARY_FILE=$summary"
-          python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); [print(f"{k.upper()}={d[k]}") for k in ("source_id","candidates_considered","approved_count","genuine_approvals") if k in d]' "$summary" 2>/dev/null || true
-        else
-          echo 'SUMMARY_MISSING'
+        systemctl show osho-autopilot.service -p MainPID -p ActiveEnterTimestamp -p ExecMainStartTimestamp -p NRestarts --no-pager 2>/dev/null || true
+        echo '=== PROCESS TREE ==='
+        ps -eo pid,ppid,etimes,state,wchan:32,comm,args --forest | grep -E 'osho_autopilot|hook_ranker_v5|retention_qa_v4|ollama|llama-server|ffmpeg|yt-dlp' | grep -v grep || true
+        echo '=== AUTOPILOT CHILDREN ==='
+        apid="$(systemctl show -p MainPID --value osho-autopilot.service 2>/dev/null || true)"
+        if [ -n "$apid" ] && [ "$apid" != 0 ]; then
+          ps -o pid,ppid,etimes,state,wchan:40,comm,args --ppid "$apid" 2>/dev/null || true
+          cat "/proc/$apid/wchan" 2>/dev/null | sed 's/^/AUTOPILOT_WCHAN=/' || true
         fi
-
-        echo '=== LATEST LOG FILES ==='
-        find /srv/osho/logs/autopilot -maxdepth 1 -type f -printf '%T@ %TY-%Tm-%TdT%TH:%TM:%TS %p\n' 2>/dev/null \
-          | sort -nr | head -15 || true
+        echo '=== PROCESSING ROWS ==='
+        python3 - <<'PY'
+        import sqlite3
+        from pathlib import Path
+        db=Path('/srv/osho/library/catalog/catalog.sqlite')
+        c=sqlite3.connect(f'file:{db}?mode=ro&immutable=1',uri=True,timeout=2)
+        c.row_factory=sqlite3.Row
+        rows=c.execute("SELECT * FROM osho_autopilot_state WHERE lower(trim(status))='processing'").fetchall()
+        print('PROCESSING_COUNT='+str(len(rows)))
+        for r in rows:
+            d=dict(r)
+            print('PROCESSING_ROW='+repr(d))
+        c.close()
+        PY
+        echo '=== SOURCE 000029 FILES ==='
+        ls -l --time-style=long-iso /srv/osho/candidates/000029* /srv/osho/transcripts/000029* /srv/osho/logs/autopilot/000029* 2>/dev/null || true
+        echo '=== RANK RESULT SUMMARY ==='
+        python3 - <<'PY'
+        import json,pathlib
+        p=pathlib.Path('/srv/osho/candidates/000029.hook-ranked-v5.json')
+        if p.exists():
+            d=json.loads(p.read_text())
+            print('TYPE='+type(d).__name__)
+            if isinstance(d,dict):
+                print('KEYS='+','.join(sorted(d.keys())))
+                for k in ('source_id','candidates','ranked','survivors','top','approved'):
+                    v=d.get(k)
+                    if isinstance(v,list): print(f'{k.upper()}_COUNT={len(v)}')
+                    elif v is not None: print(f'{k.upper()}={v!r}')
+        PY
+        echo '=== JOURNAL TAIL ==='
+        journalctl -u osho-autopilot.service --since '2026-08-15 02:50:00' --no-pager -n 160 2>/dev/null || true
       args:
         executable: /bin/bash
-      register: watch_diag
+      register: diag
       changed_when: false
       failed_when: false
 
-    - name: Show Osho watch result
+    - name: Show stall diagnosis
       ansible.builtin.debug:
-        msg: "{{ watch_diag.stdout_lines }}"
+        msg: "{{ diag.stdout_lines }}"
