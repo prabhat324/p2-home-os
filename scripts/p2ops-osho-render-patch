@@ -17,6 +17,7 @@ BACKUPS="$CODE/backups"
 MANIFEST_URL="https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-render-managed/patches.json"
 WORKER_URL="http://127.0.0.1:8800"
 WORKER_CONTAINER="osho-worker"
+WORKER_JOB_ROOT="/srv/osho/work"
 
 ALLOWED=(
     app.py
@@ -50,36 +51,36 @@ PY
 }
 
 worker_jobs_state() {
-    local tmp
-    tmp="$(mktemp)"
-    if ! curl -fsS --max-time 4 "$WORKER_URL/jobs" -o "$tmp"; then
-        rm -f "$tmp"
-        echo "WORKER_JOBS=unreachable"
+    [[ -d "$WORKER_JOB_ROOT" ]] || {
+        echo "WORKER_JOB_ROOT=missing"
         return 1
-    fi
-    python3 - "$tmp" <<'PY'
-import json,sys
-obj=json.load(open(sys.argv[1],encoding='utf-8'))
-if isinstance(obj,list): rows=obj
-elif isinstance(obj,dict):
-    rows=obj.get('jobs')
-    if not isinstance(rows,list): rows=[]
-else: rows=[]
+    }
+
+    python3 - "$WORKER_JOB_ROOT" <<'PY'
+import json, pathlib, sys
+root=pathlib.Path(sys.argv[1])
 terminal={'completed','complete','failed','cancelled','canceled','published','done'}
+rows=[]
 active=[]
-for row in rows:
-    if not isinstance(row,dict): continue
+for path in sorted(root.glob('*/job.json'), key=lambda p: p.stat().st_mtime, reverse=True):
+    try:
+        row=json.loads(path.read_text(encoding='utf-8'))
+    except Exception:
+        continue
+    if not isinstance(row, dict):
+        continue
+    jid=str(row.get('id') or path.parent.name)
     status=str(row.get('status') or row.get('stage') or '').lower()
+    rows.append((jid,status))
     if status and status not in terminal:
-        active.append((str(row.get('id') or row.get('job_id') or '?'),status))
+        active.append((jid,status))
 print('WORKER_JOB_COUNT=' + str(len(rows)))
 print('WORKER_ACTIVE_JOBS=' + str(len(active)))
-for jid,status in active[:10]: print(f'ACTIVE_JOB={jid}:{status}')
-if active: raise SystemExit(9)
+for jid,status in active[:10]:
+    print(f'ACTIVE_JOB={jid}:{status}')
+if active:
+    raise SystemExit(9)
 PY
-    local rc=$?
-    rm -f "$tmp"
-    return "$rc"
 }
 
 status() {
@@ -141,7 +142,7 @@ apply_manifest() {
     command -v docker >/dev/null 2>&1 || { echo "docker is required" >&2; exit 3; }
 
     if ! worker_jobs_state; then
-        echo "Refusing renderer deployment while the Osho worker has an active job." >&2
+        echo "Refusing renderer deployment while the Osho worker has an active job or job state is unreadable." >&2
         exit 8
     fi
     validate_ffmpeg_growth_filter || { echo "Growth CTA FFmpeg filter preflight failed" >&2; exit 8; }
