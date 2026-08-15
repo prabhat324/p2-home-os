@@ -1,0 +1,32 @@
+---
+- name: Apply scoped Project Osho QA model repair on compute-01
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Apply exact QA model repair through root-owned helper
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - /usr/local/sbin/p2ops-osho-qa-fix
+          - apply
+      register: repair
+      changed_when: true
+
+    - name: Show repair output
+      ansible.builtin.debug:
+        msg: "{{ repair.stdout_lines }}"
+
+    - name: Verify scoped repair status
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - /usr/local/sbin/p2ops-osho-qa-fix
+          - status
+      register: status
+      changed_when: false
+
+    - name: Show repair status
+      ansible.builtin.debug:
+        msg: "{{ status.stdout_lines }}"
