@@ -1,0 +1,9 @@
+data/
+backups/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+__pycache__/
+*.pyc
+.git/
