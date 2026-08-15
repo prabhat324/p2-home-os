@@ -55,6 +55,9 @@ case "${operation}" in
   mavrick-audio-loopback)
     [[ "${target}" == "compute-02" ]] || { echo "mavrick-audio-loopback is restricted to compute-02" >&2; exit 2; }
     playbook="playbooks/mavrick-audio-loopback.yml" ;;
+  mavrick-audio-routes)
+    [[ "${target}" == "compute-02" ]] || { echo "mavrick-audio-routes is restricted to compute-02" >&2; exit 2; }
+    playbook="playbooks/mavrick-audio-routes.yml" ;;
   home-dashboard-deploy)
     [[ "${target}" == "core-01" ]] || { echo "home-dashboard-deploy is restricted to core-01" >&2; exit 2; }
     playbook="playbooks/home-dashboard-deploy.yml" ;;
