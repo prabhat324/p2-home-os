@@ -26,6 +26,26 @@
         fi
         printf 'CURRENT_SOURCE_HAS_ANALYTICS=%s\n' "$current_has_analytics"
 
+        for path in \
+          /srv/compose/osho-dashboard \
+          /srv/compose/osho-dashboard/app \
+          /srv/compose/osho-dashboard/app/main.py \
+          /srv/compose/osho-dashboard/app/static/index.html; do
+          if [ -e "$path" ]; then
+            if [ -w "$path" ]; then writable=yes; else writable=no; fi
+            printf 'PATH=%s WRITABLE=%s OWNER=%s MODE=%s\n' \
+              "$path" "$writable" \
+              "$(stat -c '%U:%G' "$path" 2>/dev/null || echo unknown)" \
+              "$(stat -c '%a' "$path" 2>/dev/null || echo unknown)"
+          fi
+        done
+
+        if docker ps >/dev/null 2>&1; then
+          echo 'DOCKER_ACCESS=yes'
+        else
+          echo 'DOCKER_ACCESS=no'
+        fi
+
         backup_root='/srv/compose/osho-dashboard/backups'
         if [ ! -d "$backup_root" ]; then
           echo 'BACKUPS=none'
