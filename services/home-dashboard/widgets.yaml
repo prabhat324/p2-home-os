@@ -3,14 +3,14 @@
     text: P² Home Command Center
 
 - datetime:
-    text_size: xl
+    text_size: md
     format:
-      dateStyle: long
+      dateStyle: medium
       timeStyle: short
       hourCycle: h12
 
 - glances:
-    label: Raspberry Pi 5
+    label: core-01 · Raspberry Pi 5
     url: http://192.168.0.203:61208
     version: 4
     cpu: true
@@ -23,7 +23,7 @@
     diskUnits: bytes
 
 - glances:
-    label: compute-01
+    label: compute-01 · GPU / Media / AI
     url: http://192.168.0.31:61208
     version: 4
     cpu: true
@@ -36,7 +36,7 @@
     diskUnits: bytes
 
 - glances:
-    label: compute-02
+    label: compute-02 · Osho Control
     url: http://192.168.0.88:61208
     version: 4
     cpu: true
@@ -49,7 +49,7 @@
     diskUnits: bytes
 
 - glances:
-    label: compute-03
+    label: compute-03 · GPU Worker
     url: http://192.168.0.158:61208
     version: 4
     cpu: true
