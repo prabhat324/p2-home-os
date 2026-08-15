@@ -8,8 +8,44 @@
       "replacements": [
         {
           "file": "production_renderer.py",
-          "old": "CTA_DURATION = 4.0",
-          "new": "# OSHO_GROWTH_TEMPLATE_V1\nCTA_DURATION = 1.4",
+          "old": "CAPTION_SIZE = 60\nTRANSITION = 0.70\nCTA_DURATION = 4.0",
+          "new": "# OSHO_GROWTH_TEMPLATE_V1\nCAPTION_SIZE = 64\nTRANSITION = 0.55\nCTA_DURATION = 1.4",
+          "count": 1
+        },
+        {
+          "file": "production_renderer.py",
+          "old": "        for n in range(\n            0,\n            len(timed_words),\n            5,\n        ):",
+          "new": "        for n in range(\n            0,\n            len(timed_words),\n            3,\n        ):",
+          "count": 1
+        },
+        {
+          "file": "production_renderer.py",
+          "old": "                timed_words[\n                    n:n + 5\n                ]",
+          "new": "                timed_words[\n                    n:n + 3\n                ]",
+          "count": 1
+        },
+        {
+          "file": "production_renderer.py",
+          "old": "            for n in range(\n                0,\n                len(words),\n                5,\n            ):",
+          "new": "            for n in range(\n                0,\n                len(words),\n                3,\n            ):",
+          "count": 1
+        },
+        {
+          "file": "production_renderer.py",
+          "old": "                    words[\n                        n:n + 5\n                    ]",
+          "new": "                    words[\n                        n:n + 3\n                    ]",
+          "count": 1
+        },
+        {
+          "file": "production_renderer.py",
+          "old": "Style: Center,DejaVu Sans,{CAPTION_SIZE},&H00FFFFFF,&H000000FF,&H00141414,&H60000000,0,0,0,0,100,100,0,0,1,2,0,5,90,90,0,1",
+          "new": "Style: Center,DejaVu Sans,{CAPTION_SIZE},&H00FFFFFF,&H000000FF,&H00141414,&H60000000,-1,0,0,0,100,100,0,0,1,3,0,5,90,90,0,1",
+          "count": 1
+        },
+        {
+          "file": "production_renderer.py",
+          "old": "    # Roughly one new visual every 8-13 seconds.\n    count = round(\n        duration / 10.5\n    )\n\n    count = max(\n        3,\n        min(\n            6,\n            count,\n        ),\n    )",
+          "new": "    # Growth V1: maintain visual momentum without frantic cutting.\n    # Target roughly one meaningful visual change every 5-8 seconds.\n    count = round(\n        duration / 6.5\n    )\n\n    count = max(\n        4,\n        min(\n            8,\n            count,\n        ),\n    )",
           "count": 1
         },
         {
@@ -34,6 +70,12 @@
           "file": "app.py",
           "old": "            append_brand_endcard(\n                output\n            )",
           "new": "            print(\n                \"GROWTH TEMPLATE APPLIED: osho-growth-v1\",\n                flush=True,\n            )",
+          "count": 1
+        },
+        {
+          "file": "app.py",
+          "old": "        \"render_profile\":\n            \"osho-v0.6.2\",",
+          "new": "        \"render_profile\":\n            \"osho-growth-v1\",\n\n        \"growth_template\":\n            \"osho-growth-v1\",",
           "count": 1
         }
       ]
