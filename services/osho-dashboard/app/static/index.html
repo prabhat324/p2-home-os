@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#090b10">
+    <title>Project Osho</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg:#090b10; --card:#121620; --card2:#171c27; --border:#252b39;
+            --text:#f3f5f7; --muted:#8992a3; --green:#43d17a; --yellow:#efc94c;
+            --red:#ff6262; --blue:#5fa8ff;
+        }
+        * { box-sizing:border-box; }
+        body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+        .app { max-width:760px; margin:auto; padding:calc(20px + env(safe-area-inset-top)) 16px calc(30px + env(safe-area-inset-bottom)); }
+        header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; }
+        h1 { margin:0; font-size:25px; letter-spacing:.3px; }
+        .subtitle { margin-top:4px; color:var(--muted); font-size:13px; }
+        .live { display:flex; align-items:center; gap:7px; padding:7px 10px; background:rgba(67,209,122,.08); border:1px solid rgba(67,209,122,.25); border-radius:999px; font-size:12px; color:var(--green); white-space:nowrap; }
+        .dot { width:8px; height:8px; border-radius:50%; background:currentColor; }
+        .mode { margin:-8px 0 18px; color:var(--blue); font-size:12px; font-weight:700; letter-spacing:.5px; }
+        .metrics { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:20px; }
+        .metric { padding:14px; background:var(--card); border:1px solid var(--border); border-radius:16px; }
+        .metric-value { font-size:28px; font-weight:700; }
+        .metric-label { margin-top:4px; color:var(--muted); font-size:12px; }
+        section { margin-bottom:14px; padding:17px; background:var(--card); border:1px solid var(--border); border-radius:16px; }
+        .section-title { margin-bottom:13px; color:var(--muted); font-size:12px; font-weight:700; letter-spacing:1px; }
+        .big { font-size:18px; font-weight:650; }
+        .muted { color:var(--muted); }
+        .row { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:9px; }
+        .stage { color:var(--blue); }
+        .progress { overflow:hidden; height:9px; margin-top:14px; background:#252a35; border-radius:99px; }
+        .progress-fill { height:100%; width:0; background:var(--blue); border-radius:99px; transition:width .4s ease; }
+        .worker { padding:14px 0; border-top:1px solid var(--border); }
+        .worker:first-of-type { border-top:none; padding-top:0; }
+        .worker:last-child { padding-bottom:0; }
+        .worker-name { font-size:16px; font-weight:700; }
+        .role { margin-top:4px; color:var(--muted); font-size:12px; }
+        .telemetry { display:flex; flex-wrap:wrap; gap:7px; margin-top:10px; }
+        .chip { padding:5px 7px; background:var(--card2); border:1px solid var(--border); border-radius:8px; color:#c8ced8; font-size:11px; }
+        .jobline { margin-top:10px; font-size:13px; }
+        .online { color:var(--green); }
+        .stale, .degraded, .unknown { color:var(--yellow); }
+        .offline { color:var(--red); }
+        .empty { padding:9px 0; color:var(--muted); font-size:14px; }
+        a { color:var(--blue); text-decoration:none; }
+        footer { margin-top:18px; text-align:center; color:var(--muted); font-size:11px; }
+        @media (min-width:520px) { .metrics { grid-template-columns:repeat(3,1fr); } }
+        @media (min-width:700px) { .metrics { grid-template-columns:repeat(6,1fr); } }
+    </style>
+</head>
+<body>
+<div class="app">
+    <header>
+        <div>
+            <h1>Project Osho</h1>
+            <div class="subtitle">Automation Control Center</div>
+        </div>
+        <div class="live"><span class="dot"></span><span id="live-text">LIVE</span></div>
+    </header>
+
+    <div class="mode" id="mode">ZERO-TOUCH V5</div>
+
+    <div class="metrics">
+        <div class="metric"><div class="metric-value" id="uploaded">0</div><div class="metric-label">Uploaded</div></div>
+        <div class="metric"><div class="metric-value" id="processing">0</div><div class="metric-label">Processing</div></div>
+        <div class="metric"><div class="metric-value" id="ready">0</div><div class="metric-label">Ready</div></div>
+        <div class="metric"><div class="metric-value" id="queued">0</div><div class="metric-label">Queued</div></div>
+        <div class="metric"><div class="metric-value" id="skipped">0</div><div class="metric-label">Skipped</div></div>
+        <div class="metric"><div class="metric-value" id="failed">0</div><div class="metric-label">Failed</div></div>
+    </div>
+
+    <section>
+        <div class="section-title">CURRENT JOB</div>
+        <div id="current-empty" class="empty">No job currently processing</div>
+        <div id="current-content" style="display:none">
+            <div class="big" id="current-title"></div>
+            <div class="muted" id="current-id" style="margin-top:5px;font-size:12px"></div>
+            <div class="row"><span class="stage" id="current-stage"></span><span id="current-progress-text"></span></div>
+            <div class="muted" id="current-worker" style="margin-top:7px;font-size:12px"></div>
+            <div class="progress"><div class="progress-fill" id="current-progress"></div></div>
+        </div>
+    </section>
+
+    <section>
+        <div class="section-title">LATEST UPLOAD</div>
+        <div id="latest-empty" class="empty">Nothing published yet</div>
+        <div id="latest-content" style="display:none">
+            <div class="big" id="latest-title"></div>
+            <div class="muted" id="latest-time" style="margin-top:8px"></div>
+            <div id="latest-link" style="margin-top:7px;font-size:12px"></div>
+        </div>
+    </section>
+
+    <section>
+        <div class="section-title">SYSTEMS</div>
+        <div id="control-plane"></div>
+        <div id="workers"><div class="empty">Waiting for worker telemetry…</div></div>
+    </section>
+
+    <footer>Auto-refresh every 3 seconds · <span id="last-update">waiting</span> · API <span id="api-version">?</span></footer>
+</div>
+
+<script>
+function escapeHtml(value) {
+    const div = document.createElement("div");
+    div.textContent = value ?? "";
+    return div.innerHTML;
+}
+
+function n(value, digits = 0) {
+    const x = Number(value);
+    return Number.isFinite(x) ? x.toFixed(digits) : null;
+}
+
+function ageText(seconds) {
+    const s = Number(seconds);
+    if (!Number.isFinite(s)) return "last seen unknown";
+    if (s < 60) return `seen ${Math.round(s)}s ago`;
+    return `seen ${Math.round(s / 60)}m ago`;
+}
+
+function statusClass(status) {
+    return ["online", "offline", "stale", "degraded"].includes(status) ? status : "unknown";
+}
+
+function chip(text) {
+    return `<span class="chip">${escapeHtml(text)}</span>`;
+}
+
+function renderControlPlane(cp) {
+    if (!cp) return "";
+    return `
+        <div class="worker">
+            <div class="row">
+                <span class="worker-name">${escapeHtml(cp.name)}</span>
+                <span class="online">● ONLINE</span>
+            </div>
+            <div class="role">${escapeHtml(cp.role || "Control plane")}</div>
+            <div class="telemetry">
+                ${chip(`${cp.ip || "compute-02"}:${cp.dashboard_port || 8787}`)}
+                ${chip(`Piper :${cp.piper_port || 10200}`)}
+            </div>
+        </div>`;
+}
+
+function renderWorker(worker) {
+    const status = worker.status || "unknown";
+    const chips = [];
+
+    if (worker.ip) chips.push(`${worker.ip}${worker.worker_port ? `:${worker.worker_port}` : ""}`);
+    if (worker.gpu_name) chips.push(worker.gpu_name);
+    if (worker.gpu_utilization != null) chips.push(`GPU ${n(worker.gpu_utilization)}%`);
+    if (worker.vram_used_mb != null && worker.vram_total_mb != null) {
+        chips.push(`VRAM ${(Number(worker.vram_used_mb)/1024).toFixed(1)}/${(Number(worker.vram_total_mb)/1024).toFixed(1)} GB`);
+    }
+    if (worker.gpu_temperature_c != null) chips.push(`${n(worker.gpu_temperature_c)}°C`);
+    if (worker.gpu_power_w != null) chips.push(`${n(worker.gpu_power_w,1)} W`);
+    if (worker.service_version) chips.push(`Worker v${worker.service_version}`);
+    if (worker.whisper_model) chips.push(`Whisper ${worker.whisper_model}`);
+    if (worker.device || worker.compute_type) chips.push([worker.device, worker.compute_type].filter(Boolean).join(" / "));
+    if (worker.ollama_model) chips.push(`Ollama ${worker.ollama_model}`);
+
+    const job = worker.current_job
+        ? `<div class="jobline"><span class="stage">${escapeHtml(worker.stage || "working")}</span> · ${escapeHtml(worker.current_job)} · ${Math.round(Number(worker.progress || 0))}%</div>`
+        : `<div class="jobline muted">${escapeHtml(worker.stage || "Idle")} · ${escapeHtml(ageText(worker.age_seconds))}</div>`;
+
+    return `
+        <div class="worker">
+            <div class="row">
+                <span class="worker-name">${escapeHtml(worker.name)}</span>
+                <span class="${statusClass(status)}">● ${escapeHtml(status.toUpperCase())}</span>
+            </div>
+            <div class="role">${escapeHtml(worker.role || worker.service || "Osho worker")}</div>
+            ${job}
+            <div class="telemetry">${chips.map(chip).join("")}</div>
+            ${worker.notes ? `<div class="muted" style="margin-top:8px;font-size:11px">${escapeHtml(worker.notes)}</div>` : ""}
+        </div>`;
+}
+
+async function refreshDashboard() {
+    try {
+        const response = await fetch("/api/dashboard", { cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+
+        document.getElementById("uploaded").textContent = data.summary.uploaded ?? 0;
+        document.getElementById("processing").textContent = data.summary.processing ?? 0;
+        document.getElementById("ready").textContent = data.summary.ready ?? 0;
+        document.getElementById("queued").textContent = data.summary.queued ?? 0;
+        document.getElementById("skipped").textContent = data.summary.skipped ?? 0;
+        document.getElementById("failed").textContent = data.summary.failed ?? 0;
+        document.getElementById("mode").textContent = (data.mode || "Zero-Touch V5").toUpperCase();
+        document.getElementById("api-version").textContent = data.dashboard_version || "?";
+
+        const current = data.current_job;
+        if (current) {
+            document.getElementById("current-empty").style.display = "none";
+            document.getElementById("current-content").style.display = "block";
+            document.getElementById("current-title").textContent = current.title || current.id;
+            document.getElementById("current-id").textContent = current.id;
+            document.getElementById("current-stage").textContent = current.stage || current.status;
+            const progress = Math.max(0, Math.min(100, Number(current.progress || 0)));
+            document.getElementById("current-progress").style.width = progress + "%";
+            document.getElementById("current-progress-text").textContent = Math.round(progress) + "%";
+            document.getElementById("current-worker").textContent = current.worker ? `Worker: ${current.worker}` : "";
+        } else {
+            document.getElementById("current-empty").style.display = "block";
+            document.getElementById("current-content").style.display = "none";
+        }
+
+        const latest = data.latest_upload;
+        if (latest) {
+            document.getElementById("latest-empty").style.display = "none";
+            document.getElementById("latest-content").style.display = "block";
+            document.getElementById("latest-title").textContent = latest.title || latest.id;
+            document.getElementById("latest-time").textContent = latest.published_at || latest.updated_at || "";
+            document.getElementById("latest-link").innerHTML = latest.youtube_url
+                ? `<a href="${escapeHtml(latest.youtube_url)}" target="_blank" rel="noopener">Open on YouTube ↗</a>`
+                : "";
+        } else {
+            document.getElementById("latest-empty").style.display = "block";
+            document.getElementById("latest-content").style.display = "none";
+        }
+
+        document.getElementById("control-plane").innerHTML = renderControlPlane(data.control_plane);
+        const workers = document.getElementById("workers");
+        workers.innerHTML = data.workers?.length
+            ? data.workers.map(renderWorker).join("")
+            : '<div class="empty">Waiting for compute-01 / compute-03 telemetry…</div>';
+
+        document.querySelector(".live").className = "live online";
+        document.getElementById("live-text").textContent = "LIVE";
+        document.getElementById("last-update").textContent = new Date().toLocaleTimeString();
+    } catch (error) {
+        document.querySelector(".live").className = "live offline";
+        document.getElementById("live-text").textContent = "OFFLINE";
+    }
+}
+
+refreshDashboard();
+setInterval(refreshDashboard, 3000);
+</script>
+</body>
+</html>
