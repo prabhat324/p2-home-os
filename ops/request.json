@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-publish-audit-20260815-1727",
-  "operation": "osho-publish-audit",
+  "request_id": "osho-growth-v1-first-check-20260815-1800",
+  "operation": "osho-status",
   "target": "compute-01"
 }
