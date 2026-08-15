@@ -31,6 +31,9 @@ case "${operation}" in
   ollama-status)
     [[ "${target}" == "compute-01" ]] || { echo "ollama-status is restricted to compute-01" >&2; exit 2; }
     playbook="playbooks/ollama-status.yml" ;;
+  ollama-lan-audit)
+    [[ "${target}" == "all" ]] || { echo "ollama-lan-audit is restricted to all" >&2; exit 2; }
+    playbook="playbooks/ollama-lan-audit.yml" ;;
   home-dashboard-inventory)
     [[ "${target}" == "all" ]] || { echo "home-dashboard-inventory is restricted to all" >&2; exit 2; }
     playbook="playbooks/home-dashboard-inventory.yml" ;;
