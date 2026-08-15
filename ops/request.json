@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-first-growth-video-20260815-1005",
-  "operation": "osho-status",
+  "request_id": "ollama-status-20260815-1010",
+  "operation": "ollama-status",
   "target": "compute-01"
 }
