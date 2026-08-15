@@ -1,0 +1,22 @@
+---
+- name: Collect safe node status
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Collect host summary
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "HOST=$(hostname)"
+        echo "ROLE={{ node_role | default('unknown') }}"
+        echo "UPTIME=$(uptime -p 2>/dev/null || true)"
+        echo "LOAD=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || true)"
+        echo "MEMORY=$(free -h 2>/dev/null | awk '/^Mem:/ {print $3 "/" $2}' || true)"
+        echo "ROOT=$(df -hP / 2>/dev/null | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}' || true)"
+      args:
+        executable: /bin/bash
+      register: host_status
+      changed_when: false
+
+    - name: Print host summary
+      ansible.builtin.debug:
+        msg: "{{ host_status.stdout_lines }}"

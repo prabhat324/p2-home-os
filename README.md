@@ -14,6 +14,7 @@ P² Home OS is a self-hosted home infrastructure and compute platform spanning s
 - Home Assistant / dashboard / DNS / monitoring roles
 - Tailscale remote access
 - Production Jellyfin has been migrated off this node to compute-01
+- P² Home OS Ansible/GitHub control-plane gateway
 
 ### compute-01
 
@@ -48,6 +49,12 @@ P² Home OS is a self-hosted home infrastructure and compute platform spanning s
 - 8 TB media library remains physically attached to core-01 and is exported read-only to compute-01 over NFSv4.2.
 - 3 TB private photo library is used as the primary Immich external library and is mounted read-only inside Immich.
 - 2 TB backup drive remains part of the private-photo backup plan; only document it as active after mount/backup verification.
+
+## Control plane
+
+`core-01` is the always-on execution gateway for routine homelab operations. The first phase uses a restricted GitHub request plus Ansible to run read-only connectivity, node-health, GPU, and Project Osho status checks across the known nodes.
+
+The runner uses dedicated unprivileged `p2runner` and `p2ops` accounts. Arbitrary shell commands and privileged actions are not enabled in phase 1. See `docs/08-maintenance/control-plane.md` for the architecture and bootstrap procedure.
 
 ## Principles
 

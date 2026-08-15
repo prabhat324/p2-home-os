@@ -1,0 +1,30 @@
+---
+- name: Collect Project Osho status
+  hosts: osho_nodes
+  gather_facts: false
+  tasks:
+    - name: Collect Osho service summary
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "HOST=$(hostname)"
+        echo "OSHO_ROLE={{ osho_role | default('unknown') }}"
+        echo "AUTOPILOT_SERVICE=$(systemctl is-active osho-autopilot.service 2>/dev/null || true)"
+        echo "AUTOPILOT_PROCS=$(pgrep -fc '[o]sho_autopilot.py' 2>/dev/null || true)"
+        echo "RANKER_PROCS=$(pgrep -fc '[h]ook_ranker_v5.py' 2>/dev/null || true)"
+        echo "RETENTION_QA_PROCS=$(pgrep -fc '[r]etention_qa' 2>/dev/null || true)"
+        for port in 8787 8800; do
+          if ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq ":${port}$"; then
+            echo "PORT_${port}=LISTENING"
+          else
+            echo "PORT_${port}=CLOSED"
+          fi
+        done
+      args:
+        executable: /bin/bash
+      register: osho_status
+      changed_when: false
+      failed_when: false
+
+    - name: Print Osho status
+      ansible.builtin.debug:
+        msg: "{{ osho_status.stdout_lines }}"

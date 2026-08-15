@@ -1,0 +1,7 @@
+---
+- name: Verify homelab connectivity
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Ansible ping
+      ansible.builtin.ping:
