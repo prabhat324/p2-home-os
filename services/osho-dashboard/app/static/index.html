@@ -73,10 +73,10 @@ const PAGE_META={
  alerts:['Alerts','Items that currently need attention and recent Osho activity']
 };
 const NODES=[
- {name:'core-01',label:'core-01',ip:'192.168.0.203',role:'Control · media · storage',glances:'http://192.168.0.203:61208'},
- {name:'compute-01',label:'compute-01',ip:'192.168.0.31',role:'GPU compute · Jellyfin · AI',glances:'http://192.168.0.31:61208'},
- {name:'compute-02',label:'compute-02',ip:'192.168.0.88',role:'Control apps · dashboard',glances:'http://192.168.0.88:61208'},
- {name:'compute-03',label:'compute-03',ip:'192.168.0.158',role:'GPU worker · RTX 2060',glances:'http://192.168.0.158:61208'}
+ {name:'core-01',label:'core-01',ip:'192.168.0.203',role:'Control · media · storage',glances:'/api/glances/core-01'},
+ {name:'compute-01',label:'compute-01',ip:'192.168.0.31',role:'GPU compute · Jellyfin · AI',glances:'/api/glances/compute-01'},
+ {name:'compute-02',label:'compute-02',ip:'192.168.0.88',role:'Control apps · dashboard',glances:'/api/glances/compute-02'},
+ {name:'compute-03',label:'compute-03',ip:'192.168.0.158',role:'GPU worker · RTX 2060',glances:'/api/glances/compute-03'}
 ];
 const SERVICES=[
  ['Jellyfin','△','Movies & TV','media','http://192.168.0.31:8096'],['P² Music','◉','Music streaming','media','http://192.168.0.203:4533'],['Jellyseerr','♜','Media requests','media','http://192.168.0.203:5055'],['Radarr','▶','Movie manager','media','http://192.168.0.203:7878'],['Sonarr','◌','TV manager','media','http://192.168.0.203:8989'],['Bazarr','≡','Subtitles','media','http://192.168.0.203:6767'],['Prowlarr','◎','Indexer manager','media','http://192.168.0.203:9696'],
@@ -85,7 +85,7 @@ const SERVICES=[
  ['Osho Dashboard','◈','Pipeline & analytics','osho','http://192.168.0.88:8787'],['Osho Worker C01','⚙','Primary worker API','osho','http://192.168.0.31:8800'],['Osho Worker C03','⚙','GPU worker API','osho','http://192.168.0.158:8800'],['n8n','⌁','Workflow orchestration','osho','http://192.168.0.88:5678']
 ];
 const STORAGE_VOLUMES=[
- {node:'compute-01',mount:'/mnt/media',label:'Jellyfin Media'},
+ {node:'core-01',mount:'/mnt/media',label:'Jellyfin Media'},
  {node:'compute-01',mount:'/mnt/photos-primary',label:'Photos Primary'},
  {node:'compute-01',mount:'/mnt/photos-backup',label:'Photos Backup'}
 ];
