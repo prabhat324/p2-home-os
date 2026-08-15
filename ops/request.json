@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-managed-patch-inspect-20260815-1527",
-  "operation": "osho-notifications-diagnose",
-  "target": "compute-01"
+  "request_id": "osho-productivity-sla-20260815-1122",
+  "operation": "osho-status",
+  "target": "osho_nodes"
 }
