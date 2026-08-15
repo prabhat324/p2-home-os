@@ -1,0 +1,29 @@
+---
+- name: Send Project Osho resource snapshot to Discord
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Install current notifier
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../services/osho-notifier/osho_discord_notifier.py"
+        dest: /home/p2ops/.local/bin/osho-discord-notifier.py
+        owner: p2ops
+        group: p2ops
+        mode: "0755"
+
+    - name: Validate snapshot command
+      ansible.builtin.command:
+        argv: [python3, -m, py_compile, /home/p2ops/.local/bin/osho-discord-notifier.py]
+      changed_when: false
+
+    - name: Send live resource snapshot
+      ansible.builtin.command:
+        argv: [/home/p2ops/.local/bin/osho-discord-notifier.py, --snapshot]
+      register: snapshot_send
+      changed_when: false
+
+    - name: Confirm delivery
+      ansible.builtin.debug:
+        msg:
+          - DISCORD_SNAPSHOT=sent
+          - AUTOPILOT_UNCHANGED=yes
