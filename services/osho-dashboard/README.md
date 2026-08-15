@@ -23,13 +23,30 @@ The dashboard stores the latest snapshot in `state_snapshots` and uses it while 
 
 Reconciliation can correct:
 
-- durable published/uploaded count from YouTube receipts;
+- durable published/uploaded **video count** from YouTube receipts;
 - latest published video/title/time/URL from the newest receipt;
 - skipped count from `osho_autopilot_state`;
 - persisted processing/remote-QA state;
 - ready/queued/failed counts when those states are explicitly present in the authoritative table.
 
 The reconciliation is intentionally selective. A missing authoritative status does **not** overwrite an existing dashboard count with zero. This prevents real v0.4 job history from disappearing simply because a different state store does not represent that category.
+
+## Upload-count semantics
+
+The dashboard's first counter represents **YouTube videos**, not source rows.
+
+These are different units:
+
+```text
+YouTube receipt count     = published video/reel count
+Autopilot published count = source-state count
+```
+
+A single source can produce more than one reel. Therefore the receipt-backed video count can legitimately be higher than `osho_autopilot_state.status = 'published'`.
+
+Verified 2026-08-14 publishing evidence contained four unique receipt-backed YouTube video IDs while the Autopilot table contained two published source states. This is not double-counting.
+
+The UI labels the first metric `YouTube videos` and, when reconciliation data is available, shows the receipt-backed video count alongside the published source-state count.
 
 ## v0.4 telemetry retained
 
@@ -42,7 +59,7 @@ The reconciliation is intentionally selective. A missing authoritative status do
 - One-minute load and `/srv` free space.
 - compute-01 autopilot service state.
 - Heartbeat age and telemetry-agent version.
-- Queue counters for Uploaded, Processing, Ready, Queued, Skipped and Failed.
+- Queue counters for YouTube videos, Processing, Ready, Queued, Skipped and Failed.
 - Assigned worker field on jobs when the producer supplies it.
 - Clickable latest YouTube upload link.
 - Explicit compute-02 control-plane card with dashboard and Piper ports.
@@ -85,6 +102,26 @@ The deploy script:
 8. checks `/health` and `/api/dashboard`.
 
 The backend migrates the existing SQLite schema in place. v0.5 adds the `state_snapshots` table and preserves the existing `jobs` and `workers` data.
+
+## Scoped Git deployment
+
+The repository also contains a narrowly scoped compute-02 helper:
+
+```text
+scripts/p2ops-osho-dashboard
+bootstrap/compute/install-osho-dashboard-helper.sh
+```
+
+After the installer is run once on compute-02 as `psquare`, `p2ops` may invoke only:
+
+```text
+/usr/local/sbin/p2ops-osho-dashboard status
+/usr/local/sbin/p2ops-osho-dashboard deploy-master
+```
+
+`deploy-master` downloads only the fixed dashboard application/build files from `prabhat324/p2-home-os@master`, preserves the existing Compose file and runtime database, creates a source backup, rebuilds the container, and health-checks it.
+
+This does not grant `p2ops` general sudo or Docker access.
 
 ## Install telemetry on compute-01
 
