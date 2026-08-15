@@ -1,0 +1,18 @@
+---
+- name: Activate P2 Command Center route on core-01
+  hosts: core-01
+  gather_facts: false
+  tasks:
+    - name: Activate bounded dashboard route
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - /usr/local/sbin/p2ops-p2-dashboard-route
+          - activate-custom
+      register: route
+      changed_when: "'P2_DASHBOARD_ROUTE=active' in route.stdout"
+
+    - name: Show route result
+      ansible.builtin.debug:
+        msg: "{{ route.stdout_lines }}"
