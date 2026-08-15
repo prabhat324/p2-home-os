@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-external-speaker-test-20260815-01",
-  "operation": "mavrick-speaker-test",
+  "request_id": "youtube-analyst-payload-shape-20260815-1255",
+  "operation": "dashboard-diagnose",
   "target": "compute-02"
 }
