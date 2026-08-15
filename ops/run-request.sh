@@ -49,6 +49,9 @@ case "${operation}" in
   osho-publish-audit)
     [[ "${target}" == "compute-01" ]] || { echo "osho-publish-audit is restricted to compute-01" >&2; exit 2; }
     playbook="playbooks/osho-publish-audit.yml" ;;
+  osho-ranker-diagnose)
+    [[ "${target}" == "compute-01" ]] || { echo "osho-ranker-diagnose is restricted to compute-01" >&2; exit 2; }
+    playbook="playbooks/osho-ranker-diagnose.yml" ;;
   youtube-analytics-diagnose)
     [[ "${target}" == "osho_nodes" ]] || { echo "youtube-analytics-diagnose is restricted to osho_nodes" >&2; exit 2; }
     playbook="playbooks/youtube-analytics-diagnose.yml" ;;
