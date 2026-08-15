@@ -1,28 +1,25 @@
 ---
-- name: Inspect Project Osho worker API for safe render deployment
+- name: Inspect Project Osho worker job-state internals
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect worker health and OpenAPI routes
+    - name: Read worker job routes and state storage
       ansible.builtin.shell: |
         set -o pipefail
-        echo "NOW=$(date -Ins)"
-        echo '=== HEALTH ==='
-        curl -fsS --max-time 4 http://127.0.0.1:8800/health 2>&1 || true
-        echo
-        echo '=== OPENAPI JOB/STATUS ROUTES ==='
-        curl -fsS --max-time 4 http://127.0.0.1:8800/openapi.json 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); [(print(path, sorted(methods))) for path,methods in d.get("paths",{}).items() if any(k in path.lower() for k in ("job","health","status"))]' || true
-        echo '=== APP ROUTE DEFINITIONS ==='
         cd /srv/compose/osho-worker
-        grep -nE '@app\.(get|post|put|delete|patch)\(' app.py | head -100 || true
-        echo '=== CURRENT PROCESSES ==='
-        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/ || $0 ~ /ffmpeg/ || $0 ~ /uvicorn/) {print}' || true
+        echo "NOW=$(date -Ins)"
+        echo '=== JOB ROUTES ==='
+        sed -n '1920,2075p' app.py
+        echo '=== JOB STATE SYMBOLS ==='
+        grep -nE '(^|[^A-Za-z_])(jobs|JOBS|job_state|job_status|active_job|current_job|JOB_)' app.py | head -160 || true
+        echo '=== RECENT WORKER LOGS ==='
+        docker logs --tail 120 osho-worker 2>&1 | tail -120 || true
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show worker API inspection
+    - name: Show worker job-state internals
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
