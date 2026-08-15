@@ -1,0 +1,24 @@
+---
+- name: Play a one-time Mavrick external speaker test
+  hosts: compute-02
+  gather_facts: false
+  tasks:
+    - name: Play audible test through the configured 3.5 mm output
+      ansible.builtin.shell: |
+        set -o pipefail
+        device="plughw:CARD=sofhdadsp,DEV=0"
+        echo "MAVRICK_SPEAKER_TEST_DEVICE=${device}"
+        if [[ -r /usr/share/sounds/alsa/Front_Center.wav ]]; then
+          timeout 20 aplay -D "${device}" /usr/share/sounds/alsa/Front_Center.wav
+        else
+          timeout 20 speaker-test -D "${device}" -c 2 -t sine -f 660 -l 1
+        fi
+        echo "MAVRICK_SPEAKER_TEST=completed"
+      args:
+        executable: /bin/bash
+      register: mavrick_speaker_test
+      changed_when: false
+
+    - name: Show speaker-test result
+      ansible.builtin.debug:
+        msg: "{{ mavrick_speaker_test.stdout_lines }}"
