@@ -5,6 +5,7 @@ ACTION="${1:-}"
 HOMEPAGE_DIR="/opt/docker/compose/homepage"
 SERVICES_CONFIG="$HOMEPAGE_DIR/config/services.yaml"
 WIDGETS_CONFIG="$HOMEPAGE_DIR/config/widgets.yaml"
+CUSTOM_CSS_CONFIG="$HOMEPAGE_DIR/config/custom.css"
 RAW_BASE="https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/home-dashboard"
 
 log() {
@@ -17,6 +18,8 @@ status() {
     echo "SERVICES_PRESENT=$([[ -f "$SERVICES_CONFIG" ]] && echo yes || echo no)"
     echo "WIDGETS_CONFIG=$WIDGETS_CONFIG"
     echo "WIDGETS_PRESENT=$([[ -f "$WIDGETS_CONFIG" ]] && echo yes || echo no)"
+    echo "CUSTOM_CSS_CONFIG=$CUSTOM_CSS_CONFIG"
+    echo "CUSTOM_CSS_PRESENT=$([[ -f "$CUSTOM_CSS_CONFIG" ]] && echo yes || echo no)"
     echo "HOMEPAGE_HTTP=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:3000/ 2>/dev/null || echo unavailable)"
     echo "HOMEPAGE_CONTAINER=$(docker inspect -f '{{.State.Status}}' homepage 2>/dev/null || echo unavailable)"
 }
@@ -45,47 +48,56 @@ deploy_master() {
     [[ -d "$HOMEPAGE_DIR/config" ]]
     [[ -f "$SERVICES_CONFIG" ]]
     [[ -f "$WIDGETS_CONFIG" ]]
+    [[ -f "$CUSTOM_CSS_CONFIG" ]]
 
     local tmp stamp backup
     tmp="$(mktemp -d)"
     trap "rm -rf -- '$tmp'" EXIT
 
-    log "downloading source-controlled Homepage services and widgets from master"
+    log "downloading source-controlled Homepage services, widgets and custom CSS from master"
     curl -fsSL "$RAW_BASE/services.yaml" -o "$tmp/services.yaml"
     curl -fsSL "$RAW_BASE/widgets.yaml" -o "$tmp/widgets.yaml"
+    curl -fsSL "$RAW_BASE/custom.css" -o "$tmp/custom.css"
 
     validate_yaml_list "$tmp/services.yaml" "services.yaml"
     validate_yaml_list "$tmp/widgets.yaml" "widgets.yaml"
+    [[ -s "$tmp/custom.css" ]] || { echo "custom.css is empty" >&2; exit 1; }
+    grep -q '#information-widgets-right' "$tmp/custom.css" || { echo "custom.css missing datetime positioning selector" >&2; exit 1; }
+    echo "Validated custom.css"
 
     stamp="$(date +%Y%m%d-%H%M%S)"
     backup="$HOMEPAGE_DIR/config-backups/config-${stamp}-control-plane"
     mkdir -p "$backup"
     cp -a "$SERVICES_CONFIG" "$backup/services.yaml"
     cp -a "$WIDGETS_CONFIG" "$backup/widgets.yaml"
+    cp -a "$CUSTOM_CSS_CONFIG" "$backup/custom.css"
     chown -R psquare:psquare "$backup"
     log "backup created at $backup"
 
     install -o psquare -g psquare -m 0644 "$tmp/services.yaml" "$SERVICES_CONFIG"
     install -o psquare -g psquare -m 0644 "$tmp/widgets.yaml" "$WIDGETS_CONFIG"
+    install -o psquare -g psquare -m 0644 "$tmp/custom.css" "$CUSTOM_CSS_CONFIG"
 
     if ! docker restart homepage >/dev/null; then
         log "restart failed; restoring previous Homepage configs"
         install -o psquare -g psquare -m 0644 "$backup/services.yaml" "$SERVICES_CONFIG"
         install -o psquare -g psquare -m 0644 "$backup/widgets.yaml" "$WIDGETS_CONFIG"
+        install -o psquare -g psquare -m 0644 "$backup/custom.css" "$CUSTOM_CSS_CONFIG"
         docker restart homepage >/dev/null || true
         exit 1
     fi
 
     sleep 3
     if ! curl -fsS --max-time 8 http://127.0.0.1:3000/ >/dev/null; then
-        log "Homepage health check failed; rolling back both configs"
+        log "Homepage health check failed; rolling back configs"
         install -o psquare -g psquare -m 0644 "$backup/services.yaml" "$SERVICES_CONFIG"
         install -o psquare -g psquare -m 0644 "$backup/widgets.yaml" "$WIDGETS_CONFIG"
+        install -o psquare -g psquare -m 0644 "$backup/custom.css" "$CUSTOM_CSS_CONFIG"
         docker restart homepage >/dev/null || true
         exit 1
     fi
 
-    log "Homepage services + widgets deployment complete"
+    log "Homepage services + widgets + custom CSS deployment complete"
     status
 }
 
