@@ -1,54 +1,45 @@
 ---
-- name: Inspect Project Osho analytics 24h view source
+- name: Audit Project Osho 24h view history
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect reporter and calculate historical view deltas
+    - name: Calculate channel and tracked-video history
       ansible.builtin.shell: |
         set -eu
-        echo '=== REPORTER SOURCE ==='
         python3 - <<'PY'
-        from pathlib import Path
-        p=Path('/srv/osho/analytics/dashboard_reporter.py')
-        if not p.exists():
-            print('MISSING')
-        else:
-            for n,line in enumerate(p.read_text(errors='replace').splitlines(),1):
-                if any(k in line.lower() for k in ('payload','video','channel','sqlite','post','analytics')):
-                    if any(s in line.lower() for s in ('token','secret','authorization','credential')):
-                        continue
-                    print(f'{n}: {line}')
-        PY
-        echo '=== 24H HISTORY ==='
-        python3 - <<'PY'
-        import sqlite3, json
-        from datetime import datetime, timezone, timedelta
+        import sqlite3
+        from datetime import datetime, timedelta
         db='/srv/osho/analytics/analytics.sqlite'
         c=sqlite3.connect(db); c.row_factory=sqlite3.Row
         latest=c.execute('select max(collected_at) t from video_history').fetchone()['t']
         print('LATEST='+str(latest))
         if latest:
-            lt=datetime.fromisoformat(latest); target=lt-timedelta(hours=24)
-            rows=c.execute('select distinct collected_at from video_history order by collected_at').fetchall()
-            times=[datetime.fromisoformat(r['collected_at']) for r in rows]
-            base=max((t for t in times if t<=target), default=min(times) if times else None)
-            print('TARGET='+target.isoformat())
-            print('BASE='+str(base.isoformat() if base else None))
-            def total_at(ts):
-                if ts is None:return 0
-                return c.execute('select coalesce(sum(public_views),0) s from video_history where collected_at=?',(ts.isoformat(),)).fetchone()['s']
-            latest_total=total_at(lt); base_total=total_at(base)
-            print('LATEST_TRACKED_TOTAL='+str(latest_total))
-            print('BASE_TRACKED_TOTAL='+str(base_total))
-            print('DELTA='+str(max(0,latest_total-base_total)))
-            print('WINDOW_HOURS='+str(round((lt-base).total_seconds()/3600,2) if base else None))
-            print('LATEST_VIDEO_ROWS='+str(c.execute('select count(*) n from video_history where collected_at=?',(latest,)).fetchone()['n']))
+            lt=datetime.fromisoformat(latest)
+            target=lt-timedelta(hours=24)
+            raw=[r['collected_at'] for r in c.execute('select distinct collected_at from video_history order by collected_at')]
+            times=[datetime.fromisoformat(x) for x in raw]
+            base=min(times, key=lambda t: abs((t-target).total_seconds())) if times else None
+            latest_rows=c.execute('select video_id,reel_id,title,uploaded_at,public_views from video_history where collected_at=?',(latest,)).fetchall()
+            print('LATEST_VIDEO_ROWS='+str(len(latest_rows)))
+            print('LATEST_TRACKED_TOTAL='+str(sum(int(r['public_views'] or 0) for r in latest_rows)))
+            print('OLDEST_UPLOAD='+str(min((r['uploaded_at'] for r in latest_rows if r['uploaded_at']), default=None)))
+            if base:
+                base_iso=base.isoformat()
+                base_map={r['video_id']:int(r['public_views'] or 0) for r in c.execute('select video_id,public_views from video_history where collected_at=?',(base_iso,))}
+                delta=sum(max(0,int(r['public_views'] or 0)-base_map.get(r['video_id'],0)) for r in latest_rows)
+                print('BASE='+base_iso)
+                print('WINDOW_HOURS='+str(round((lt-base).total_seconds()/3600,2)))
+                print('TRACKED_24H_DELTA='+str(delta))
+            ch=c.execute('select collected_at,subscriber_count,video_count,public_view_count from channel_history order by collected_at desc limit 1').fetchone()
+            if ch:
+                print('CHANNEL_VIDEO_COUNT='+str(ch['video_count']))
+                print('CHANNEL_PUBLIC_VIEW_COUNT='+str(ch['public_view_count']))
         c.close()
         PY
       args:
         executable: /bin/bash
       register: diag
       changed_when: false
-    - name: Show diagnostic
+    - name: Show audit
       ansible.builtin.debug:
         msg: "{{ diag.stdout_lines }}"
