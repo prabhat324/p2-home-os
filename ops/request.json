@@ -1,5 +1,5 @@
 {
-  "request_id": "p2-dashboard-route-20260815-1135",
-  "operation": "p2-dashboard-route",
-  "target": "core-01"
+  "request_id": "mavrick-inventory-20260815-1605",
+  "operation": "mavrick-inventory",
+  "target": "compute-02"
 }
