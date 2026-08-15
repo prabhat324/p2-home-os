@@ -1,5 +1,5 @@
 {
-  "request_id": "youtube-analytics-24h-view-audit-r2-20260815-1250",
-  "operation": "youtube-analytics-diagnose",
-  "target": "osho_nodes"
+  "request_id": "dashboard-v054-core-root-deploy-20260815",
+  "operation": "dashboard-deploy",
+  "target": "compute-02"
 }
