@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-final-publish-audit-20260815-1001",
-  "operation": "osho-publish-audit",
-  "target": "compute-01"
+  "request_id": "osho-dashboard-ready-fix-20260815-1004",
+  "operation": "dashboard-deploy",
+  "target": "compute-02"
 }
