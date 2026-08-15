@@ -35,7 +35,7 @@ if ! id "${RUNNER_USER}" >/dev/null 2>&1; then
 fi
 sudo install -d -m 700 -o "${RUNNER_USER}" -g "${RUNNER_USER}" "${RUNNER_HOME}/.ssh"
 
-if [[ ! -f "${SSH_KEY}" ]]; then
+if ! sudo test -f "${SSH_KEY}"; then
   sudo -u "${RUNNER_USER}" -H ssh-keygen -q -t ed25519 -f "${SSH_KEY}" -N '' -C 'p2-home-os-control@core-01'
 fi
 sudo chmod 600 "${SSH_KEY}"
@@ -80,7 +80,7 @@ sudo sh -c "sort -u '${RUNNER_HOME}/.ssh/known_hosts' -o '${RUNNER_HOME}/.ssh/kn
 sudo chown -R "${RUNNER_USER}:${RUNNER_USER}" "${RUNNER_HOME}/.ssh"
 
 echo "== Preparing repository checkout for runner =="
-if [[ -d "${CHECKOUT_DIR}/.git" ]]; then
+if sudo test -d "${CHECKOUT_DIR}/.git"; then
   sudo -u "${RUNNER_USER}" -H git -C "${CHECKOUT_DIR}" fetch origin
   sudo -u "${RUNNER_USER}" -H git -C "${CHECKOUT_DIR}" checkout master
   sudo -u "${RUNNER_USER}" -H git -C "${CHECKOUT_DIR}" pull --ff-only origin master
@@ -93,34 +93,43 @@ sudo -u "${RUNNER_USER}" -H bash -lc "cd '${CHECKOUT_DIR}/ansible' && ansible-in
 
 echo "== Installing GitHub Actions self-hosted runner =="
 sudo install -d -m 755 -o "${RUNNER_USER}" -g "${RUNNER_USER}" "${RUNNER_DIR}"
-cd "${RUNNER_DIR}"
 
-if [[ ! -f .runner ]]; then
+if ! sudo test -f "${RUNNER_DIR}/.runner"; then
   runner_version="$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | jq -r '.tag_name' | sed 's/^v//')"
   archive="actions-runner-linux-arm64-${runner_version}.tar.gz"
-  sudo -u "${RUNNER_USER}" -H curl -fL -o "${archive}" "https://github.com/actions/runner/releases/download/v${runner_version}/${archive}"
-  sudo -u "${RUNNER_USER}" -H tar xzf "${archive}"
-  sudo -u "${RUNNER_USER}" -H rm -f "${archive}"
+
+  sudo -u "${RUNNER_USER}" -H bash -lc "
+    set -euo pipefail
+    cd '${RUNNER_DIR}'
+    curl -fL -o '${archive}' 'https://github.com/actions/runner/releases/download/v${runner_version}/${archive}'
+    tar xzf '${archive}'
+    rm -f '${archive}'
+  "
 
   echo
   echo "Open GitHub -> p2-home-os -> Settings -> Actions -> Runners -> New self-hosted runner."
   echo "Choose Linux / ARM64 and copy only the temporary registration token."
   read -r -s -p "Runner registration token: " RUNNER_TOKEN
   echo
-  sudo -u "${RUNNER_USER}" -H ./config.sh \
-    --url "${REPO_URL}" \
-    --token "${RUNNER_TOKEN}" \
-    --name "${RUNNER_NAME}" \
-    --labels "${RUNNER_LABELS}" \
-    --unattended \
-    --replace
+
+  sudo -u "${RUNNER_USER}" -H bash -lc "
+    cd '${RUNNER_DIR}'
+    ./config.sh \\
+      --url '${REPO_URL}' \\
+      --token '${RUNNER_TOKEN}' \\
+      --name '${RUNNER_NAME}' \\
+      --labels '${RUNNER_LABELS}' \\
+      --unattended \\
+      --replace
+  "
+  unset RUNNER_TOKEN
 else
   echo "Runner is already configured; keeping the existing registration."
 fi
 
-sudo ./svc.sh install "${RUNNER_USER}" 2>/dev/null || true
-sudo ./svc.sh start
-sudo ./svc.sh status || true
+sudo "${RUNNER_DIR}/svc.sh" install "${RUNNER_USER}" 2>/dev/null || true
+sudo "${RUNNER_DIR}/svc.sh" start
+sudo "${RUNNER_DIR}/svc.sh" status || true
 
 echo
 echo "Control-plane bootstrap complete."
