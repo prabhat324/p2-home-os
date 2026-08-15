@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ ${EUID} -ne 0 ]]; then
+    echo "This helper must run as root via sudo." >&2
+    exit 1
+fi
+
+case "$(hostname -s)" in
+    compute-03) ;;
+    *) echo "This helper is restricted to compute-03." >&2; exit 2 ;;
+esac
+
+ACTION="${1:-}"
+MODEL="qwen3:4b-instruct"
+BIND_IP="192.168.0.158"
+PORT="11434"
+BASE_URL="http://${BIND_IP}:${PORT}"
+DROPIN_DIR="/etc/systemd/system/ollama.service.d"
+DROPIN="${DROPIN_DIR}/10-osho-dual-gpu.conf"
+BACKUP_DIR="/var/backups/p2-home-os/ollama-dual"
+
+log() {
+    printf '[p2ops-compute03-ollama-dual] %s\n' "$*"
+}
+
+status() {
+    echo "HOST=$(hostname)"
+    echo "OLLAMA_ACTIVE=$(systemctl is-active ollama.service 2>/dev/null || true)"
+    echo "OLLAMA_ENABLED=$(systemctl is-enabled ollama.service 2>/dev/null || true)"
+    echo "DROPIN_PRESENT=$([[ -f "$DROPIN" ]] && echo yes || echo no)"
+    if ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "${BIND_IP}:${PORT}$"; then
+        echo "OLLAMA_LAN_LISTENING=yes"
+    else
+        echo "OLLAMA_LAN_LISTENING=no"
+    fi
+
+    if curl -fsS --max-time 3 "${BASE_URL}/api/tags" >/tmp/p2ops-ollama-tags.$$ 2>/dev/null; then
+        python3 - "$MODEL" /tmp/p2ops-ollama-tags.$$ <<'PY'
+import json, sys
+model = sys.argv[1]
+path = sys.argv[2]
+with open(path, encoding="utf-8") as f:
+    data = json.load(f)
+names = [x.get("name", "") for x in data.get("models", [])]
+print("MODEL_PRESENT=" + ("yes" if model in names else "no"))
+print("MODELS=" + ",".join(names))
+PY
+        rm -f /tmp/p2ops-ollama-tags.$$
+    else
+        rm -f /tmp/p2ops-ollama-tags.$$
+        echo "MODEL_PRESENT=unknown"
+        echo "MODELS=unreachable"
+    fi
+
+    nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader 2>/dev/null \
+        | sed 's/^/GPU=/' || true
+}
+
+apply_dual_gpu() {
+    command -v curl >/dev/null 2>&1 || { echo "curl is required" >&2; exit 3; }
+    command -v python3 >/dev/null 2>&1 || { echo "python3 is required" >&2; exit 3; }
+    systemctl cat ollama.service >/dev/null 2>&1 || { echo "ollama.service is missing" >&2; exit 3; }
+
+    mkdir -p "$DROPIN_DIR" "$BACKUP_DIR"
+    local stamp backup=""
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    if [[ -f "$DROPIN" ]]; then
+        backup="${BACKUP_DIR}/10-osho-dual-gpu.conf.${stamp}"
+        cp -a "$DROPIN" "$backup"
+        log "backed up existing drop-in to $backup"
+    fi
+
+    cat > "$DROPIN" <<EOF
+[Service]
+Environment="OLLAMA_HOST=${BIND_IP}:${PORT}"
+Environment="OLLAMA_KEEP_ALIVE=10m"
+Environment="OLLAMA_NUM_PARALLEL=1"
+Environment="OLLAMA_MAX_LOADED_MODELS=1"
+EOF
+    chmod 0644 "$DROPIN"
+
+    rollback() {
+        log "configuration failed; rolling back Ollama drop-in"
+        if [[ -n "$backup" && -f "$backup" ]]; then
+            cp -a "$backup" "$DROPIN"
+        else
+            rm -f "$DROPIN"
+        fi
+        systemctl daemon-reload
+        systemctl restart ollama.service 2>/dev/null || true
+    }
+
+    systemctl daemon-reload
+    if ! systemctl enable --now ollama.service; then
+        rollback
+        exit 4
+    fi
+
+    local ready=0
+    for _ in $(seq 1 30); do
+        if curl -fsS --max-time 2 "${BASE_URL}/api/tags" >/dev/null 2>&1; then
+            ready=1
+            break
+        fi
+        sleep 1
+    done
+    if [[ "$ready" != "1" ]]; then
+        rollback
+        echo "Ollama did not become reachable on ${BASE_URL}" >&2
+        exit 5
+    fi
+
+    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
+        ufw allow from 192.168.0.31 to "$BIND_IP" port "$PORT" proto tcp comment 'Project Osho dual GPU' >/dev/null
+        log "allowed compute-01 to reach Ollama through UFW"
+    fi
+
+    if ! curl -fsS --max-time 3 "${BASE_URL}/api/tags" \
+        | python3 -c 'import json,sys; m=sys.argv[1]; d=json.load(sys.stdin); raise SystemExit(0 if m in [x.get("name","") for x in d.get("models",[])] else 1)' "$MODEL"; then
+        log "pulling ${MODEL}; this can take several minutes"
+        pull_tmp="$(mktemp)"
+        if ! curl -fsS --max-time 1800 \
+            -H 'Content-Type: application/json' \
+            -d "{\"model\":\"${MODEL}\",\"stream\":false}" \
+            "${BASE_URL}/api/pull" >"$pull_tmp"; then
+            rm -f "$pull_tmp"
+            rollback
+            echo "Failed to pull ${MODEL}" >&2
+            exit 6
+        fi
+        rm -f "$pull_tmp"
+    fi
+
+    if ! curl -fsS --max-time 90 \
+        -H 'Content-Type: application/json' \
+        -d "{\"model\":\"${MODEL}\",\"stream\":false,\"format\":\"json\",\"think\":false,\"options\":{\"temperature\":0,\"num_predict\":32},\"messages\":[{\"role\":\"user\",\"content\":\"Return only JSON: {\\\"status\\\":\\\"ok\\\"}\"}]}" \
+        "${BASE_URL}/api/chat" \
+        | python3 -c 'import json,sys; d=json.load(sys.stdin); c=d.get("message",{}).get("content",""); json.loads(c); print("CHAT_TEST=ok")'; then
+        rollback
+        echo "Ollama chat verification failed" >&2
+        exit 7
+    fi
+
+    log "compute-03 Ollama dual-GPU endpoint ready"
+    status
+}
+
+case "$ACTION" in
+    status) status ;;
+    apply) apply_dual_gpu ;;
+    *)
+        echo "Allowed actions: status | apply" >&2
+        exit 2
+        ;;
+esac
