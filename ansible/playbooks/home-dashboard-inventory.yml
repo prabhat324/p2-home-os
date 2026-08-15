@@ -8,18 +8,6 @@
         set -u
         echo "HOST=$(hostname)"
 
-        echo 'DASHBOARD_DNS_BEGIN'
-        getent hosts dashboard.home.arpa 2>/dev/null || true
-        echo 'DASHBOARD_DNS_END'
-
-        echo 'DASHBOARD_HTTP_BEGIN'
-        if command -v curl >/dev/null 2>&1; then
-          code="$(curl -sS -o /tmp/p2-home-dashboard.$$.html -w '%{http_code}' --max-time 3 http://dashboard.home.arpa/ 2>/dev/null || true)"
-          echo "HTTP_CODE=${code:-unavailable}"
-          rm -f /tmp/p2-home-dashboard.$$.html
-        fi
-        echo 'DASHBOARD_HTTP_END'
-
         echo 'LISTENING_PORTS_BEGIN'
         ss -lnt 2>/dev/null | awk 'NR>1 {addr=$4; sub(/^.*:/,"",addr); if (addr ~ /^[0-9]+$/) print addr}' | sort -n -u | paste -sd, - || true
         echo 'LISTENING_PORTS_END'
@@ -31,10 +19,13 @@
           | sort -u || true
         echo 'RUNNING_RELEVANT_SERVICES_END'
 
-        echo 'COMPOSE_FILES_BEGIN'
-        find /srv/compose /opt /home -maxdepth 5 -type f \( -name 'compose.yml' -o -name 'compose.yaml' -o -name 'docker-compose.yml' -o -name 'docker-compose.yaml' \) 2>/dev/null \
-          | sort | head -120 || true
-        echo 'COMPOSE_FILES_END'
+        echo 'COMPOSE_SUMMARY_BEGIN'
+        for f in /srv/compose/*/compose.y*ml /srv/compose/*/docker-compose.y*ml /opt/docker/compose/*/compose.y*ml /opt/docker/compose/*/docker-compose.y*ml; do
+          [ -f "$f" ] || continue
+          echo "FILE=$f"
+          grep -E '^[[:space:]]*(image:|container_name:|-[[:space:]]*"?[0-9]+:[0-9]+|-[[:space:]]*[0-9]+:[0-9]+)' "$f" 2>/dev/null | head -40 || true
+        done
+        echo 'COMPOSE_SUMMARY_END'
 
         homepage='/opt/docker/compose/homepage/config/services.yaml'
         echo 'HOMEPAGE_CONFIG_BEGIN'
@@ -78,14 +69,6 @@
             fi
           done
           echo 'CADDY_ROUTES_END'
-
-          echo 'CORE_COMPOSE_SUMMARY_BEGIN'
-          for f in /opt/docker/compose/*/docker-compose.y*ml /opt/docker/compose/*/compose.y*ml; do
-            [ -f "$f" ] || continue
-            echo "FILE=$f"
-            grep -E '^[[:space:]]*(image:|container_name:|-[[:space:]]*"?[0-9]+:[0-9]+|-[[:space:]]*[0-9]+:[0-9]+)' "$f" 2>/dev/null | head -30 || true
-          done
-          echo 'CORE_COMPOSE_SUMMARY_END'
         fi
       args:
         executable: /bin/bash
