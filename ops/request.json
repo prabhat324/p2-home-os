@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-20260814-2136",
-  "operation": "dashboard-diagnose",
-  "target": "compute-02"
+  "request_id": "osho-maintenance-20260814-2147",
+  "operation": "osho-maintenance",
+  "target": "compute-01"
 }
