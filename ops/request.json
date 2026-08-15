@@ -1,5 +1,5 @@
 {
-  "request_id": "template",
-  "operation": "status",
+  "request_id": "ping-20260814-2128",
+  "operation": "ping",
   "target": "all"
 }
