@@ -1,95 +1,70 @@
 ---
-- name: Verify Project Osho JSON hardening on first post-patch ranker
+- name: Snapshot Project Osho after managed JSON hardening
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Wait for and inspect first post-patch ranker
+    - name: Collect immediate post-patch state
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker
+        echo "NOW=$(date -Ins)"
 
         echo '=== MANAGED PATCH STATUS ==='
         sudo -n /usr/local/sbin/p2ops-osho-managed-patch status 2>&1 || true
 
-        echo '=== HARDENING SOURCE MARKERS ==='
-        grep -nE 'OSHO_JSON_HARDENING|num_predict|reason.*(short|concise|sentence)|output_budget|predict_budget' hook_ranker_v5.py 2>/dev/null | head -30 || true
+        echo '=== ACTIVE PIPELINE ==='
+        ps -eo pid,etimes,pcpu,pmem,args | grep -E '[o]sho_autopilot.py|[h]ook_ranker_v5.py|[r]etention_qa_v4.py|[b]oundary_consensus.py|[v]erify_reel_transcript.py|[t]ranscript_stability.py' || true
 
-        deadline=$((SECONDS + 720))
-        source_id=''
-        rank_pid=''
+        echo '=== LOCAL GPU ==='
+        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu --format=csv,noheader 2>/dev/null || true
 
-        while [ "$SECONDS" -lt "$deadline" ]; do
-          cmd="$(pgrep -af '[h]ook_ranker_v5.py' 2>/dev/null | head -1 || true)"
-          if [ -n "$cmd" ]; then
-            source_id="$(printf '%s\n' "$cmd" | sed -nE 's#.*hook_ranker_v5.py ([0-9]+).*#\1#p')"
-            rank_pid="$(printf '%s\n' "$cmd" | awk '{print $1}')"
-            if [ -n "$source_id" ]; then
-              echo "POST_PATCH_SOURCE=$source_id"
-              echo "POST_PATCH_CMD=$cmd"
-              break
-            fi
-          fi
-          sleep 3
-        done
+        echo '=== LOCAL OLLAMA ==='
+        curl -fsS --max-time 3 http://127.0.0.1:11434/api/ps 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print([{"name":x.get("name"),"vram":x.get("size_vram")} for x in d.get("models",[])])' 2>/dev/null || true
 
-        if [ -z "$source_id" ]; then
-          echo 'NO_POST_PATCH_RANKER_WITHIN_720S'
-          pgrep -af '[o]sho_autopilot.py|[r]etention_qa_v4.py' 2>/dev/null || true
-          exit 0
-        fi
+        echo '=== REMOTE OLLAMA ==='
+        curl -fsS --max-time 3 http://192.168.0.158:11434/api/ps 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print([{"name":x.get("name"),"vram":x.get("size_vram")} for x in d.get("models",[])])' 2>/dev/null || true
 
-        log="/srv/osho/logs/autopilot/${source_id}-hook-v5.log"
-        marker_deadline=$((SECONDS + 120))
-        while [ "$SECONDS" -lt "$marker_deadline" ]; do
-          if [ -f "$log" ] && grep -q 'DUAL GPU ENDPOINTS' "$log" 2>/dev/null; then
-            break
-          fi
-          sleep 2
-        done
+        echo '=== POST-PATCH RANK LOGS ==='
+        find /srv/osho/logs/autopilot -maxdepth 1 -type f -name '*-hook-v5.log' -newermt '2026-08-15 00:50:43' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -5 || true
 
-        echo '=== EARLY RANKER STATE ==='
-        if [ -f "$log" ]; then
-          grep -E 'DUAL GPU ENDPOINTS|MODEL WORKERS|JSON|MODEL RETRY|MODEL ENDPOINT FAILOVER|HOOK [0-9]+/' "$log" 2>/dev/null | head -45 || true
-        fi
-
-        # Let the first post-patch ranker finish so clip-scoring reliability can be compared.
-        finish_deadline=$((SECONDS + 720))
-        while [ "$SECONDS" -lt "$finish_deadline" ]; do
-          if ! kill -0 "$rank_pid" 2>/dev/null; then
-            break
-          fi
-          sleep 5
-        done
-
-        echo '=== POST-PATCH SUMMARY ==='
-        if [ -f "$log" ]; then
-          echo "LOCAL_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-01$' "$log" 2>/dev/null || true)"
-          echo "REMOTE_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-03$' "$log" 2>/dev/null || true)"
-          echo "LOCAL_CLIPS=$(grep -Ec 'CLIP [0-9]+/[0-9]+ .* compute-01$' "$log" 2>/dev/null || true)"
-          echo "REMOTE_CLIPS=$(grep -Ec 'CLIP [0-9]+/[0-9]+ .* compute-03$' "$log" 2>/dev/null || true)"
-          echo "RETRIES=$(grep -c 'MODEL RETRY' "$log" 2>/dev/null || true)"
-          echo "FAILOVERS=$(grep -c 'MODEL ENDPOINT FAILOVER' "$log" 2>/dev/null || true)"
-          echo "MODEL_FAILURES=$(grep -Ec 'HOOK MODEL FAILURE|CLIP MODEL FAILURE' "$log" 2>/dev/null || true)"
-          echo "JSON_ERRORS=$(grep -Eic 'Unterminated string|Expecting .*delimiter|JSONDecodeError|invalid json' "$log" 2>/dev/null || true)"
-          echo '=== FINAL LOG TAIL ==='
-          tail -80 "$log"
+        newest="$(find /srv/osho/logs/autopilot -maxdepth 1 -type f -name '*-hook-v5.log' -newermt '2026-08-15 00:50:43' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2- || true)"
+        if [ -n "$newest" ] && [ -f "$newest" ]; then
+          echo "NEWEST_POST_PATCH_LOG=$newest"
+          echo "LOCAL_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-01$' "$newest" 2>/dev/null || true)"
+          echo "REMOTE_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-03$' "$newest" 2>/dev/null || true)"
+          echo "LOCAL_CLIPS=$(grep -Ec 'CLIP [0-9]+/[0-9]+ .* compute-01$' "$newest" 2>/dev/null || true)"
+          echo "REMOTE_CLIPS=$(grep -Ec 'CLIP [0-9]+/[0-9]+ .* compute-03$' "$newest" 2>/dev/null || true)"
+          echo "RETRIES=$(grep -c 'MODEL RETRY' "$newest" 2>/dev/null || true)"
+          echo "FAILOVERS=$(grep -c 'MODEL ENDPOINT FAILOVER' "$newest" 2>/dev/null || true)"
+          echo "MODEL_FAILURES=$(grep -Ec 'HOOK MODEL FAILURE|CLIP MODEL FAILURE' "$newest" 2>/dev/null || true)"
+          echo "JSON_ERRORS=$(grep -Eic 'Unterminated string|Expecting .*delimiter|JSONDecodeError|invalid json' "$newest" 2>/dev/null || true)"
+          echo '=== NEWEST RANK TAIL ==='
+          tail -70 "$newest"
         else
-          echo "MISSING_LOG=$log"
+          echo 'NO_POST_PATCH_RANK_LOG_YET'
         fi
 
-        echo '=== OUTPUT FILE ==='
-        out="/srv/osho/candidates/${source_id}.hook-ranked-v5.json"
-        if [ -f "$out" ]; then
-          python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); print("OUTPUT_VALID_JSON=yes"); print("ANCHORS_MODEL_SCORED="+str(d.get("anchors_model_scored"))); print("FULL_CLIPS_MODEL_SCORED="+str(d.get("full_clips_model_scored"))); print("RANKED_CANDIDATES="+str(len(d.get("ranked_candidates",[]))))' "$out"
+        echo '=== ACTIVE QA LOG TAIL ==='
+        qa_cmd="$(pgrep -af '[r]etention_qa_v4.py' 2>/dev/null | head -1 || true)"
+        if [ -n "$qa_cmd" ]; then
+          qa_source="$(printf '%s\n' "$qa_cmd" | sed -nE 's#.*retention_qa_v4.py ([0-9]+).*#\1#p')"
+          echo "QA_SOURCE=$qa_source"
+          if [ -n "$qa_source" ]; then
+            qa_log="/srv/osho/logs/autopilot/${qa_source}-qa-v4.log"
+            [ -f "$qa_log" ] && tail -100 "$qa_log" || echo "MISSING_QA_LOG=$qa_log"
+          fi
         else
-          echo 'OUTPUT_VALID_JSON=no_or_not_yet_written'
+          echo 'QA_NOT_ACTIVE'
         fi
+
+        echo '=== AUTOPILOT TAIL ==='
+        journalctl -u osho-autopilot.service -n 60 --no-pager 2>/dev/null || true
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show managed hardening verification
+    - name: Show immediate post-patch state
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
