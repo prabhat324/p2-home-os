@@ -8,8 +8,11 @@ Type=simple
 User=psquare
 Environment=PYTHONUNBUFFERED=1
 Environment=OSHO_DASHBOARD_URL=http://192.168.0.88:8787/api/worker/heartbeat
+Environment=OSHO_STATE_URL=http://192.168.0.88:8787/api/state/reconcile
 Environment=OSHO_HEARTBEAT_INTERVAL=10
 Environment=OSHO_WORKER_PORT=8800
+Environment=OSHO_CATALOG_DB=/srv/osho/library/catalog/catalog.sqlite
+Environment=OSHO_RECEIPT_DIR=/srv/osho/youtube/receipts
 ExecStart=/usr/bin/python3 /usr/local/lib/project-osho/osho-dashboard-heartbeat.py
 Restart=always
 RestartSec=3
