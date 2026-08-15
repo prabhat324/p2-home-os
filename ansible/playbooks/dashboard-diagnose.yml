@@ -1,41 +1,25 @@
 ---
-- name: Verify YouTube Analyst freshness badge semantics
+- name: Inspect YouTube Analyst payload for historical data
   hosts: compute-02
   gather_facts: false
   tasks:
-    - name: Verify Analyst page and cadence-aware status
+    - name: Inspect live analytics payload shape
       ansible.builtin.shell: |
-        set -o pipefail
-        base='http://127.0.0.1:8787'
-        body="$(mktemp)"
-        code=$(curl -sS -o "$body" -w '%{http_code}' "${base}/youtube-analyst")
-        echo "ANALYST_HTTP=$code"
-        printf 'HAS_FRESH_STATUS=%s\n' "$(grep -q "age<=4500.*fresh" "$body" && echo yes || echo no)"
-        printf 'HAS_STALE_THRESHOLD=%s\n' "$(grep -q "age<=10800.*stale" "$body" && echo yes || echo no)"
-        printf 'HOURLY_CADENCE_LABEL=%s\n' "$(grep -q "collector runs hourly at :05" "$body" && echo yes || echo no)"
-        rm -f "$body"
-        echo '=== LIVE ANALYTICS ==='
-        curl -fsS "${base}/api/analytics" | python3 -c '
+        set -eu
+        curl -fsS http://127.0.0.1:8787/api/analytics | python3 - <<'PY'
         import json,sys
-        d=json.load(sys.stdin)
-        age=d.get("age_seconds")
-        print("API_STATUS="+str(d.get("status")))
-        print("AGE_SECONDS="+str(age))
-        if d.get("analytics") is not None and isinstance(age,(int,float)):
-            expected="fresh" if age <= 4500 else ("stale" if age <= 10800 else "offline")
-        else:
-            expected=d.get("status") or "unknown"
-        print("EXPECTED_ANALYST_BADGE="+str(expected).upper())
-        a=d.get("analytics") or {}
-        ch=a.get("channel") or a.get("channel_summary") or a.get("channel_stats") or {}
-        print("SUBSCRIBERS="+str(ch.get("subscriber_count",a.get("subscriber_count",a.get("subscribers")))))
-        print("COLLECTED_AT="+str(a.get("collected_at") or a.get("generated_at") or a.get("snapshot_at") or a.get("updated_at")))
-        '
+        d=json.load(sys.stdin); a=d.get('analytics') or {}; ch=a.get('channel') or {}
+        print('TOP_KEYS='+','.join(sorted(a.keys())))
+        print('CHANNEL_KEYS='+','.join(sorted(ch.keys())) if isinstance(ch,dict) else 'CHANNEL_KEYS=')
+        for k,v in a.items():
+            if isinstance(v,list): print(f'LIST={k} LEN={len(v)}')
+            elif isinstance(v,dict): print(f'DICT={k} KEYS='+','.join(sorted(v.keys())[:40]))
+        print('AGE_SECONDS='+str(d.get('age_seconds')))
+        PY
       args:
         executable: /bin/bash
-      register: verify
+      register: diag
       changed_when: false
-
-    - name: Show Analyst freshness verification
+    - name: Show payload shape
       ansible.builtin.debug:
-        msg: "{{ verify.stdout_lines }}"
+        msg: "{{ diag.stdout_lines }}"
