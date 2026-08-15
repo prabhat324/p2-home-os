@@ -1,40 +1,22 @@
 ---
-- name: Clean orphan Project Osho diagnostic watcher
+- name: Inspect Project Osho boundary consensus inference path
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Remove only the canceled read-only watcher shell
+    - name: Read boundary consensus model and Ollama code
       ansible.builtin.shell: |
         set -o pipefail
-        self=$$
-        echo '=== BEFORE ==='
-        ps -eo pid,ppid,user,etimes,comm,args | awk -v self="$self" '$3=="p2ops" && $5=="bash" && $1!=self && /NO_POST_PATCH_RANKER_WITHIN_720S/ {print}' || true
-
-        pids="$(ps -eo pid,user,comm,args | awk -v self="$self" '$2=="p2ops" && $3=="bash" && $1!=self && /NO_POST_PATCH_RANKER_WITHIN_720S/ {print $1}')"
-        if [ -n "$pids" ]; then
-          for pid in $pids; do
-            echo "KILLING_ORPHAN_DIAGNOSTIC=$pid"
-            kill "$pid" 2>/dev/null || true
-          done
-          sleep 1
-        else
-          echo 'NO_ORPHAN_DIAGNOSTIC_FOUND'
-        fi
-
-        echo '=== AFTER ==='
-        ps -eo pid,ppid,user,etimes,comm,args | awk -v self="$self" '$3=="p2ops" && $5=="bash" && $1!=self && /NO_POST_PATCH_RANKER_WITHIN_720S/ {print}' || true
-
-        echo '=== REAL OSHO PROCESSES ==='
-        ps -eo pid,etimes,user,comm,args | awk '$3=="psquare" && $4=="python3" && ($0 ~ /osho_autopilot.py/ || $0 ~ /hook_ranker_v5.py/ || $0 ~ /retention_qa_v4.py/ || $0 ~ /transcript_stability.py/ || $0 ~ /boundary_consensus.py/) {print}' || true
-
-        echo '=== MANAGED PATCH STATUS ==='
-        sudo -n /usr/local/sbin/p2ops-osho-managed-patch status 2>&1 || true
+        cd /srv/compose/osho-worker
+        echo '=== MODEL AND URL REFERENCES ==='
+        grep -nE 'qwen3:4b-instruct|llama3.1:8b|OLLAMA|api/chat|urlopen|timeout|def .*ollama|def .*model' boundary_consensus.py 2>/dev/null || true
+        echo '=== RELEVANT SOURCE ==='
+        sed -n '1,260p' boundary_consensus.py
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show cleanup result
+    - name: Show boundary consensus path
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
