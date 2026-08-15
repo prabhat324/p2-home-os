@@ -1,43 +1,66 @@
 # P² Home OS
 
-Welcome to the operations manual for the P² home server and smart-home platform.
+Welcome to the operating manual for the P² Home OS self-hosted infrastructure and compute platform.
 
-## Platform Overview
+## Platform overview
 
-The system runs on a Raspberry Pi 5 and currently provides:
+The system is no longer a single Raspberry Pi server. It is a distributed platform with clear node roles:
 
-- Jellyfin movie and television streaming
-- Navidrome personal music streaming
-- Home Assistant smart-home management
-- Scrypted camera integration
-- AdGuard Home network-wide DNS filtering
-- Caddy internal reverse proxy
-- Homepage central dashboard
-- Samba network file sharing
-- Tailscale remote access
-- Docker application hosting
-- Server and service monitoring
+- **core-01 / media-server** — always-on storage and lightweight infrastructure;
+- **compute-01** — primary GPU/application node for Jellyfin, AI, Immich, Whisper, and Project Osho;
+- **compute-02** — lightweight orchestration/control-plane node and Piper TTS;
+- **compute-03** — secondary GPU worker for Project Osho and local AI.
 
-## Main Addresses
+## Key workloads
 
-| Service | Address |
+- Jellyfin media streaming with NVIDIA transcoding;
+- private photo management with Immich;
+- Ollama / Open WebUI local AI;
+- Home Assistant voice services using Whisper and Piper;
+- Tailscale remote access;
+- NFS/Samba storage;
+- Project Osho automated short-form video production and YouTube publishing workflow;
+- monitoring, maintenance, backup, and recovery procedures.
+
+## Important addresses
+
+| Host/service | Address |
 |---|---|
-| Dashboard | `http://dashboard.home.arpa` |
-| Jellyfin | `http://jellyfin.home.arpa` |
-| Music | `http://music.home.arpa` |
-| Home Assistant | `http://192.168.0.203:8123` |
-| Cameras | `http://cameras.home.arpa` |
-| AdGuard | `http://adguard.home.arpa` |
-| Documentation | `http://docs.home.arpa` |
+| core-01 / media-server | `192.168.0.203` |
+| compute-01 | `192.168.0.31` |
+| compute-02 | `192.168.0.88` |
+| compute-03 wired | `192.168.0.158` |
+| Jellyfin | `http://compute-01:8096` |
+| Open WebUI | `http://compute-01:3000` |
+| Osho dashboard | `http://compute-02:8787` |
+| Osho worker | `http://compute-03:8800` |
+| Wyoming Whisper | `compute-01:10300` |
+| Wyoming Piper | `compute-02:10200` |
+
+Friendly `.home.arpa` names may still exist for legacy/core services; host-specific documentation is authoritative when service placement has changed.
 
 ## Storage
 
-| Mount | Purpose |
+| Path | Role |
 |---|---|
-| `/mnt/media` | Movies, television, music and downloads |
-| `/mnt/family` | Planned Family Vault |
-| `/mnt/backup` | Planned Family Vault backup |
+| core-01 `/mnt/media` | 8 TB media library |
+| compute-01 `/mnt/media` | read-only NFS view of the media library |
+| Immich `/mnt/photos-primary` | read-only 3 TB private photo library |
+| `/srv/osho` | durable Project Osho state |
 
-## Important Rule
+The 2 TB private-photo backup target remains designated but its current mount/scheduled-backup state must be verified before being treated as active coverage.
 
-Never store passwords, API keys, access tokens, recovery codes or Home Assistant secrets in this documentation repository.
+## Security rule
+
+Never store passwords, OAuth secrets, API keys, access/refresh tokens, recovery codes, private SSH keys, cookies, or other credentials in this repository.
+
+## Start here
+
+- [System Overview](01-system-overview.md)
+- [Hardware Inventory](02-hardware-inventory.md)
+- [Network](03-network.md)
+- [Storage](04-storage.md)
+- [Services](05-services.md)
+- [Maintenance](08-maintenance.md)
+- [Troubleshooting](10-troubleshooting.md)
+- [Project Osho](12-project-osho/index.md)
