@@ -1,0 +1,51 @@
+---
+- name: Audit LAN reachability to compute-01 Ollama
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Probe compute-01 Ollama from each node
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "SOURCE_HOST=$(hostname)"
+        echo -n 'PING='; ping -c 1 -W 1 192.168.0.31 >/dev/null 2>&1 && echo ok || echo fail
+        echo -n 'TCP_11434='; timeout 3 bash -c '</dev/tcp/192.168.0.31/11434' >/dev/null 2>&1 && echo ok || echo fail
+        echo -n 'HTTP_ROOT='; curl -sS --max-time 3 http://192.168.0.31:11434/ 2>&1 || true
+        echo
+      args:
+        executable: /bin/bash
+      register: probe
+      changed_when: false
+      failed_when: false
+
+    - name: Show LAN probe
+      ansible.builtin.debug:
+        msg: "{{ probe.stdout_lines }}"
+
+- name: Inspect compute-01 listener and firewall
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Inspect network and filtering state
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '=== ADDRESSES ==='
+        ip -br addr
+        echo '=== ROUTES ==='
+        ip route
+        echo '=== OLLAMA LISTENER ==='
+        ss -lntp 2>/dev/null | grep -E '(:11434)([[:space:]]|$)' || true
+        echo '=== UFW ==='
+        sudo -n ufw status verbose 2>&1 || ufw status verbose 2>&1 || true
+        echo '=== NFT INPUT SUMMARY ==='
+        sudo -n nft list ruleset 2>/dev/null | grep -Ei 'hook input|policy|11434|drop|reject' | head -120 || true
+        echo '=== IPTABLES INPUT ==='
+        sudo -n iptables -S INPUT 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      register: net
+      changed_when: false
+      failed_when: false
+
+    - name: Show compute-01 network state
+      ansible.builtin.debug:
+        msg: "{{ net.stdout_lines }}"
