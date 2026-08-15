@@ -1,5 +1,5 @@
 {
-  "request_id": "first-growth-v1-check-20260815-1304",
-  "operation": "osho-publisher-diagnose",
-  "target": "compute-01"
+  "request_id": "mavrick-audio-loopback-20260815-01",
+  "operation": "mavrick-audio-loopback",
+  "target": "compute-02"
 }
