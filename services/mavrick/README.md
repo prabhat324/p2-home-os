@@ -8,8 +8,7 @@ It is a fun home demonstration project with no cloud-service budget and no publi
 
 - Host: `compute-02`
 - Camera and microphone: Logitech Webcam C930e
-- Speaker: Marshall speaker through the computer's 3.5 mm analogue output
-- Marshall USB connection: charging only
+- Speaker: external speaker through the computer's 3.5 mm analogue output
 
 Default device mappings:
 
@@ -24,7 +23,7 @@ Default device mappings:
 3. `ffmpeg` captures a single camera frame into memory when vision is needed.
 4. Ollama `qwen3-vl:4b` performs local vision and response generation.
 5. Piper `en_US-lessac-medium` creates local speech.
-6. `aplay` sends speech to the Marshall speaker.
+6. `aplay` sends speech to the external speaker.
 
 No paid API or cloud inference service is used.
 
@@ -42,7 +41,7 @@ The cooldown applies only to automatic ambient comments. Spoken questions can be
 
 ### Spoken questions
 
-Mavrick listens for speech through the C930e microphone. When an utterance is detected, it transcribes it locally, optionally captures the current view, generates a brief response, and speaks through the Marshall speaker.
+Mavrick listens for speech through the C930e microphone. When an utterance is detected, it transcribes it locally, optionally captures the current view, generates a brief response, and speaks through the external speaker.
 
 There is currently no wake-word requirement; clearly spoken phrases within microphone range may be treated as questions.
 
@@ -108,7 +107,7 @@ When the camera is unplugged, the runtime status changes to `idle_camera_unplugg
 ## Test procedure
 
 1. Connect the Logitech C930e.
-2. Turn on the Marshall speaker and select a moderate volume.
+2. Turn on the external speaker and select a moderate volume.
 3. Confirm that the service is active.
 4. Stand clearly in the camera view.
 5. Say: “Mavrick, what am I wearing?”
@@ -170,7 +169,7 @@ arecord -l
 
 The C930e USB Audio capture device must be present.
 
-### No Marshall playback
+### No external speaker playback
 
 Check:
 
@@ -178,7 +177,7 @@ Check:
 aplay -l
 ```
 
-The Marshall USB cable only charges it; sound must travel through the 3.5 mm cable. Verify that the speaker is powered on and its volume is audible.
+Sound must travel through the 3.5 mm cable. Verify that the external speaker is powered on, set to its auxiliary input, and its volume is audible.
 
 ### Slow responses
 
@@ -199,6 +198,7 @@ Approved Mavrick operations include:
 
 - `mavrick-inventory`
 - `mavrick-model-pull`
+- `mavrick-speaker-test`
 
 ## Uninstall
 
