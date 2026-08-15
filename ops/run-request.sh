@@ -20,64 +20,33 @@ fi
 
 case "${target}" in
   all|core-01|compute-01|compute-02|compute-03|control_nodes|compute_nodes|gpu_nodes|osho_nodes) ;;
-  *)
-    echo "Target is not allowed: ${target}" >&2
-    exit 2
-    ;;
+  *) echo "Target is not allowed: ${target}" >&2; exit 2 ;;
 esac
 
 case "${operation}" in
-  ping)
-    playbook="playbooks/ping.yml"
-    ;;
-  status)
-    playbook="playbooks/status.yml"
-    ;;
-  gpu-status)
-    playbook="playbooks/gpu-status.yml"
-    ;;
-  osho-status)
-    playbook="playbooks/osho-status.yml"
-    ;;
+  ping) playbook="playbooks/ping.yml" ;;
+  status) playbook="playbooks/status.yml" ;;
+  gpu-status) playbook="playbooks/gpu-status.yml" ;;
+  osho-status) playbook="playbooks/osho-status.yml" ;;
   dashboard-diagnose)
-    if [[ "${target}" != "compute-02" ]]; then
-      echo "dashboard-diagnose is restricted to compute-02" >&2
-      exit 2
-    fi
-    playbook="playbooks/dashboard-diagnose.yml"
-    ;;
+    [[ "${target}" == "compute-02" ]] || { echo "dashboard-diagnose is restricted to compute-02" >&2; exit 2; }
+    playbook="playbooks/dashboard-diagnose.yml" ;;
   dashboard-deploy)
-    if [[ "${target}" != "compute-02" ]]; then
-      echo "dashboard-deploy is restricted to compute-02" >&2
-      exit 2
-    fi
-    playbook="playbooks/dashboard-deploy.yml"
-    ;;
+    [[ "${target}" == "compute-02" ]] || { echo "dashboard-deploy is restricted to compute-02" >&2; exit 2; }
+    playbook="playbooks/dashboard-deploy.yml" ;;
   osho-maintenance)
-    if [[ "${target}" != "compute-01" ]]; then
-      echo "osho-maintenance is restricted to compute-01" >&2
-      exit 2
-    fi
-    playbook="playbooks/osho-maintenance.yml"
-    ;;
+    [[ "${target}" == "compute-01" ]] || { echo "osho-maintenance is restricted to compute-01" >&2; exit 2; }
+    playbook="playbooks/osho-maintenance.yml" ;;
   osho-publish-audit)
-    if [[ "${target}" != "compute-01" ]]; then
-      echo "osho-publish-audit is restricted to compute-01" >&2
-      exit 2
-    fi
-    playbook="playbooks/osho-publish-audit.yml"
-    ;;
+    [[ "${target}" == "compute-01" ]] || { echo "osho-publish-audit is restricted to compute-01" >&2; exit 2; }
+    playbook="playbooks/osho-publish-audit.yml" ;;
   youtube-analytics-diagnose)
-    if [[ "${target}" != "osho_nodes" ]]; then
-      echo "youtube-analytics-diagnose is restricted to osho_nodes" >&2
-      exit 2
-    fi
-    playbook="playbooks/youtube-analytics-diagnose.yml"
-    ;;
-  *)
-    echo "Operation is not allowed: ${operation}" >&2
-    exit 2
-    ;;
+    [[ "${target}" == "osho_nodes" ]] || { echo "youtube-analytics-diagnose is restricted to osho_nodes" >&2; exit 2; }
+    playbook="playbooks/youtube-analytics-diagnose.yml" ;;
+  youtube-analytics-runtime)
+    [[ "${target}" == "compute-01" ]] || { echo "youtube-analytics-runtime is restricted to compute-01" >&2; exit 2; }
+    playbook="playbooks/youtube-analytics-runtime.yml" ;;
+  *) echo "Operation is not allowed: ${operation}" >&2; exit 2 ;;
 esac
 
 echo "P2_HOME_OS_REQUEST=${request_id}"
