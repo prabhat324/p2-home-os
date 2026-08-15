@@ -85,6 +85,35 @@
           fi
           echo 'HOMEPAGE_WIDGETS_END'
 
+          echo 'HOMEPAGE_LAYOUT_FILES_BEGIN'
+          ls -la /opt/docker/compose/homepage/config 2>/dev/null | head -80 || true
+          for f in /opt/docker/compose/homepage/config/settings.yaml /opt/docker/compose/homepage/config/custom.css; do
+            echo "FILE=$f"
+            if [ -f "$f" ]; then
+              python3 - "$f" <<'PY'
+        from pathlib import Path
+        import re, sys
+        p=Path(sys.argv[1])
+        secret=re.compile(r'(password|passwd|secret|token|api[_-]?key|apikey|authorization|bearer|username|credential)', re.I)
+        for raw in p.read_text(errors='replace').splitlines()[:300]:
+            if secret.search(raw):
+                print('[REDACTED SENSITIVE LINE]')
+            else:
+                print(raw)
+        PY
+            else
+              echo 'MISSING=yes'
+            fi
+          done
+          echo 'HOMEPAGE_LAYOUT_FILES_END'
+
+          echo 'HOMEPAGE_HTML_HINTS_BEGIN'
+          curl -fsS --max-time 5 http://127.0.0.1:3000/ 2>/dev/null \
+            | grep -Eo 'id="[^"]+"|class="[^"]+"' \
+            | grep -Ei 'widget|information|datetime|greeting|header' \
+            | head -80 || true
+          echo 'HOMEPAGE_HTML_HINTS_END'
+
           echo 'CADDY_ROUTES_BEGIN'
           for f in /opt/docker/compose/caddy/Caddyfile /opt/docker/compose/caddy/config/Caddyfile; do
             if [ -f "$f" ]; then
