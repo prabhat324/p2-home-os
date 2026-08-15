@@ -1,35 +1,25 @@
 ---
-- name: Verify first Project Osho dual GPU ranker completion
+- name: Inspect Project Osho ranker JSON generation path
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect 000011 completion and reliability
+    - name: Read ranker JSON and scoring prompt sections
       ansible.builtin.shell: |
         set -o pipefail
-        echo "NOW=$(date -Ins)"
-        echo '=== ACTIVE PIPELINE ==='
-        pgrep -af '[h]ook_ranker_v5.py|[r]etention_qa_v4.py|[o]sho_autopilot.py' 2>/dev/null || true
-        echo '=== 000011 LOG SUMMARY ==='
-        log=/srv/osho/logs/autopilot/000011-hook-v5.log
-        if [ -f "$log" ]; then
-          echo "DUAL_MARKERS=$(grep -c 'DUAL GPU ENDPOINTS' "$log" 2>/dev/null || true)"
-          echo "LOCAL_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-01$' "$log" 2>/dev/null || true)"
-          echo "REMOTE_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-03$' "$log" 2>/dev/null || true)"
-          echo "LOCAL_CLIPS=$(grep -Ec 'CLIP [0-9]+/[0-9]+ .* compute-01$' "$log" 2>/dev/null || true)"
-          echo "REMOTE_CLIPS=$(grep -Ec 'CLIP [0-9]+/[0-9]+ .* compute-03$' "$log" 2>/dev/null || true)"
-          echo "RETRIES=$(grep -c 'MODEL RETRY' "$log" 2>/dev/null || true)"
-          echo "FAILOVERS=$(grep -c 'MODEL ENDPOINT FAILOVER' "$log" 2>/dev/null || true)"
-          echo "MODEL_FAILURES=$(grep -Ec 'HOOK MODEL FAILURE|CLIP MODEL FAILURE' "$log" 2>/dev/null || true)"
-          echo '=== TAIL ==='
-          tail -70 "$log"
-        else
-          echo MISSING_000011_LOG
+        cd /srv/compose/osho-worker
+        echo '=== OLLAMA JSON FUNCTION ==='
+        sed -n '385,510p' hook_ranker_v5.py
+        echo '=== ANCHOR SCORE FUNCTION ==='
+        start=$(grep -n '^def model_score_anchor(' hook_ranker_v5.py | head -1 | cut -d: -f1)
+        if [ -n "$start" ]; then
+          end=$((start + 145))
+          sed -n "${start},${end}p" hook_ranker_v5.py
         fi
-        echo '=== OUTPUT ==='
-        if [ -f /srv/osho/candidates/000011.hook-ranked-v5.json ]; then
-          python3 -c 'import json; p="/srv/osho/candidates/000011.hook-ranked-v5.json"; d=json.load(open(p,encoding="utf-8")); print("ANCHORS_MODEL_SCORED="+str(d.get("anchors_model_scored"))); print("ANCHOR_SURVIVORS="+str(d.get("anchor_survivors"))); print("FULL_CLIPS_MODEL_SCORED="+str(d.get("full_clips_model_scored"))); print("RANKED_CANDIDATES="+str(len(d.get("ranked_candidates",[]))))'
-        else
-          echo OUTPUT_NOT_YET_WRITTEN
+        echo '=== CLIP SCORE FUNCTION ==='
+        start=$(grep -n '^def model_score_clip(' hook_ranker_v5.py | head -1 | cut -d: -f1)
+        if [ -n "$start" ]; then
+          end=$((start + 180))
+          sed -n "${start},${end}p" hook_ranker_v5.py
         fi
       args:
         executable: /bin/bash
@@ -37,6 +27,6 @@
       changed_when: false
       failed_when: false
 
-    - name: Show 000011 verification
+    - name: Show ranker JSON path
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
