@@ -2,6 +2,13 @@
     text_size: xl
     text: P² Home Command Center
 
+- datetime:
+    text_size: xl
+    format:
+      dateStyle: long
+      timeStyle: short
+      hourCycle: h12
+
 - glances:
     label: Raspberry Pi 5
     url: http://192.168.0.203:61208
@@ -52,10 +59,3 @@
       - /
       - /srv
     diskUnits: bytes
-
-- datetime:
-    text_size: xl
-    format:
-      dateStyle: long
-      timeStyle: short
-      hourCycle: h12
