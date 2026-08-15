@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-productivity-publish-audit-20260815-1219",
-  "operation": "osho-publish-audit",
+  "request_id": "osho-live-progress-reporter-deploy-20260815-1220",
+  "operation": "osho-progress-deploy",
   "target": "compute-01"
 }
