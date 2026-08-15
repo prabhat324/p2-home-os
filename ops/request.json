@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-model-pull-20260815-1608",
-  "operation": "mavrick-model-pull",
+  "request_id": "mavrick-verify-model-20260815-1610",
+  "operation": "mavrick-inventory",
   "target": "compute-02"
 }
