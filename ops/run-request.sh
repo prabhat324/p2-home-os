@@ -9,9 +9,9 @@ if [[ ! -f "${REQUEST_FILE}" ]]; then
   exit 2
 fi
 
-request_id="$(jq -er '.request_id' "${REQUEST_FILE}")"
-operation="$(jq -er '.operation' "${REQUEST_FILE}")"
-target="$(jq -er '.target' "${REQUEST_FILE}")"
+request_id="$(jq -er '.request_id' "${REQUEST_FILE")"
+operation="$(jq -er '.operation' "${REQUEST_FILE")"
+target="$(jq -er '.target' "${REQUEST_FILE")"
 
 if [[ ! "${request_id}" =~ ^[A-Za-z0-9._-]{1,80}$ ]]; then
   echo "Invalid request_id" >&2
@@ -38,13 +38,6 @@ case "${operation}" in
     ;;
   osho-status)
     playbook="playbooks/osho-status.yml"
-    ;;
-  privilege-check)
-    if [[ "${target}" != "compute-01" ]]; then
-      echo "privilege-check is restricted to compute-01" >&2
-      exit 2
-    fi
-    playbook="playbooks/privilege-check.yml"
     ;;
   dashboard-diagnose)
     if [[ "${target}" != "compute-02" ]]; then
