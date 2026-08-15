@@ -1,25 +1,26 @@
 ---
-- name: Inspect Project Osho worker job-state internals
+- name: Locate Project Osho worker job-state files
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Read worker job routes and state storage
+    - name: Read worker job path helpers and live state files
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker
         echo "NOW=$(date -Ins)"
-        echo '=== JOB ROUTES ==='
-        sed -n '1920,2075p' app.py
-        echo '=== JOB STATE SYMBOLS ==='
-        grep -nE '(^|[^A-Za-z_])(jobs|JOBS|job_state|job_status|active_job|current_job|JOB_)' app.py | head -160 || true
-        echo '=== RECENT WORKER LOGS ==='
-        docker logs --tail 120 osho-worker 2>&1 | tail -120 || true
+        echo '=== JOB PATH HELPERS ==='
+        grep -nE 'def job_path|def write_job|JOB.*DIR|JOBS|job_path\(' app.py | head -120 || true
+        echo '=== CONTEXT AROUND job_path ==='
+        line=$(grep -n '^def job_path' app.py | head -1 | cut -d: -f1)
+        [ -n "$line" ] && sed -n "$((line-15)),$((line+60))p" app.py || true
+        echo '=== POSSIBLE JOB JSON FILES ==='
+        find /srv/osho /srv/compose/osho-worker -maxdepth 4 -type f -name 'OSHO-*.json' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -30 || true
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show worker job-state internals
+    - name: Show worker job-state locations
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
