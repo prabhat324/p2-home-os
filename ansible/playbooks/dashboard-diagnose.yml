@@ -1,0 +1,55 @@
+---
+- name: Diagnose Project Osho dashboard routes and backups
+  hosts: compute-02
+  gather_facts: false
+  tasks:
+    - name: Check dashboard HTTP routes and backup history
+      ansible.builtin.shell: |
+        set -eu
+        base='http://127.0.0.1:8787'
+
+        for path in / /analytics /health /api/dashboard; do
+          code="$(curl -sS -o /dev/null -w '%{http_code}' "${base}${path}" 2>/dev/null || true)"
+          printf 'HTTP_%s=%s\n' "$(printf '%s' "$path" | sed 's#^/$#root#; s#^/##; s#[^A-Za-z0-9]#_#g')" "$code"
+        done
+
+        health="$(curl -fsS "${base}/health" 2>/dev/null || true)"
+        if [ -n "$health" ]; then
+          printf 'HEALTH=%s\n' "$health"
+        fi
+
+        current_has_analytics=no
+        if grep -qsE '(^|["'"'])/analytics|analytics' \
+          /srv/compose/osho-dashboard/app/main.py \
+          /srv/compose/osho-dashboard/app/static/index.html 2>/dev/null; then
+          current_has_analytics=yes
+        fi
+        printf 'CURRENT_SOURCE_HAS_ANALYTICS=%s\n' "$current_has_analytics"
+
+        backup_root='/srv/compose/osho-dashboard/backups'
+        if [ ! -d "$backup_root" ]; then
+          echo 'BACKUPS=none'
+          exit 0
+        fi
+
+        find "$backup_root" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
+          | sort -nr \
+          | head -5 \
+          | cut -d' ' -f2- \
+          | while IFS= read -r dir; do
+              [ -n "$dir" ] || continue
+              has_analytics=no
+              if grep -qsE '(^|["'"'])/analytics|analytics' \
+                "$dir/app/main.py" "$dir/app/static/index.html" 2>/dev/null; then
+                has_analytics=yes
+              fi
+              printf 'BACKUP=%s ANALYTICS=%s\n' "$dir" "$has_analytics"
+            done
+      args:
+        executable: /bin/bash
+      register: dashboard_diag
+      changed_when: false
+
+    - name: Print dashboard diagnostic
+      ansible.builtin.debug:
+        msg: "{{ dashboard_diag.stdout_lines }}"
