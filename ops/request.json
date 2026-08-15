@@ -1,5 +1,5 @@
 {
-  "request_id": "home-dashboard-redesign-20260815-1053",
-  "operation": "home-dashboard-deploy",
-  "target": "core-01"
+  "request_id": "first-growth-video-check-20260815-1104",
+  "operation": "osho-status",
+  "target": "compute-01"
 }
