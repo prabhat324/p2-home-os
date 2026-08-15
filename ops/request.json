@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-growth-first-check-20260815-0501",
-  "operation": "osho-status",
+  "request_id": "osho-pipeline-watch-ranker-20260815-0520",
+  "operation": "osho-ranker-diagnose",
   "target": "compute-01"
 }
