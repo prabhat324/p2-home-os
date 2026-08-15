@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-ranker-qa-overlap-20260815-0035",
+  "request_id": "osho-first-dual-gpu-ranker-completion-20260815-0037",
   "operation": "osho-status",
-  "target": "osho_nodes"
+  "target": "compute-01"
 }
