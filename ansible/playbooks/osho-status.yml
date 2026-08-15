@@ -1,26 +1,95 @@
 ---
-- name: Inspect Project Osho ranker JSON prompts
+- name: Verify Project Osho JSON hardening on first post-patch ranker
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Read scoring prompt constants
+    - name: Wait for and inspect first post-patch ranker
       ansible.builtin.shell: |
         set -o pipefail
         cd /srv/compose/osho-worker
-        for key in HOOK_SYSTEM CLIP_SYSTEM; do
-          echo "=== ${key} ==="
-          start=$(grep -n "^${key} =" hook_ranker_v5.py | head -1 | cut -d: -f1)
-          if [ -n "$start" ]; then
-            end=$((start + 90))
-            sed -n "${start},${end}p" hook_ranker_v5.py
+
+        echo '=== MANAGED PATCH STATUS ==='
+        sudo -n /usr/local/sbin/p2ops-osho-managed-patch status 2>&1 || true
+
+        echo '=== HARDENING SOURCE MARKERS ==='
+        grep -nE 'OSHO_JSON_HARDENING|num_predict|reason.*(short|concise|sentence)|output_budget|predict_budget' hook_ranker_v5.py 2>/dev/null | head -30 || true
+
+        deadline=$((SECONDS + 720))
+        source_id=''
+        rank_pid=''
+
+        while [ "$SECONDS" -lt "$deadline" ]; do
+          cmd="$(pgrep -af '[h]ook_ranker_v5.py' 2>/dev/null | head -1 || true)"
+          if [ -n "$cmd" ]; then
+            source_id="$(printf '%s\n' "$cmd" | sed -nE 's#.*hook_ranker_v5.py ([0-9]+).*#\1#p')"
+            rank_pid="$(printf '%s\n' "$cmd" | awk '{print $1}')"
+            if [ -n "$source_id" ]; then
+              echo "POST_PATCH_SOURCE=$source_id"
+              echo "POST_PATCH_CMD=$cmd"
+              break
+            fi
           fi
+          sleep 3
         done
+
+        if [ -z "$source_id" ]; then
+          echo 'NO_POST_PATCH_RANKER_WITHIN_720S'
+          pgrep -af '[o]sho_autopilot.py|[r]etention_qa_v4.py' 2>/dev/null || true
+          exit 0
+        fi
+
+        log="/srv/osho/logs/autopilot/${source_id}-hook-v5.log"
+        marker_deadline=$((SECONDS + 120))
+        while [ "$SECONDS" -lt "$marker_deadline" ]; do
+          if [ -f "$log" ] && grep -q 'DUAL GPU ENDPOINTS' "$log" 2>/dev/null; then
+            break
+          fi
+          sleep 2
+        done
+
+        echo '=== EARLY RANKER STATE ==='
+        if [ -f "$log" ]; then
+          grep -E 'DUAL GPU ENDPOINTS|MODEL WORKERS|JSON|MODEL RETRY|MODEL ENDPOINT FAILOVER|HOOK [0-9]+/' "$log" 2>/dev/null | head -45 || true
+        fi
+
+        # Let the first post-patch ranker finish so clip-scoring reliability can be compared.
+        finish_deadline=$((SECONDS + 720))
+        while [ "$SECONDS" -lt "$finish_deadline" ]; do
+          if ! kill -0 "$rank_pid" 2>/dev/null; then
+            break
+          fi
+          sleep 5
+        done
+
+        echo '=== POST-PATCH SUMMARY ==='
+        if [ -f "$log" ]; then
+          echo "LOCAL_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-01$' "$log" 2>/dev/null || true)"
+          echo "REMOTE_HOOKS=$(grep -Ec 'HOOK [0-9]+/[0-9]+ .* compute-03$' "$log" 2>/dev/null || true)"
+          echo "LOCAL_CLIPS=$(grep -Ec 'CLIP [0-9]+/[0-9]+ .* compute-01$' "$log" 2>/dev/null || true)"
+          echo "REMOTE_CLIPS=$(grep -Ec 'CLIP [0-9]+/[0-9]+ .* compute-03$' "$log" 2>/dev/null || true)"
+          echo "RETRIES=$(grep -c 'MODEL RETRY' "$log" 2>/dev/null || true)"
+          echo "FAILOVERS=$(grep -c 'MODEL ENDPOINT FAILOVER' "$log" 2>/dev/null || true)"
+          echo "MODEL_FAILURES=$(grep -Ec 'HOOK MODEL FAILURE|CLIP MODEL FAILURE' "$log" 2>/dev/null || true)"
+          echo "JSON_ERRORS=$(grep -Eic 'Unterminated string|Expecting .*delimiter|JSONDecodeError|invalid json' "$log" 2>/dev/null || true)"
+          echo '=== FINAL LOG TAIL ==='
+          tail -80 "$log"
+        else
+          echo "MISSING_LOG=$log"
+        fi
+
+        echo '=== OUTPUT FILE ==='
+        out="/srv/osho/candidates/${source_id}.hook-ranked-v5.json"
+        if [ -f "$out" ]; then
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); print("OUTPUT_VALID_JSON=yes"); print("ANCHORS_MODEL_SCORED="+str(d.get("anchors_model_scored"))); print("FULL_CLIPS_MODEL_SCORED="+str(d.get("full_clips_model_scored"))); print("RANKED_CANDIDATES="+str(len(d.get("ranked_candidates",[]))))' "$out"
+        else
+          echo 'OUTPUT_VALID_JSON=no_or_not_yet_written'
+        fi
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show scoring prompts
+    - name: Show managed hardening verification
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
