@@ -3,14 +3,16 @@ import csv
 import io
 import json
 import os
+from pathlib import Path
 import shutil
 import socket
+import sqlite3
 import subprocess
 import time
 import urllib.error
 import urllib.request
 
-TELEMETRY_VERSION = "1.0.0"
+TELEMETRY_VERSION = "1.1.0"
 DASHBOARD_URL = os.environ.get(
     "OSHO_DASHBOARD_URL",
     "http://compute-02:8787/api/worker/heartbeat",
@@ -21,11 +23,22 @@ WORKER_HEALTH_URL = os.environ.get(
     "OSHO_WORKER_HEALTH_URL",
     f"http://127.0.0.1:{WORKER_PORT}/health",
 )
+CATALOG_DB = Path(
+    os.environ.get(
+        "OSHO_CATALOG_DB",
+        "/srv/osho/library/catalog/catalog.sqlite",
+    )
+)
 
 ROLE_BY_HOST = {
     "compute-01": "Primary GPU worker / autopilot",
     "compute-03": "Secondary GPU worker",
 }
+
+# compute-01 already has a dedicated operational heartbeat sender that owns
+# current_job/stage/progress. compute-03 does not, so this telemetry agent also
+# emits the compatible basic heartbeat for compute-03 using Osho's catalog DB.
+CATALOG_OPERATIONAL_HOSTS = {"compute-03"}
 
 
 def run(*args, timeout=4):
@@ -129,18 +142,74 @@ def autopilot_status(hostname):
         return "unknown"
 
 
-def payload():
-    hostname = socket.gethostname().split(".")[0]
-    health = worker_health()
+def active_catalog_assignment(hostname):
+    if hostname not in CATALOG_OPERATIONAL_HOSTS or not CATALOG_DB.exists():
+        return None
 
+    try:
+        conn = sqlite3.connect(
+            f"file:{CATALOG_DB}?mode=ro",
+            uri=True,
+            timeout=2,
+        )
+        conn.row_factory = sqlite3.Row
+
+        columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(discourses)").fetchall()
+        }
+        required = {
+            "source_id",
+            "processing_status",
+            "processing_phase",
+            "processing_worker",
+            "processing_job_id",
+        }
+        if not required.issubset(columns):
+            conn.close()
+            return None
+
+        order_by = (
+            "COALESCE(processing_started_at, '') DESC, source_id"
+            if "processing_started_at" in columns
+            else "source_id"
+        )
+
+        row = conn.execute(
+            f"""
+            SELECT
+                source_id,
+                processing_phase,
+                processing_job_id
+            FROM discourses
+            WHERE processing_status = 'processing'
+              AND processing_worker = ?
+            ORDER BY {order_by}
+            LIMIT 1
+            """,
+            (hostname,),
+        ).fetchone()
+        conn.close()
+
+        if row is None:
+            return None
+
+        source_id = row["source_id"]
+        return {
+            "current_job": row["processing_job_id"] or f"source:{source_id}",
+            "stage": row["processing_phase"] or "processing",
+            "progress": 0,
+        }
+    except (sqlite3.Error, OSError):
+        return None
+
+
+def telemetry_payload(hostname, health):
     data = {
         "name": hostname,
         "status": "online" if health else "degraded",
         "role": ROLE_BY_HOST.get(hostname, "Osho worker"),
         "ip": preferred_ip(),
-        "current_job": None,
-        "stage": "Idle" if health else "Worker API unavailable",
-        "progress": 0,
         "worker_port": WORKER_PORT,
         "ollama_model": ollama_model(),
         "load_1m": load_1m(),
@@ -162,6 +231,24 @@ def payload():
     return data
 
 
+def operational_payload(hostname, health):
+    assignment = active_catalog_assignment(hostname)
+    if assignment:
+        return {
+            "name": hostname,
+            "status": "online" if health else "degraded",
+            **assignment,
+        }
+
+    return {
+        "name": hostname,
+        "status": "online" if health else "degraded",
+        "current_job": None,
+        "stage": "Idle" if health else "Worker API unavailable",
+        "progress": 0,
+    }
+
+
 def post(data):
     body = json.dumps(data).encode("utf-8")
     req = urllib.request.Request(
@@ -178,9 +265,15 @@ def post(data):
 
 
 def main():
+    hostname = socket.gethostname().split(".")[0]
+
     while True:
         try:
-            post(payload())
+            health = worker_health()
+            post(telemetry_payload(hostname, health))
+
+            if hostname in CATALOG_OPERATIONAL_HOSTS:
+                post(operational_payload(hostname, health))
         except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
             print(f"heartbeat failed: {exc}", flush=True)
         except Exception as exc:
