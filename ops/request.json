@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-v051-sensor-fix-deploy-20260815",
-  "operation": "dashboard-deploy",
+  "request_id": "dashboard-v051-sensor-fix-verify-20260815",
+  "operation": "dashboard-diagnose",
   "target": "compute-02"
 }
