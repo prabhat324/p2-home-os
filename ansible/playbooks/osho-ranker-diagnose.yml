@@ -1,0 +1,51 @@
+---
+- name: Diagnose Project Osho ranker on compute-01
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Collect live ranker diagnostics
+      ansible.builtin.shell: |
+        set -u
+        cd /srv/compose/osho-worker
+        echo '=== SERVICE ==='
+        systemctl is-active osho-autopilot.service 2>/dev/null || true
+        systemctl show osho-autopilot.service -p ActiveState -p SubState -p MainPID --no-pager 2>/dev/null || true
+
+        echo '=== PROCESSES ==='
+        pgrep -af 'osho_autopilot.py|hook_ranker_v5.py|retention_qa' 2>/dev/null || true
+
+        echo '=== MODELS ==='
+        ollama list 2>/dev/null || true
+        echo '--- PS ---'
+        ollama ps 2>/dev/null || true
+
+        echo '=== AUTOPILOT MODEL CONFIG ==='
+        grep -nE 'qwen3:8b|qwen3:4b|qwen3:4b-instruct|--model|def stop_llms' osho_autopilot.py 2>/dev/null || true
+        sed -n '384,402p;1114,1132p' osho_autopilot.py 2>/dev/null || true
+
+        echo '=== RANKER TIMEOUT CONFIG ==='
+        grep -nE 'OLLAMA_URL|timeout=|urlopen|HTTPError|URLError|TimeoutError|except' hook_ranker_v5.py 2>/dev/null | head -80 || true
+        sed -n '350,410p' hook_ranker_v5.py 2>/dev/null || true
+
+        echo '=== RECENT AUTOPILOT JOURNAL ==='
+        journalctl -u osho-autopilot.service -n 100 --no-pager 2>/dev/null | tail -100 || true
+
+        echo '=== RECENT OLLAMA JOURNAL ==='
+        journalctl -u ollama.service -n 100 --no-pager 2>/dev/null | tail -100 || true
+
+        echo '=== RECENT RANK LOGS ==='
+        find /srv/osho /srv/compose/osho-worker -maxdepth 4 -type f \
+          \( -name '*hook-v5.log' -o -name '*rank*.log' \) -printf '%T@ %p\n' 2>/dev/null \
+          | sort -nr | head -8 | cut -d' ' -f2- | while read -r f; do
+              echo "--- $f ---"
+              tail -40 "$f" 2>/dev/null || true
+            done
+      args:
+        executable: /bin/bash
+      register: ranker_diag
+      changed_when: false
+      failed_when: false
+
+    - name: Show live ranker diagnostics
+      ansible.builtin.debug:
+        msg: "{{ ranker_diag.stdout_lines }}"
