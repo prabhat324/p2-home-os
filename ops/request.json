@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-live-progress-final-verify-20260815-1225",
-  "operation": "dashboard-diagnose",
+  "request_id": "dashboard-v051-sensor-fix-deploy-r3-20260815",
+  "operation": "dashboard-deploy",
   "target": "compute-02"
 }
