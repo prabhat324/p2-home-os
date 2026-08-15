@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-ollama-version-20260815-1620",
-  "operation": "mavrick-inventory",
+  "request_id": "mavrick-model-pull-20260815-1624",
+  "operation": "mavrick-model-pull",
   "target": "compute-02"
 }
