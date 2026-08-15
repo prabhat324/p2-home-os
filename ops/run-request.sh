@@ -64,6 +64,9 @@ case "${operation}" in
   dashboard-deploy)
     [[ "${target}" == "compute-02" ]] || { echo "dashboard-deploy is restricted to compute-02" >&2; exit 2; }
     playbook="playbooks/dashboard-deploy.yml" ;;
+  dashboard-storage-diagnose)
+    [[ "${target}" == "compute-02" ]] || { echo "dashboard-storage-diagnose is restricted to compute-02" >&2; exit 2; }
+    playbook="playbooks/dashboard-storage-diagnose.yml" ;;
   osho-maintenance)
     [[ "${target}" == "compute-01" ]] || { echo "osho-maintenance is restricted to compute-01" >&2; exit 2; }
     playbook="playbooks/osho-maintenance.yml" ;;
