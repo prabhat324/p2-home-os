@@ -71,6 +71,7 @@ nav:
       - YouTube Publishing: 12-project-osho/youtube-publishing.md
       - Operations: 12-project-osho/operations.md
   - Operations:
+      - Control Plane: 08-maintenance/control-plane.md
       - Backup Strategy: 07-backups.md
       - Maintenance: 08-maintenance.md
       - Disaster Recovery: 09-recovery.md

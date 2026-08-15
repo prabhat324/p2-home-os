@@ -1,0 +1,18 @@
+---
+- name: Collect GPU status
+  hosts: gpu_nodes
+  gather_facts: false
+  tasks:
+    - name: Query NVIDIA GPU
+      ansible.builtin.command:
+        argv:
+          - nvidia-smi
+          - --query-gpu=name,utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu
+          - --format=csv,noheader
+      register: gpu_status
+      changed_when: false
+      failed_when: false
+
+    - name: Print GPU status
+      ansible.builtin.debug:
+        msg: "{{ gpu_status.stdout_lines if gpu_status.rc == 0 else ['nvidia-smi unavailable or GPU query failed'] }}"

@@ -1,0 +1,48 @@
+name: Homelab Control
+
+on:
+  push:
+    branches:
+      - ops-control
+    paths:
+      - ops/request.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homelab-control
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    if: github.repository == 'prabhat324/p2-home-os'
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - core-01
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout control code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Verify request-only commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff-tree --no-commit-id --name-only -r "${GITHUB_SHA}")"
+          if [[ "${changed}" != "ops/request.json" ]]; then
+            echo "Rejected: control commits must modify only ops/request.json"
+            printf 'Changed files:\n%s\n' "${changed}"
+            exit 2
+          fi
+
+      - name: Execute approved request
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ops/run-request.sh ops/request.json
