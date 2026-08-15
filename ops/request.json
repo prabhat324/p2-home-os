@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-pipeline-health-20260815-0620",
-  "operation": "osho-status",
+  "request_id": "osho-ranker-health-20260815-0621",
+  "operation": "osho-ranker-diagnose",
   "target": "compute-01"
 }
