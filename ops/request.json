@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-model-progress-20260815-02",
-  "operation": "mavrick-status",
+  "request_id": "mavrick-model-diagnose-20260815-01",
+  "operation": "mavrick-model-diagnose",
   "target": "compute-02"
 }
