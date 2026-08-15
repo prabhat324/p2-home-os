@@ -172,10 +172,22 @@
           chart: true
           refreshInterval: 5000
 
+    - compute-03 GPU:
+        icon: nvidia.png
+        description: GeForce RTX 2060 · 6 GB VRAM
+        widget:
+          type: glances
+          url: http://192.168.0.158:61208
+          version: 4
+          metric: gpu:nvidia0
+          chart: true
+          refreshInterval: 5000
+
     - compute-03:
         icon: mdi-server
         href: http://192.168.0.158:8800
         description: RTX 2060 GPU worker · 192.168.0.158
+        siteMonitor: http://192.168.0.158:61208
 
 - Network & Storage:
     - AdGuard Home:
@@ -217,6 +229,7 @@
         icon: mdi-server-outline
         href: http://192.168.0.158:8800
         description: GPU worker · RTX 2060 · 192.168.0.158
+        siteMonitor: http://192.168.0.158:61208
 
     - SMB Media Shares:
         icon: mdi-folder-network
