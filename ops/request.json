@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-audio-unity-gain-20260815-01",
-  "operation": "mavrick-audio-loopback",
+  "request_id": "mavrick-internal-speaker-baseline-20260815-01",
+  "operation": "mavrick-internal-speaker-test",
   "target": "compute-02"
 }
