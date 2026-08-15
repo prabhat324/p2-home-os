@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-dashboard-ready-fix-20260815-1004",
-  "operation": "dashboard-deploy",
+  "request_id": "osho-dashboard-ready-verify-20260815-1005",
+  "operation": "dashboard-diagnose",
   "target": "compute-02"
 }
