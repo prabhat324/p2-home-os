@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-upload-locate-1786812168034",
-  "operation": "osho-publisher-diagnose",
+  "request_id": "osho-publisher-gate-reload-1786812216103",
+  "operation": "osho-publisher-fix",
   "target": "compute-01"
 }
