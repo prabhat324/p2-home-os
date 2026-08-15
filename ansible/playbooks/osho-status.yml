@@ -1,52 +1,63 @@
 ---
-- name: Trace Project Osho dual GPU request activity
-  hosts: osho_nodes
+- name: Watch for first patched Project Osho dual GPU ranker
+  hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect current ranker and remote inference activity
+    - name: Wait for ranker after pre-patch source 000010
       ansible.builtin.shell: |
         set -o pipefail
-        echo "HOST=$(hostname -s)"
-        date -Ins
-        echo '=== GPU SAMPLE ==='
-        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu --format=csv,noheader 2>/dev/null || true
-
-        if [ "$(hostname -s)" = "compute-01" ]; then
-          echo '=== CURRENT RANKER ==='
-          for pid in $(pgrep -f '^/usr/bin/python3 hook_ranker_v5.py|^/usr/bin/python3 /srv/compose/osho-worker/hook_ranker_v5.py' 2>/dev/null); do
-            ps -p "$pid" -o pid=,lstart=,etime=,cmd= 2>/dev/null || true
-          done
-
-          echo '=== CURRENT SOURCE LOG FILES ==='
-          find /srv/osho /srv/compose/osho-worker -type f \( -name '000010*hook*v5*.log' -o -name '000010*hook*.log' \) -printf '%T@ %p\n' 2>/dev/null \
-            | sort -nr | head -8 | cut -d' ' -f2- | while read -r f; do
-                echo "--- $f ---"
-                tail -45 "$f" 2>/dev/null || true
+        deadline=$((SECONDS + 480))
+        last_state=''
+        while [ "$SECONDS" -lt "$deadline" ]; do
+          cmd="$(pgrep -af '^/usr/bin/python3 hook_ranker_v5.py|^/usr/bin/python3 /srv/compose/osho-worker/hook_ranker_v5.py' 2>/dev/null | head -1 || true)"
+          if [ -n "$cmd" ]; then
+            source_id="$(printf '%s\n' "$cmd" | sed -nE 's#.*hook_ranker_v5.py ([0-9]+).*#\1#p')"
+            if [ "$source_id" != "000010" ] && [ -n "$source_id" ]; then
+              echo "PATCHED_RANKER_SOURCE=$source_id"
+              echo "PATCHED_RANKER_CMD=$cmd"
+              log="/srv/osho/logs/autopilot/${source_id}-hook-v5.log"
+              marker_deadline=$((SECONDS + 150))
+              while [ "$SECONDS" -lt "$marker_deadline" ]; do
+                if [ -f "$log" ] && grep -q 'DUAL GPU ENDPOINTS' "$log" 2>/dev/null; then
+                  echo '=== DUAL GPU MARKERS ==='
+                  grep -E 'DUAL GPU ENDPOINTS|DUAL GPU MODE|DUAL GPU REMOTE SKIPPED|MODEL WORKERS|HOOK [0-9]+/|MODEL ENDPOINT FAILOVER' "$log" 2>/dev/null | head -35
+                  echo '=== REMOTE OLLAMA PS ==='
+                  curl -fsS --max-time 4 http://192.168.0.158:11434/api/ps 2>/dev/null \
+                    | python3 -c 'import json,sys; d=json.load(sys.stdin); print([{"name":x.get("name"),"size_vram":x.get("size_vram")} for x in d.get("models",[])])' || true
+                  exit 0
+                fi
+                sleep 3
               done
-
-          echo '=== RECENT DUAL GPU MARKERS ANYWHERE ==='
-          grep -RhsE 'DUAL GPU ENDPOINTS|MODEL WORKERS|compute-03|MODEL ENDPOINT FAILOVER' \
-            /srv/osho /srv/compose/osho-worker 2>/dev/null | tail -60 || true
-        fi
-
-        if [ "$(hostname -s)" = "compute-03" ]; then
-          echo '=== OLLAMA API ACTIVITY ==='
-          journalctl -u ollama.service --since '10 minutes ago' --no-pager 2>/dev/null \
-            | grep -E 'api/chat|POST|load|runner|qwen3:4b-instruct' | tail -80 || true
-
-          echo '=== GPU 8-SECOND SAMPLE ==='
-          for i in $(seq 1 8); do
-            printf '%s ' "$(date +%H:%M:%S)"
-            nvidia-smi --query-gpu=utilization.gpu,memory.used,power.draw --format=csv,noheader 2>/dev/null || true
-            sleep 1
-          done
-        fi
+              echo "PATCHED_RANKER_STARTED_BUT_NO_DUAL_MARKER_WITHIN_150S"
+              [ -f "$log" ] && tail -80 "$log" || true
+              exit 3
+            fi
+            state="RANKER=$source_id"
+            log="/srv/osho/logs/autopilot/${source_id}-hook-v5.log"
+            progress="$(grep -E 'HOOK [0-9]+/' "$log" 2>/dev/null | tail -1 || true)"
+            [ -n "$progress" ] && state="$state | $progress"
+          else
+            qa="$(pgrep -af '[r]etention_qa_v4.py' 2>/dev/null | head -1 || true)"
+            if [ -n "$qa" ]; then
+              state="QA=$qa"
+            else
+              state="BETWEEN_STAGES"
+            fi
+          fi
+          if [ "$state" != "$last_state" ]; then
+            echo "$(date -Ins) $state"
+            last_state="$state"
+          fi
+          sleep 5
+        done
+        echo 'TIMEOUT_WAITING_FOR_FIRST_PATCHED_RANKER'
+        exit 4
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show dual GPU request activity
+    - name: Show first patched ranker result
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
