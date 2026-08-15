@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-buffer-contract-20260815-1019",
-  "operation": "osho-publisher-diagnose",
+  "request_id": "osho-watch-health-20260815-1024",
+  "operation": "osho-status",
   "target": "compute-01"
 }
