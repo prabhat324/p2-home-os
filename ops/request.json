@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-pipeline-watch-gpu-20260815-0717",
-  "operation": "gpu-status",
-  "target": "gpu_nodes"
+  "request_id": "osho-pipeline-watch-ranker-20260815-0718",
+  "operation": "osho-ranker-diagnose",
+  "target": "compute-01"
 }
