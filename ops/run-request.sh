@@ -28,6 +28,9 @@ case "${operation}" in
   status) playbook="playbooks/status.yml" ;;
   gpu-status) playbook="playbooks/gpu-status.yml" ;;
   osho-status) playbook="playbooks/osho-status.yml" ;;
+  home-dashboard-inventory)
+    [[ "${target}" == "all" ]] || { echo "home-dashboard-inventory is restricted to all" >&2; exit 2; }
+    playbook="playbooks/home-dashboard-inventory.yml" ;;
   dashboard-diagnose)
     [[ "${target}" == "compute-02" ]] || { echo "dashboard-diagnose is restricted to compute-02" >&2; exit 2; }
     playbook="playbooks/dashboard-diagnose.yml" ;;
