@@ -1,5 +1,5 @@
 {
-  "request_id": "homepage-datetime-topright-20260814-2322",
-  "operation": "home-dashboard-deploy",
-  "target": "core-01"
+  "request_id": "homepage-layout-inspect-20260814-2325",
+  "operation": "home-dashboard-inventory",
+  "target": "all"
 }
