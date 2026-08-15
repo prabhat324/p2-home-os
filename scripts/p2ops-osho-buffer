@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "$(hostname -s)" in
+  compute-01) ;;
+  *) echo "This helper is restricted to compute-01." >&2; exit 2 ;;
+esac
+
+if [[ ${EUID} -ne 0 ]]; then
+  echo "This helper must run as root via sudo." >&2
+  exit 1
+fi
+
+ACTION="${1:-}"
+CODE="/srv/compose/osho-worker"
+BUFFER="$CODE/buffer_manager.py"
+BACKUPS="$CODE/backups"
+SERVICE="osho-buffer-fill.service"
+TIMER="osho-buffer-fill.timer"
+TARGET=25
+MARKER="OSHO_BUFFER_AUTOPILOT_STATE_V1"
+
+log() { printf '[p2ops-osho-buffer] %s\n' "$*"; }
+
+require_files() {
+  [[ -f "$BUFFER" ]] || { echo "Missing $BUFFER" >&2; exit 3; }
+  [[ -f /srv/osho/library/catalog/catalog.sqlite ]] || { echo "Missing Osho catalog" >&2; exit 3; }
+  id psquare >/dev/null 2>&1 || { echo "Missing psquare account" >&2; exit 3; }
+}
+
+buffer_status() {
+  runuser -u psquare -- /usr/bin/python3 "$BUFFER" status 2>&1 || true
+}
+
+status() {
+  require_files
+  echo "HOST=$(hostname -s)"
+  echo "AUTOPILOT=$(systemctl is-active osho-autopilot.service 2>/dev/null || true)"
+  echo "BUFFER_PATCH=$([[ $(grep -c "$MARKER" "$BUFFER" 2>/dev/null || true) -gt 0 ]] && echo yes || echo no)"
+  echo "BUFFER_SERVICE=$(systemctl is-active "$SERVICE" 2>/dev/null || true)"
+  echo "BUFFER_TIMER=$(systemctl is-active "$TIMER" 2>/dev/null || true)"
+  echo "BUFFER_TIMER_ENABLED=$(systemctl is-enabled "$TIMER" 2>/dev/null || true)"
+  systemctl list-timers "$TIMER" --no-legend 2>/dev/null || true
+  buffer_status
+}
+
+patch_buffer_manager() {
+  if grep -q "$MARKER" "$BUFFER"; then
+    log "buffer manager state-accounting patch already present"
+    return 0
+  fi
+
+  mkdir -p "$BACKUPS"
+  local stamp backup tmp
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  backup="$BACKUPS/buffer-manager-$stamp.py"
+  tmp="$(mktemp)"
+  cp -a "$BUFFER" "$backup"
+  chown psquare:psquare "$backup"
+  cp -a "$BUFFER" "$tmp"
+
+  python3 - "$tmp" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+text=p.read_text(encoding='utf-8')
+old='''def active_buffer_count(conn):
+    return conn.execute(
+        """
+        SELECT COUNT(*)
+          FROM discourses
+         WHERE download_status = 'buffered'
+           AND processing_status = 'not_processed'
+        """
+    ).fetchone()[0]
+'''
+new='''# OSHO_BUFFER_AUTOPILOT_STATE_V1
+# The autopilot state table is authoritative for whether a buffered source is
+# still usable. processing_status predates the zero-touch autopilot and is not
+# updated for every skipped/published source.
+def active_buffer_count(conn):
+    has_state = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='osho_autopilot_state'"
+    ).fetchone()
+
+    if not has_state:
+        return conn.execute(
+            """
+            SELECT COUNT(*)
+              FROM discourses
+             WHERE download_status = 'buffered'
+               AND processing_status = 'not_processed'
+            """
+        ).fetchone()[0]
+
+    return conn.execute(
+        """
+        SELECT COUNT(*)
+          FROM discourses d
+          LEFT JOIN osho_autopilot_state s
+            ON s.source_number = d.source_number
+         WHERE d.download_status = 'buffered'
+           AND (
+                s.source_number IS NULL
+                OR s.status IN ('pending', 'processing')
+           )
+        """
+    ).fetchone()[0]
+'''
+count=text.count(old)
+if count != 1:
+    raise SystemExit(f'expected one active_buffer_count block, found {count}')
+text=text.replace(old,new,1)
+p.write_text(text,encoding='utf-8')
+PY
+
+  /usr/bin/python3 -m py_compile "$tmp"
+  install -o psquare -g psquare -m 0664 "$tmp" "$BUFFER"
+  rm -f "$tmp"
+  log "patched buffer accounting; backup=$backup"
+}
+
+install_units() {
+  cat > "/etc/systemd/system/$SERVICE" <<EOF
+[Unit]
+Description=Project Osho rolling source buffer refill
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=psquare
+Group=psquare
+WorkingDirectory=$CODE
+ExecStart=/usr/bin/python3 $BUFFER fill --target $TARGET
+Nice=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/srv/osho
+TimeoutStartSec=45min
+EOF
+
+  cat > "/etc/systemd/system/$TIMER" <<'EOF'
+[Unit]
+Description=Keep Project Osho source buffer supplied
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=5min
+Persistent=true
+AccuracySec=30s
+Unit=osho-buffer-fill.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  chmod 0644 "/etc/systemd/system/$SERVICE" "/etc/systemd/system/$TIMER"
+  systemctl daemon-reload
+  systemctl enable --now "$TIMER" >/dev/null
+  log "enabled $TIMER"
+}
+
+refill_now() {
+  require_files
+  systemctl start --no-block "$SERVICE"
+  log "refill requested asynchronously (target=$TARGET)"
+}
+
+apply() {
+  require_files
+  patch_buffer_manager
+  install_units
+  refill_now
+  status
+}
+
+case "$ACTION" in
+  status) status ;;
+  apply) apply ;;
+  refill-now) refill_now ;;
+  *) echo "Allowed actions: status | apply | refill-now" >&2; exit 2 ;;
+esac
