@@ -1,41 +1,22 @@
 ---
-- name: Inspect Project Osho ranker for dual GPU execution
-  hosts: osho_nodes
+- name: Locate Project Osho ranker scoring loops
+  hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Collect ranker execution structure
+    - name: Inspect exact scoring loops
       ansible.builtin.shell: |
         set -o pipefail
-        echo "HOST=$(hostname)"
-        echo "OSHO_ROLE={{ osho_role | default('unknown') }}"
-        echo "OLLAMA_ACTIVE=$(systemctl is-active ollama.service 2>/dev/null || true)"
-        echo "OLLAMA_PORT=$(ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq ':11434$' && echo LISTENING || echo CLOSED)"
-        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total --format=csv,noheader 2>/dev/null || true
-
-        if [ "$(hostname -s)" = "compute-01" ]; then
-          echo '=== RANKER SIZE ==='
-          wc -l /srv/compose/osho-worker/hook_ranker_v5.py 2>/dev/null || true
-          echo '=== RANKER MODEL CALL ==='
-          sed -n '300,460p' /srv/compose/osho-worker/hook_ranker_v5.py 2>/dev/null || true
-          echo '=== RANKER MAIN LOOP A ==='
-          sed -n '460,700p' /srv/compose/osho-worker/hook_ranker_v5.py 2>/dev/null || true
-          echo '=== RANKER MAIN LOOP B ==='
-          sed -n '700,980p' /srv/compose/osho-worker/hook_ranker_v5.py 2>/dev/null || true
-        fi
-
-        if [ "$(hostname -s)" = "compute-03" ]; then
-          echo '=== COMPUTE03 MODEL MANIFESTS AS OLLAMA USER ==='
-          sudo -n -u ollama find /usr/share/ollama/.ollama/models/manifests -type f -maxdepth 8 2>/dev/null \
-            | sed 's#^.*/manifests/##' | grep -E 'qwen3|llama3' | head -30 || true
-          echo '=== COMPUTE03 SERVICE STATE ==='
-          systemctl show ollama.service -p ActiveState -p SubState -p User --no-pager 2>/dev/null || true
-        fi
+        cd /srv/compose/osho-worker
+        echo '=== LOOP MARKERS ==='
+        grep -nE 'HOOK [0-9]|HOOK \{|FULL CLIPS TO SCORE|CLIP [0-9]|CLIP \{|model_score_anchor\(|model_score_clip\(|score_clip\(|anchor_pool|scored_anchors|survivors' hook_ranker_v5.py 2>/dev/null || true
+        echo '=== MAIN TAIL 1200-1873 ==='
+        sed -n '1200,1873p' hook_ranker_v5.py 2>/dev/null || true
       args:
         executable: /bin/bash
       register: result
       changed_when: false
       failed_when: false
 
-    - name: Show ranker execution structure
+    - name: Show exact scoring loops
       ansible.builtin.debug:
         msg: "{{ result.stdout_lines }}"
