@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-dual-gpu-capabilities-rerun-20260815-0012",
+  "request_id": "osho-remote-ollama-readiness-20260815-0014",
   "operation": "osho-status",
   "target": "osho_nodes"
 }
