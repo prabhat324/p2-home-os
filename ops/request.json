@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-use-internal-speaker-20260815-01",
-  "operation": "mavrick-use-internal-speaker",
-  "target": "compute-02"
+  "request_id": "osho-productivity-sla-20260815-1317",
+  "operation": "osho-status",
+  "target": "osho_nodes"
 }
