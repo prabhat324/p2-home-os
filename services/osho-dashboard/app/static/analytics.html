@@ -41,6 +41,14 @@ function fmt(v){return nf.format(Math.round(num(v)))}
 function pick(...vals){for(const v of vals){if(v!==undefined&&v!==null&&v!=="")return v}return null}
 function esc(v){const d=document.createElement('div');d.textContent=v??'';return d.innerHTML}
 function minutes(v){const n=num(v);return n>=60?`${(n/60).toFixed(n>=600?0:1)} h`:`${Math.round(n)} min`}
+function collectedAgo(v){
+  if(!v)return '—';
+  const t=new Date(v).getTime();
+  if(!Number.isFinite(t))return '—';
+  const mins=Math.max(0,Math.floor((Date.now()-t)/60000));
+  if(mins<1)return 'less than 1 minute ago';
+  return `${mins} minute${mins===1?'':'s'} ago`;
+}
 function statusClass(s){return ['online','stale','offline','invalid','waiting','unknown'].includes(s)?s:'unknown'}
 function normalize(payload){
   const a=payload||{};
@@ -95,7 +103,7 @@ async function refresh(){
     document.getElementById('tracked-videos').textContent=fmt(x.videos.length);
     document.getElementById('subs-gained').textContent=x.subsGained==null?'—':`+${fmt(x.subsGained)}`;
     document.getElementById('avg-view').textContent=x.avgView==null?'—':`${Number(x.avgView).toFixed(1)}%`;
-    document.getElementById('collected').textContent=x.collected?new Date(x.collected).toLocaleString():(data.last_seen?new Date(data.last_seen).toLocaleString():'—');
+    document.getElementById('collected').textContent=collectedAgo(x.collected||data.last_seen);
     renderVideos(x.videos);
     document.getElementById('last-update').textContent=data.age_seconds==null?'just now':`${Math.round(data.age_seconds)}s ago`;
   }catch(e){const badge=document.getElementById('status');badge.className='live offline';document.getElementById('status-text').textContent='OFFLINE';document.getElementById('last-update').textContent=e.message}
