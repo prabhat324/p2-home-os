@@ -1,25 +1,23 @@
 ---
-- name: Inspect YouTube Analyst payload for historical data
+- name: Verify rolling YouTube 24h metric
   hosts: compute-02
   gather_facts: false
   tasks:
-    - name: Inspect live analytics payload shape
+    - name: Verify Analyst metric and live API
       ansible.builtin.shell: |
         set -eu
-        curl -fsS http://127.0.0.1:8787/api/analytics | python3 - <<'PY'
-        import json,sys
-        d=json.load(sys.stdin); a=d.get('analytics') or {}; ch=a.get('channel') or {}
-        print('TOP_KEYS='+','.join(sorted(a.keys())))
-        print('CHANNEL_KEYS='+','.join(sorted(ch.keys())) if isinstance(ch,dict) else 'CHANNEL_KEYS=')
-        for k,v in a.items():
-            if isinstance(v,list): print(f'LIST={k} LEN={len(v)}')
-            elif isinstance(v,dict): print(f'DICT={k} KEYS='+','.join(sorted(v.keys())[:40]))
-        print('AGE_SECONDS='+str(d.get('age_seconds')))
-        PY
+        base='http://127.0.0.1:8787'
+        page="$(mktemp)"; api="$(mktemp)"
+        curl -fsS "$base/youtube-analyst" > "$page"
+        curl -fsS "$base/api/analytics" > "$api"
+        printf 'PAGE_24H_LABEL=%s\n' "$(grep -q '24-hour views' "$page" && echo yes || echo no)"
+        printf 'PAGE_COVERAGE_NOTE=%s\n' "$(grep -q 'minimum measured' "$page" && echo yes || echo no)"
+        python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); m=d.get("views_24h") or {}; print("API_STATUS="+str(d.get("status"))); print("VIEWS_24H="+str(m.get("value"))); print("TRACKED="+str(m.get("tracked_videos"))); print("CHANNEL="+str(m.get("channel_videos"))); print("COVERAGE_COMPLETE="+str(m.get("coverage_complete"))); print("WINDOW_COMPLETE="+str(m.get("window_complete"))); print("WINDOW_HOURS="+str(m.get("window_hours"))); print("AGE_SECONDS="+str(d.get("age_seconds")))' "$api"
+        rm -f "$page" "$api"
       args:
         executable: /bin/bash
-      register: diag
+      register: verify
       changed_when: false
-    - name: Show payload shape
+    - name: Show verification
       ansible.builtin.debug:
-        msg: "{{ diag.stdout_lines }}"
+        msg: "{{ verify.stdout_lines }}"
