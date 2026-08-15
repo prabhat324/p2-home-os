@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-productivity-dashboard-20260815-1318",
-  "operation": "dashboard-diagnose",
-  "target": "compute-02"
+  "request_id": "osho-productivity-youtube-20260815-1318",
+  "operation": "youtube-analytics-diagnose",
+  "target": "osho_nodes"
 }
