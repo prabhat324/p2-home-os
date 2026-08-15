@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DASHBOARD_BASE="${OSHO_DASHBOARD_BASE:-http://192.168.0.88:8787}"
 
 if [[ "$(id -u)" -eq 0 ]]; then
     echo "Run this installer as psquare; it will call sudo where needed." >&2
@@ -27,6 +28,6 @@ sudo systemctl --no-pager --full status osho-dashboard-heartbeat.service || true
 
 echo
 echo "Dashboard registration check:"
-curl -fsS http://compute-02:8787/api/dashboard \
+curl -fsS "$DASHBOARD_BASE/api/dashboard" \
     | python3 -m json.tool \
     | sed -n '/"workers"/,/"control_plane"/p' || true
