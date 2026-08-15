@@ -44,6 +44,8 @@ jobs:
 
       - name: Execute approved request
         shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           set -euo pipefail
           bash ops/run-request.sh ops/request.json
