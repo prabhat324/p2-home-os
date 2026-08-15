@@ -1,5 +1,5 @@
 {
-  "request_id": "ping-20260814-2128",
-  "operation": "ping",
+  "request_id": "status-20260814-2129",
+  "operation": "status",
   "target": "all"
 }
