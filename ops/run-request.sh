@@ -53,6 +53,13 @@ case "${operation}" in
     fi
     playbook="playbooks/osho-maintenance.yml"
     ;;
+  osho-publish-audit)
+    if [[ "${target}" != "compute-01" ]]; then
+      echo "osho-publish-audit is restricted to compute-01" >&2
+      exit 2
+    fi
+    playbook="playbooks/osho-publish-audit.yml"
+    ;;
   *)
     echo "Operation is not allowed: ${operation}" >&2
     exit 2
