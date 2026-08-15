@@ -12,7 +12,7 @@
         echo "AUTOPILOT_PROCS=$(pgrep -fc '[o]sho_autopilot.py' 2>/dev/null || true)"
         echo "RANKER_PROCS=$(pgrep -fc '[h]ook_ranker_v5.py' 2>/dev/null || true)"
         echo "RETENTION_QA_PROCS=$(pgrep -fc '[r]etention_qa' 2>/dev/null || true)"
-        for port in 8787 8800; do
+        for port in 8787 8800 11434; do
           if ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq ":${port}$"; then
             echo "PORT_${port}=LISTENING"
           else
@@ -26,15 +26,40 @@
         nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>/dev/null || true
 
         if ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq ':8800$'; then
-          echo '=== WORKER API PATHS ==='
+          echo '=== WORKER API PATHS / METHODS ==='
           curl -fsS --max-time 3 http://127.0.0.1:8800/openapi.json 2>/dev/null \
-            | python3 -c 'import json,sys; d=json.load(sys.stdin); print(" ".join(sorted(d.get("paths",{}))))' 2>/dev/null || true
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); [print(p,",".join(sorted(v))) for p,v in sorted(d.get("paths",{}).items())]' 2>/dev/null || true
         fi
 
+        if [ -f /srv/compose/osho-worker/app.py ]; then
+          echo '=== WORKER JOB ROUTES / TYPES ==='
+          grep -nE '(^| )(def |async def |@app\.|job_type|type ==|kind|render|transcrib|whisper|rank|qa|ffmpeg|torch|cuda)' \
+            /srv/compose/osho-worker/app.py 2>/dev/null | head -220 || true
+          echo '=== WORKER APP JOB HANDLER EXCERPT ==='
+          sed -n '1,260p' /srv/compose/osho-worker/app.py 2>/dev/null \
+            | grep -vEi 'token|secret|password|credential|api[_-]?key' | head -260 || true
+        fi
+
+        if [ -f /srv/compose/osho-worker/compose.yml ]; then
+          echo '=== WORKER COMPOSE SAFE FIELDS ==='
+          grep -nE '^(services:|  [A-Za-z0-9_-]+:|    image:|    container_name:|    ports:|      - ["'"']?[0-9]+:|    volumes:|      - /|    deploy:|    resources:|    reservations:|    devices:|    runtime:|    gpus:|    command:)' \
+            /srv/compose/osho-worker/compose.yml 2>/dev/null | head -180 || true
+        fi
+
+        echo '=== OSHO STORAGE VISIBILITY ==='
+        findmnt -T /srv/osho 2>/dev/null | tail -n +2 || true
+        for p in /srv/osho/library/audio /srv/osho/candidates /srv/osho/transcripts /srv/osho/work; do
+          if [ -d "$p" ]; then echo "$p=present"; else echo "$p=missing"; fi
+        done
+
+        echo '=== OLLAMA RUNTIME ==='
+        command -v ollama 2>/dev/null || true
+        ollama list 2>/dev/null | head -20 || true
+
         if [ "$(hostname -s)" = "compute-01" ] && [ -f /srv/compose/osho-worker/osho_autopilot.py ]; then
-          echo '=== AUTOPILOT LOCAL / REMOTE EXECUTION REFERENCES ==='
-          grep -nE 'run_v5_and_qa|hook_ranker_v5|retention_qa_v4|8800|compute-03|worker|requests\.|urlopen|subprocess' \
-            /srv/compose/osho-worker/osho_autopilot.py 2>/dev/null | head -120 || true
+          echo '=== AUTOPILOT WORKER FUNCTIONS ==='
+          sed -n '220,335p;420,620p;1090,1260p;1480,1540p' /srv/compose/osho-worker/osho_autopilot.py 2>/dev/null \
+            | grep -vEi 'token|secret|password|credential|api[_-]?key' || true
         fi
       args:
         executable: /bin/bash
