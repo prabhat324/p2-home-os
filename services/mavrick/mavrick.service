@@ -1,0 +1,43 @@
+[Unit]
+Description=Project Mavrick Local Ambient Vision Companion
+After=network-online.target ollama.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mavrick
+Group=mavrick
+SupplementaryGroups=video audio render
+EnvironmentFile=-/etc/mavrick/config.env
+ExecStart=/opt/mavrick/venv/bin/python /opt/mavrick/mavrick.py
+Restart=always
+RestartSec=5
+RuntimeDirectory=mavrick
+RuntimeDirectoryMode=0700
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=127.0.0.0/8
+IPAddressAllow=::1/128
+ReadWritePaths=/run/mavrick /dev/shm /var/lib/mavrick
+PrivateDevices=false
+
+[Install]
+WantedBy=multi-user.target
