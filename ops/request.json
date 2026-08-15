@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-20260814-2130",
-  "operation": "osho-status",
-  "target": "osho_nodes"
+  "request_id": "dashboard-20260814-2133",
+  "operation": "dashboard-diagnose",
+  "target": "compute-02"
 }
