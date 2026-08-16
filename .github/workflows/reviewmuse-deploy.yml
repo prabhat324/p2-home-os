@@ -45,6 +45,12 @@ jobs:
       - name: Deploy ReviewMuse to compute-04
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
           cd ansible
-          ansible-playbook playbooks/reviewmuse-deploy.yml --limit compute-04
+          ansible-playbook playbooks/reviewmuse-deploy.yml --limit compute-04 2>&1 | tee /tmp/reviewmuse-deploy.log
+          rc=${PIPESTATUS[0]}
+          if [[ ${rc} -ne 0 ]]; then
+            tail_text="$(tail -n 18 /tmp/reviewmuse-deploy.log | sed 's/%/%25/g; s/\r/%0D/g' | paste -sd '|' -)"
+            echo "::error title=ReviewMuse deploy failed::${tail_text}"
+            exit ${rc}
+          fi
