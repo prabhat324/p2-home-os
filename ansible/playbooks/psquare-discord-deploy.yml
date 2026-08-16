@@ -12,6 +12,8 @@
     psquare_config: /home/p2runner/.config/psquare-discord.env
     psquare_inventory: /home/p2runner/.config/psquare/hosts.yml
     psquare_state: /home/p2runner/.local/state
+    psquare_bg_worker: /home/p2ops/.local/bin/psquare-background.py
+    psquare_image_venv: /home/p2ops/.local/share/psquare-image/venv
   tasks:
     - name: Remove legacy Osho interactive bot reboot job
       ansible.builtin.cron:
@@ -85,6 +87,15 @@
         - { path: "/home/p2runner/.config/psquare", mode: "0700" }
       delegate_to: core-01
 
+    - name: Create pSquare image-tool directories on compute-01
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "/home/p2ops/.local/bin", mode: "0755" }
+        - { path: "/home/p2ops/.local/share/psquare-image", mode: "0700" }
+
     - name: Install pSquare Discord gateway on core-01
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/../../services/psquare-discord/psquare_discord_bot.py"
@@ -102,6 +113,12 @@
         group: p2runner
         mode: "0644"
       delegate_to: core-01
+
+    - name: Install pSquare background worker on compute-01
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../services/psquare-discord/psquare_background.py"
+        dest: "{{ psquare_bg_worker }}"
+        mode: "0755"
 
     - name: Install managed inventory snapshot for pSquare
       ansible.builtin.copy:
@@ -143,11 +160,12 @@
         set -eu
         command -v ffmpeg >/dev/null
         command -v curl >/dev/null
+        python3 -m venv --help >/dev/null
+        python3 -m py_compile "{{ psquare_bg_worker }}"
         curl -fsS --max-time 8 http://127.0.0.1:11434/api/tags >/tmp/psquare-ollama-tags.json
         python3 - <<'PY'
         import json
-        p='/tmp/psquare-ollama-tags.json'
-        d=json.load(open(p))
+        d=json.load(open('/tmp/psquare-ollama-tags.json'))
         names={str(x.get('name') or x.get('model') or '') for x in d.get('models',[])}
         print('TEXT_MODEL=' + ('ready' if 'qwen3:8b' in names else 'missing'))
         print('VISION_MODEL=' + ('ready' if 'qwen3-vl:2b' in names else 'missing'))
@@ -184,12 +202,49 @@
       register: psquare_vision_pull
       changed_when: true
 
-    - name: Verify pSquare compute-01 AI models
+    - name: Create pSquare isolated image Python environment
+      ansible.builtin.shell: |
+        set -eu
+        if [ ! -x "{{ psquare_image_venv }}/bin/python" ]; then
+          python3 -m venv "{{ psquare_image_venv }}"
+          echo VENV_CREATED=yes
+        else
+          echo VENV_CREATED=no
+        fi
+        if ! "{{ psquare_image_venv }}/bin/python" -c 'import rembg, PIL, onnxruntime' >/dev/null 2>&1; then
+          "{{ psquare_image_venv }}/bin/pip" install --upgrade pip
+          "{{ psquare_image_venv }}/bin/pip" install 'rembg[cpu]' pillow
+          echo SEGMENTATION_PACKAGES_INSTALLED=yes
+        else
+          echo SEGMENTATION_PACKAGES_INSTALLED=no
+        fi
+      args:
+        executable: /bin/bash
+      register: psquare_bg_env
+      changed_when: "'yes' in psquare_bg_env.stdout"
+
+    - name: Warm and verify pSquare human segmentation model
+      ansible.builtin.shell: |
+        set -eu
+        "{{ psquare_image_venv }}/bin/python" - <<'PY'
+        from rembg import new_session
+        new_session('u2net_human_seg')
+        print('BACKGROUND_MODEL=ready')
+        PY
+      args:
+        executable: /bin/bash
+      register: psquare_bg_model
+      changed_when: false
+
+    - name: Verify pSquare compute-01 AI models and edit engines
       ansible.builtin.shell: |
         set -eu
         curl -fsS --max-time 8 http://127.0.0.1:11434/api/tags | python3 -c 'import json,sys; d=json.load(sys.stdin); n={str(x.get("name") or x.get("model") or "") for x in d.get("models",[])}; print("TEXT_MODEL=" + ("ready" if "qwen3:8b" in n else "missing")); print("VISION_MODEL=" + ("ready" if "qwen3-vl:2b" in n else "missing")); raise SystemExit(0 if {"qwen3:8b","qwen3-vl:2b"} <= n else 2)'
         command -v ffmpeg >/dev/null
+        test -x "{{ psquare_bg_worker }}"
+        "{{ psquare_image_venv }}/bin/python" -c 'import rembg, PIL, onnxruntime'
         echo IMAGE_EDIT_ENGINE=ready
+        echo BACKGROUND_REPLACEMENT=ready
       args:
         executable: /bin/bash
       register: psquare_ai_verify
@@ -252,6 +307,7 @@
         msg:
           - "{{ psquare_start.stdout_lines }}"
           - "COMPUTE01_AI={{ psquare_ai_verify.stdout_lines }}"
+          - "BACKGROUND_MODEL={{ psquare_bg_model.stdout_lines }}"
           - "MANAGED_NODE_PROBE={{ psquare_ping.stdout_lines }}"
-          - "PSQUARE_CAPABILITIES=text_qa,photo_qa,basic_image_edit,network_status"
+          - "PSQUARE_CAPABILITIES=text_qa,photo_qa,basic_image_edit,background_replace,network_status"
           - "OSHO_WEBHOOK_NOTIFIER=preserved"
