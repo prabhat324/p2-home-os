@@ -90,7 +90,7 @@
         set -euo pipefail
         curl -fsS http://127.0.0.1:8794/ | grep -q 'Turn real experiences into'
         curl -fsS http://127.0.0.1:8794/r/demo | grep -q 'Write with assistance'
-        docker ps --filter name=reviewmuse --format 'CONTAINER={{.Names}} STATUS={{.Status}}'
+        docker ps --filter name=reviewmuse | tail -n +2
         echo 'HEALTH={{ health.content }}'
         echo 'LAN_URL=http://192.168.0.177:8794/'
         echo 'DEMO_URL=http://192.168.0.177:8794/r/demo'
