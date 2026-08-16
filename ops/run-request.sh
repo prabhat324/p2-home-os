@@ -150,6 +150,9 @@ case "${operation}" in
   home-dashboard-deploy)
     [[ "${target}" == "core-01" ]] || { echo "home-dashboard-deploy is restricted to core-01" >&2; exit 2; }
     playbook="playbooks/home-dashboard-deploy.yml" ;;
+  dashboard-dns-diagnose)
+    [[ "${target}" == "core-01" ]] || { echo "dashboard-dns-diagnose is restricted to core-01" >&2; exit 2; }
+    playbook="playbooks/dashboard-dns-diagnose.yml" ;;
   p2-dashboard-diagnose)
     [[ "${target}" == "core-01" ]] || { echo "p2-dashboard-diagnose is restricted to core-01" >&2; exit 2; }
     playbook="playbooks/p2-dashboard-diagnose.yml" ;;
