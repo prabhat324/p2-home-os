@@ -1,0 +1,104 @@
+---
+- name: Deploy Project ReviewMuse to compute-04
+  hosts: compute-04
+  gather_facts: false
+  vars:
+    reviewmuse_dir: /srv/compose/reviewmuse
+    reviewmuse_model: qwen3:4b
+  tasks:
+    - name: Verify automation sudo
+      ansible.builtin.command: sudo -n true
+      changed_when: false
+
+    - name: Verify Docker and Compose
+      ansible.builtin.shell: |
+        set -euo pipefail
+        docker --version
+        docker compose version
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Verify Ollama is running
+      ansible.builtin.uri:
+        url: http://127.0.0.1:11434/api/version
+        return_content: true
+        timeout: 10
+      register: ollama_version
+      changed_when: false
+
+    - name: Ensure ReviewMuse model is available
+      ansible.builtin.shell: |
+        set -euo pipefail
+        if curl -fsS http://127.0.0.1:11434/api/tags | grep -q '"{{ reviewmuse_model }}"'; then
+          echo MODEL_STATE=present
+        else
+          ollama pull '{{ reviewmuse_model }}'
+          echo MODEL_STATE=pulled
+        fi
+      args:
+        executable: /bin/bash
+      register: model_state
+      changed_when: "'MODEL_STATE=pulled' in model_state.stdout"
+
+    - name: Create ReviewMuse service directory
+      become: true
+      ansible.builtin.file:
+        path: "{{ reviewmuse_dir }}"
+        state: directory
+        owner: p2ops
+        group: p2ops
+        mode: '0755'
+
+    - name: Copy ReviewMuse application from control checkout
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../services/reviewmuse/"
+        dest: "{{ reviewmuse_dir }}/"
+        mode: preserve
+
+    - name: Ensure local data directory exists
+      ansible.builtin.file:
+        path: "{{ reviewmuse_dir }}/data"
+        state: directory
+        owner: p2ops
+        group: p2ops
+        mode: '0755'
+
+    - name: Build and start ReviewMuse
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cd '{{ reviewmuse_dir }}'
+        docker compose up -d --build --remove-orphans
+      args:
+        executable: /bin/bash
+      register: deploy
+      changed_when: true
+
+    - name: Wait for ReviewMuse health endpoint
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8794/health
+        return_content: true
+        timeout: 10
+      register: health
+      retries: 15
+      delay: 3
+      until: health.status == 200
+      changed_when: false
+
+    - name: Verify landing page and customer demo
+      ansible.builtin.shell: |
+        set -euo pipefail
+        curl -fsS http://127.0.0.1:8794/ | grep -q 'Turn real experiences into'
+        curl -fsS http://127.0.0.1:8794/r/demo | grep -q 'Write with assistance'
+        docker ps --filter name=reviewmuse --format 'CONTAINER={{.Names}} STATUS={{.Status}}'
+        echo 'HEALTH={{ health.content }}'
+        echo 'LAN_URL=http://192.168.0.177:8794/'
+        echo 'DEMO_URL=http://192.168.0.177:8794/r/demo'
+      args:
+        executable: /bin/bash
+      register: verification
+      changed_when: false
+
+    - name: Show ReviewMuse deployment result
+      ansible.builtin.debug:
+        msg: "{{ verification.stdout_lines }}"
