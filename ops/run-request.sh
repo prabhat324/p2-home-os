@@ -78,35 +78,38 @@ case "${operation}" in
   home-dashboard-inventory)
     [[ "${target}" == "all" ]] || { echo "home-dashboard-inventory is restricted to all" >&2; exit 2; }
     playbook="playbooks/home-dashboard-inventory.yml" ;;
+  mavrick-deploy)
+    [[ "${target}" == "compute-04" ]] || { echo "mavrick-deploy is restricted to compute-04" >&2; exit 2; }
+    playbook="playbooks/mavrick-deploy.yml" ;;
   mavrick-inventory)
-    [[ "${target}" == "compute-02" ]] || { echo "mavrick-inventory is restricted to compute-02" >&2; exit 2; }
+    [[ "${target}" == "compute-04" ]] || { echo "mavrick-inventory is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-inventory.yml" ;;
   mavrick-model-pull)
-    [[ "${target}" == "compute-02" ]] || { echo "mavrick-model-pull is restricted to compute-02" >&2; exit 2; }
+    [[ "${target}" == "compute-04" ]] || { echo "mavrick-model-pull is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-model-pull.yml" ;;
   mavrick-model-diagnose)
-    [[ "${target}" == "compute-02" ]] || { echo "mavrick-model-diagnose is restricted to compute-02" >&2; exit 2; }
+    [[ "${target}" == "compute-04" ]] || { echo "mavrick-model-diagnose is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-model-diagnose.yml" ;;
   mavrick-model-recover)
-    [[ "${target}" == "compute-02" ]] || { echo "mavrick-model-recover is restricted to compute-02" >&2; exit 2; }
+    [[ "${target}" == "compute-04" ]] || { echo "mavrick-model-recover is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-model-recover.yml" ;;
   mavrick-speaker-test)
-    [[ "${target}" == "compute-02" ]] || { echo "mavrick-speaker-test is restricted to compute-02" >&2; exit 2; }
+    [[ "${target}" == "compute-04" ]] || { echo "mavrick-speaker-test is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-speaker-test.yml" ;;
   mavrick-audio-loopback)
-    [[ "${target}" == "compute-02" ]] || { echo "mavrick-audio-loopback is restricted to compute-02" >&2; exit 2; }
+    [[ "${target}" == "compute-04" ]] || { echo "mavrick-audio-loopback is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-audio-loopback.yml" ;;
   mavrick-audio-routes)
-    [[ "${target}" == "compute-02" ]] || { echo "mavrick-audio-routes is restricted to compute-02" >&2; exit 2; }
+    [[ "${target}" == "compute-04" ]] || { echo "mavrick-audio-routes is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-audio-routes.yml" ;;
   mavrick-internal-speaker-test)
-    [[ "${target}" == "compute-02" ]] || { echo "mavrick-internal-speaker-test is restricted to compute-02" >&2; exit 2; }
+    [[ "${target}" == "compute-04" ]] || { echo "mavrick-internal-speaker-test is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-internal-speaker-test.yml" ;;
   mavrick-use-internal-speaker)
-    [[ "${target}" == "compute-02" ]] || { echo "mavrick-use-internal-speaker is restricted to compute-02" >&2; exit 2; }
+    [[ "${target}" == "compute-04" ]] || { echo "mavrick-use-internal-speaker is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-use-internal-speaker.yml" ;;
   mavrick-status)
-    [[ "${target}" == "compute-02" ]] || { echo "mavrick-status is restricted to compute-02" >&2; exit 2; }
+    [[ "${target}" == "compute-04" ]] || { echo "mavrick-status is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-status.yml" ;;
   home-dashboard-deploy)
     [[ "${target}" == "core-01" ]] || { echo "home-dashboard-deploy is restricted to core-01" >&2; exit 2; }
