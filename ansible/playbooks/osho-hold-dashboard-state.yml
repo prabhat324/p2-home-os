@@ -1,0 +1,65 @@
+---
+- name: Reconcile the shared dashboard to Project Osho hold state
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Stop the obsolete Osho progress reporter owned by p2ops
+      ansible.builtin.shell: |
+        pkill -TERM -f '[o]sho-dashboard-progress-reporter.py' 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      changed_when: true
+      failed_when: false
+
+    - name: Move any displayed active job to the preserved hold queue
+      ansible.builtin.shell: |
+        set -euo pipefail
+        base='http://192.168.0.88:8787'
+        state="$(mktemp)"
+        payload="$(mktemp)"
+        trap 'rm -f "$state" "$payload"' EXIT
+        curl -fsS --max-time 5 "$base/api/dashboard" > "$state"
+        python3 - "$state" "$payload" <<'PY'
+        import json, sys
+        data=json.load(open(sys.argv[1]))
+        job=data.get('current_job') or {}
+        job_id=job.get('id') or job.get('job_id') or job.get('source_id')
+        if not job_id:
+            json.dump({},open(sys.argv[2],'w'))
+        else:
+            json.dump({
+                'id':str(job_id),
+                'status':'queued',
+                'stage':'on_hold',
+                'progress':float(job.get('progress') or 0),
+                'title':job.get('title'),
+                'worker':job.get('worker'),
+                'created_at':job.get('created_at'),
+            },open(sys.argv[2],'w'))
+        PY
+        if [ "$(cat "$payload")" != '{}' ]; then
+          curl -fsS --max-time 5 -X POST -H 'Content-Type: application/json' \
+            --data-binary @"$payload" "$base/api/jobs/update"
+          echo
+        else
+          echo 'NO_ACTIVE_JOB=true'
+        fi
+      args:
+        executable: /bin/bash
+      register: reconcile
+      changed_when: "'NO_ACTIVE_JOB=true' not in reconcile.stdout"
+
+    - name: Verify dashboard now reports no processing work
+      ansible.builtin.shell: |
+        curl -fsS --max-time 5 http://192.168.0.88:8787/api/dashboard |
+          python3 -c 'import json,sys; d=json.load(sys.stdin); s=d.get("summary") or {}; j=d.get("current_job"); print("PROCESSING="+str(s.get("processing"))); print("CURRENT_JOB_PRESENT="+str(bool(j)).lower()); print("QUEUED="+str(s.get("queued")))'
+      args:
+        executable: /bin/bash
+      register: verify
+      changed_when: false
+      failed_when: "'PROCESSING=0' not in verify.stdout or 'CURRENT_JOB_PRESENT=false' not in verify.stdout"
+
+    - name: Print hold-state reconciliation
+      ansible.builtin.debug:
+        msg: "{{ verify.stdout_lines }}"
+
