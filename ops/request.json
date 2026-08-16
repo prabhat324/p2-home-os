@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-compute04-mic-trace-20260816-0540",
-  "operation": "mavrick-listen-window",
+  "request_id": "mavrick-compute04-postgain-diagnose-20260816-0548",
+  "operation": "mavrick-runtime-diagnose",
   "target": "compute-04"
 }
