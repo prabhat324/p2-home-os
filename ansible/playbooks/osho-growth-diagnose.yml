@@ -1,2 +1,2 @@
 ---
-- import_playbook: osho-growth-container-diagnose.yml
+- import_playbook: osho-growth-apply.yml
