@@ -1,6 +1,6 @@
 ---
 - name: Diagnose Mavrick speaker output using Logitech microphone feedback
-  hosts: compute-02
+  hosts: compute-04
   gather_facts: false
   vars:
     mic_device: "plughw:CARD=C930e,DEV=0"
