@@ -12,10 +12,21 @@
         echo '=== MEDIA MOUNT ==='
         findmnt -T '/mnt/media/TV Shows' -o TARGET,SOURCE,FSTYPE,OPTIONS 2>&1 || true
         stat -c '%U:%G %u:%g %a %n' /mnt/media '/mnt/media/TV Shows' /mnt/media/Downloads 2>&1 || true
-        echo '=== SUDO ACCESS ==='\n        sudo -n -l 2>&1 || true\n        echo '=== SONARR CONTAINER ==='
-        sudo -n docker ps -a --filter name=sonarr --format '{{ "{{.Names}}" }}|{{ "{{.Status}}" }}|{{ "{{.Image}}" }}' 2>&1 || true
+        echo '=== SUDO ACCESS ==='
+        sudo -n -l 2>&1 || true
+        echo '=== SONARR CONTAINER ==='
+        sudo -n docker ps -a --filter name=sonarr 2>&1 || true
         echo '=== SONARR MOUNTS ==='
-        docker inspect sonarr --format '{{ "{{range .Mounts}}{{println .Source \"->\" .Destination \"RW=\" .RW}}{{end}}" }}' 2>&1 || true
+        sudo -n docker inspect sonarr 2>/dev/null | python3 -c '
+        import json,sys
+        try:
+            rows=json.load(sys.stdin)
+        except Exception as e:
+            print("INSPECT_ERROR="+str(e))
+            rows=[]
+        for m in (rows[0].get("Mounts",[]) if rows else []):
+            print("%s -> %s RW=%s" % (m.get("Source"),m.get("Destination"),m.get("RW")))
+        ' || true
         echo '=== SONARR ID AND PATHS ==='
         sudo -n docker exec sonarr sh -c 'id; for p in /tv "/mnt/media/TV Shows" /downloads; do echo "--- $p"; ls -ld "$p" 2>&1 || true; done' 2>&1 || true
         echo '=== WRITE PROBES ==='
@@ -33,14 +44,8 @@
             fi
           done
         ' 2>&1 || true
-        echo '=== COMPOSE FILES ==='
-        find /opt/docker/compose/sonarr -maxdepth 2 -type f \( -name 'compose.yml' -o -name 'compose.yaml' -o -name 'docker-compose.yml' -o -name 'docker-compose.yaml' \) -print 2>/dev/null || true
-        for f in /opt/docker/compose/sonarr/compose.yml /opt/docker/compose/sonarr/compose.yaml /opt/docker/compose/sonarr/docker-compose.yml /opt/docker/compose/sonarr/docker-compose.yaml; do
-          if [ -f "$f" ]; then
-            echo "--- $f"
-            sed -n '1,220p' "$f"
-          fi
-        done
+        echo '=== COMPOSE FILE ==='
+        sed -n '1,220p' /opt/docker/compose/sonarr/docker-compose.yml 2>&1 || true
         echo '=== RECENT SONARR LOGS ==='
         sudo -n docker logs --tail 160 sonarr 2>&1 || true
       args:
