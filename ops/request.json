@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-restart-fixed-runtime-20260816-0137",
-  "operation": "mavrick-deploy",
-  "target": "compute-04"
+  "request_id": "osho-hold-verify-compute03-20260816-1138",
+  "operation": "osho-cancel-audit",
+  "target": "osho_nodes"
 }
