@@ -27,7 +27,12 @@ case "${operation}" in
   ping) playbook="playbooks/ping.yml" ;;
   status) playbook="playbooks/status.yml" ;;
   gpu-status) playbook="playbooks/gpu-status.yml" ;;
-  osho-status) playbook="playbooks/osho-status.yml" ;;
+  osho-status)
+    [[ "${target}" == "compute-01" ]] || { echo "osho-status is restricted to compute-01; use compute03-worker-recover for compute-03" >&2; exit 2; }
+    playbook="playbooks/osho-status.yml" ;;
+  compute03-worker-recover)
+    [[ "${target}" == "compute-03" ]] || { echo "compute03-worker-recover is restricted to compute-03" >&2; exit 2; }
+    playbook="playbooks/compute03-worker-recover.yml" ;;
   osho-thermal-pause)
     [[ "${target}" == "compute_nodes" ]] || { echo "osho-thermal-pause is restricted to compute_nodes" >&2; exit 2; }
     playbook="playbooks/osho-thermal-pause.yml" ;;
