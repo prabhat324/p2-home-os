@@ -45,6 +45,9 @@ case "${operation}" in
   compute04-reboot-verify)
     [[ "${target}" == "compute-04" ]] || { echo "compute04-reboot-verify is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/compute04-reboot-verify.yml" ;;
+  compute04-storage-init)
+    [[ "${target}" == "compute-04" ]] || { echo "compute04-storage-init is restricted to compute-04" >&2; exit 2; }
+    playbook="playbooks/compute04-storage-init.yml" ;;
   osho-thermal-pause)
     [[ "${target}" == "compute_nodes" ]] || { echo "osho-thermal-pause is restricted to compute_nodes" >&2; exit 2; }
     playbook="playbooks/osho-thermal-pause.yml" ;;
