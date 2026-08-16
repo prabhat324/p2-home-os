@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-compute04-audible-test-20260816-0356",
-  "operation": "mavrick-audio-fix-compute04",
-  "target": "compute-04"
+  "request_id": "psquare-network-overseer-20260816-1037-v2",
+  "operation": "osho-discord-deploy",
+  "target": "compute-01"
 }
