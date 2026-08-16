@@ -1,5 +1,5 @@
 {
-  "request_id": "compute04-samsung-format-20260816-0210",
-  "operation": "compute04-storage-init",
-  "target": "compute-04"
+  "request_id": "osho-publish-audit-20260816-0130",
+  "operation": "osho-publish-audit",
+  "target": "compute-01"
 }
