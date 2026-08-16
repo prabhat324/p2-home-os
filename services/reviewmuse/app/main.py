@@ -20,7 +20,7 @@ OLLAMA_URL = os.getenv('REVIEWMUSE_OLLAMA_URL', 'http://127.0.0.1:11434').rstrip
 MODEL = os.getenv('REVIEWMUSE_MODEL', 'qwen3:4b')
 GOOGLE_REVIEW_URL = os.getenv('REVIEWMUSE_GOOGLE_REVIEW_URL', 'https://www.google.com/maps')
 
-app = FastAPI(title='ReviewMuse', version='0.1.0')
+app = FastAPI(title='ReviewMuse', version='0.1.1')
 app.mount('/static', StaticFiles(directory=BASE_DIR / 'static'), name='static')
 env = Environment(loader=FileSystemLoader(BASE_DIR / 'templates'), autoescape=select_autoescape(['html']))
 
@@ -36,7 +36,7 @@ BUSINESSES = {
 class GenerateRequest(BaseModel):
     slug: str = 'demo'
     rating: int = Field(ge=1, le=5)
-    highlights: list[str] = []
+    highlights: list[str] = Field(default_factory=list)
     details: str = Field(default='', max_length=1200)
     tone: str = Field(default='natural', pattern='^(natural|warm|concise|detailed)$')
 
@@ -107,7 +107,7 @@ def review_flow(slug: str) -> HTMLResponse:
 
 @app.get('/health')
 def health() -> dict[str, Any]:
-    return {'status': 'healthy', 'service': 'ReviewMuse', 'version': '0.1.0', 'model': MODEL}
+    return {'status': 'healthy', 'service': 'ReviewMuse', 'version': '0.1.1', 'model': MODEL}
 
 
 @app.post('/api/event')
@@ -144,7 +144,13 @@ Rules:
         async with httpx.AsyncClient(timeout=45) as client:
             response = await client.post(
                 f'{OLLAMA_URL}/api/generate',
-                json={'model': MODEL, 'prompt': prompt, 'stream': False, 'options': {'temperature': 0.55}},
+                json={
+                    'model': MODEL,
+                    'prompt': prompt,
+                    'stream': False,
+                    'think': False,
+                    'options': {'temperature': 0.55},
+                },
             )
             response.raise_for_status()
             text = response.json().get('response', '').strip()
