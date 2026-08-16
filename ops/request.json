@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-service-inventory-20260815-2234",
-  "operation": "home-dashboard-inventory",
-  "target": "all"
+  "request_id": "compute03-worker-recover-20260815-2238",
+  "operation": "compute03-worker-recover",
+  "target": "compute-03"
 }
