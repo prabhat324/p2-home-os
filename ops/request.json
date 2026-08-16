@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-read-fallback-completion-20260816-0210",
-  "operation": "mavrick-events",
+  "request_id": "mavrick-low-latency-20260816-0215",
+  "operation": "mavrick-deploy",
   "target": "compute-04"
 }
