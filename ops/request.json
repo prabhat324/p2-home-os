@@ -1,5 +1,5 @@
 {
-  "request_id": "diagnose-osho-working-stale-state-20260816-1302",
-  "operation": "p2-dashboard-diagnose",
-  "target": "core-01"
+  "request_id": "mavrick-reliability-diagnose-20260816-0250",
+  "operation": "mavrick-events",
+  "target": "compute-04"
 }
