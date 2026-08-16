@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-discord-two-way-deploy-20260816-0942",
-  "operation": "osho-discord-deploy",
-  "target": "compute-01"
+  "request_id": "mavrick-compute04-status-20260816-0227",
+  "operation": "mavrick-status",
+  "target": "compute-04"
 }
