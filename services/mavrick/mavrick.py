@@ -275,6 +275,8 @@ def microphone_loop() -> None:
             speech_chunks = 0
             indicator = None
             peak_rms = 0.0
+            level_peak = 0.0
+            last_level_log = time.monotonic()
             while not STOP.is_set() and proc.poll() is None:
                 raw = proc.stdout.read(chunk_samples * 2) if proc.stdout else b""
                 if len(raw) < chunk_samples * 2:
@@ -285,6 +287,11 @@ def microphone_loop() -> None:
                     continue
                 samples = np.frombuffer(raw, dtype=np.int16).copy()
                 rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
+                level_peak = max(level_peak, rms)
+                if time.monotonic() - last_level_log >= 2.0:
+                    log("mic_level", rms=int(rms), peak=int(level_peak), threshold=SPEECH_RMS_THRESHOLD)
+                    level_peak = 0.0
+                    last_level_log = time.monotonic()
                 is_speech = rms >= SPEECH_RMS_THRESHOLD
                 if is_speech:
                     peak_rms = max(peak_rms, rms)
