@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-productivity-sla-20260816-1013",
-  "operation": "osho-status",
+  "request_id": "psquare-discord-probe-20260816-1015",
+  "operation": "osho-notifications-diagnose",
   "target": "compute-01"
 }
