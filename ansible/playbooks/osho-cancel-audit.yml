@@ -9,6 +9,8 @@
       ansible.builtin.shell: |
         set -o pipefail
         echo "HOST=$(hostname)"
+        echo '=== SUDO ALLOWLIST ==='
+        sudo -n -l 2>&1 || true
         echo '=== UNIT FILES ==='
         systemctl list-unit-files --no-pager | grep -Ei 'osho|youtube|publish' || true
         echo '=== ACTIVE UNITS ==='
