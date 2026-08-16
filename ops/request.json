@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-cancel-20260816-0430",
-  "operation": "osho-cancel",
+  "request_id": "osho-cancel-sudo-audit-20260816-0440",
+  "operation": "osho-cancel-audit",
   "target": "osho_nodes"
 }
