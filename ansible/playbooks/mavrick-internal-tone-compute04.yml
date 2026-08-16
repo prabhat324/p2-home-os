@@ -20,7 +20,7 @@
       become: true
       ansible.builtin.shell: |
         set -euo pipefail
-        runuser -u mavrick -- timeout 7 speaker-test -q -D front:CARD=PCH,DEV=0 -c 2 -t sine -f 660 -l 1
+        runuser -u mavrick -- timeout 7 speaker-test -D front:CARD=PCH,DEV=0 -c 2 -t sine -f 660 -l 1
         echo MAVRICK_INTERNAL_TONE=completed
       args:
         executable: /bin/bash
