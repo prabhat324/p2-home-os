@@ -69,13 +69,19 @@ def main() -> int:
         print("invalid instruction length", file=sys.stderr)
         return 4
 
+    try:
+        steps = int(os.environ.get("PSQUARE_GENERATIVE_STEPS", "20"))
+    except ValueError:
+        steps = 20
+    steps = max(2, min(30, steps))
+
     image = fit_image(Image.open(src))
     pipe = load_pipeline()
     generator = torch.Generator(device="cpu").manual_seed(42)
     result = pipe(
         instruction,
         image=image,
-        num_inference_steps=20,
+        num_inference_steps=steps,
         guidance_scale=7.5,
         image_guidance_scale=1.5,
         generator=generator,
@@ -83,7 +89,7 @@ def main() -> int:
 
     dst.parent.mkdir(parents=True, exist_ok=True)
     result.save(dst, format="PNG", optimize=True)
-    print(f"GENERATIVE_EDIT=ready size={result.width}x{result.height}")
+    print(f"GENERATIVE_EDIT=ready size={result.width}x{result.height} steps={steps}")
     return 0
 
 
