@@ -57,6 +57,9 @@ case "${operation}" in
   osho-thermal-pause)
     [[ "${target}" == "compute_nodes" ]] || { echo "osho-thermal-pause is restricted to compute_nodes" >&2; exit 2; }
     playbook="playbooks/osho-thermal-pause.yml" ;;
+  osho-cancel-audit)
+    [[ "${target}" == "osho_nodes" ]] || { echo "osho-cancel-audit is restricted to osho_nodes" >&2; exit 2; }
+    playbook="playbooks/osho-cancel-audit.yml" ;;
   ollama-status)
     [[ "${target}" == "compute-01" ]] || { echo "ollama-status is restricted to compute-01" >&2; exit 2; }
     playbook="playbooks/ollama-status.yml" ;;
