@@ -11,10 +11,17 @@
         echo '=== HOST CODE ==='
         sha256sum app.py production_renderer.py 2>/dev/null || true
         grep -nE 'osho-growth-v1|OSHO_GROWTH_TEMPLATE_V1' app.py production_renderer.py | head -40 || true
-        echo '=== CONTAINER ID / IMAGE ==='
-        docker inspect osho-worker --format 'ID={{.Id}} IMAGE={{.Image}} CREATED={{.Created}} STARTED={{.State.StartedAt}}' 2>/dev/null || true
-        echo '=== CONTAINER MOUNTS ==='
-        docker inspect osho-worker --format '{{range .Mounts}}{{println .Source "->" .Destination "RW=" .RW}}{{end}}' 2>/dev/null || true
+        echo '=== CONTAINER INSPECT ==='
+        docker inspect osho-worker 2>/dev/null | python3 -c '
+        import json,sys
+        try:d=json.load(sys.stdin)[0]
+        except Exception as e: print("INSPECT_ERROR="+str(e)); raise SystemExit
+        print("ID="+str(d.get("Id")))
+        print("IMAGE="+str(d.get("Image")))
+        print("CREATED="+str(d.get("Created")))
+        print("STARTED="+str((d.get("State") or {}).get("StartedAt")))
+        for m in d.get("Mounts",[]): print("MOUNT="+str(m.get("Source"))+" -> "+str(m.get("Destination"))+" RW="+str(m.get("RW")))
+        ' || true
         echo '=== CONTAINER CODE LOCATIONS ==='
         docker exec osho-worker sh -lc '
           pwd
@@ -29,8 +36,15 @@
         echo '=== COMPOSE CONFIG ==='
         docker compose config 2>/dev/null | sed -n '1,260p' || true
         echo '=== IMAGE HISTORY ==='
-        img=$(docker inspect osho-worker --format '{{.Image}}' 2>/dev/null || true)
-        [ -n "$img" ] && docker image inspect "$img" --format 'IMAGE_CREATED={{.Created}} TAGS={{json .RepoTags}}' 2>/dev/null || true
+        docker inspect osho-worker 2>/dev/null | python3 -c '
+        import json,sys,subprocess
+        try:d=json.load(sys.stdin)[0]; img=d.get("Image")
+        except Exception as e: print("IMAGE_LOOKUP_ERROR="+str(e)); raise SystemExit
+        if img:
+            p=subprocess.run(["docker","image","inspect",img],text=True,capture_output=True)
+            try:x=json.loads(p.stdout)[0]; print("IMAGE_CREATED="+str(x.get("Created"))); print("IMAGE_TAGS="+repr(x.get("RepoTags")))
+            except Exception as e: print("IMAGE_INSPECT_ERROR="+str(e))
+        ' || true
       args:
         executable: /bin/bash
       register: diag
