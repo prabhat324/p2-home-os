@@ -1,0 +1,65 @@
+---
+- name: Fix and verify Mavrick audio on compute-04
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Configure the detected PCH analogue output
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/mavrick/config.env
+        regexp: '^MAVRICK_SPEAKER_DEVICE='
+        line: 'MAVRICK_SPEAKER_DEVICE=plughw:CARD=PCH,DEV=0'
+        create: false
+
+    - name: Unmute PCH playback controls
+      become: true
+      ansible.builtin.shell: |
+        set -o pipefail
+        amixer -c PCH set Master 75% unmute 2>/dev/null || true
+        amixer -c PCH set Speaker 75% unmute 2>/dev/null || true
+        amixer -c PCH set Headphone 75% unmute 2>/dev/null || true
+        amixer -c PCH sset 'Auto-Mute Mode' Disabled 2>/dev/null || true
+        amixer -c PCH
+      args:
+        executable: /bin/bash
+      register: mixer
+      changed_when: true
+
+    - name: Test playback as the Mavrick service user
+      become: true
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test -r /usr/share/sounds/alsa/Front_Center.wav
+        runuser -u mavrick -- timeout 20 aplay -q -D plughw:CARD=PCH,DEV=0 /usr/share/sounds/alsa/Front_Center.wav
+        echo MAVRICK_PCH_PLAYBACK=passed
+      args:
+        executable: /bin/bash
+      register: playback
+      changed_when: false
+
+    - name: Restart Mavrick listener
+      become: true
+      ansible.builtin.systemd:
+        name: mavrick.service
+        state: restarted
+        enabled: true
+        daemon_reload: true
+
+    - name: Verify listener and devices
+      become: true
+      ansible.builtin.shell: |
+        set -euo pipefail
+        sleep 3
+        echo "MAVRICK_SERVICE=$(systemctl is-active mavrick.service)"
+        echo "MAVRICK_ENABLED=$(systemctl is-enabled mavrick.service)"
+        echo "MAVRICK_MIC=$(pgrep -af 'arecord.*C930e' | head -1)"
+        echo "MAVRICK_SPEAKER=$(grep '^MAVRICK_SPEAKER_DEVICE=' /etc/mavrick/config.env)"
+        echo "MAVRICK_PLAYBACK_TEST={{ playback.stdout | trim }}"
+      args:
+        executable: /bin/bash
+      register: verify
+      changed_when: false
+
+    - name: Show corrected audio state
+      ansible.builtin.debug:
+        msg: "{{ verify.stdout_lines }}"
