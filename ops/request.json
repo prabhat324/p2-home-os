@@ -1,5 +1,5 @@
 {
-  "request_id": "verify-dashboard-route-dns-final-20260816-1250",
+  "request_id": "verify-adguard-dashboard-record-20260816-1254",
   "operation": "p2-dashboard-diagnose",
   "target": "core-01"
 }
