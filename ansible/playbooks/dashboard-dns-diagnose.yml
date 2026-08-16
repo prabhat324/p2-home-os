@@ -1,0 +1,26 @@
+---
+- name: Diagnose dashboard.home.arpa DNS on core-01
+  hosts: core-01
+  gather_facts: false
+  tasks:
+    - name: Inspect AdGuard DNS rewrite state safely
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '=== DNS_QUERY ==='
+        getent hosts dashboard.home.arpa || true
+        echo '=== ADGUARD_CONTAINER ==='
+        docker ps --filter name='^/adguardhome$' --format '{% raw %}{{.Names}}|{{.Status}}{% endraw %}' 2>&1 || true
+        echo '=== CONFIG_MOUNTS ==='
+        docker inspect adguardhome --format '{% raw %}{{range .Mounts}}{{.Source}}|{{.Destination}}{{println}}{{end}}{% endraw %}' 2>&1 || true
+        echo '=== REWRITE_SECTION ==='
+        docker exec adguardhome sh -c "awk '/^[[:space:]]*rewrites:/{show=1; n=0} show{print; n++} n>30{exit}' /opt/adguardhome/conf/AdGuardHome.yaml" 2>&1 || true
+      args:
+        executable: /bin/bash
+      register: diagnose
+      changed_when: false
+      failed_when: false
+
+    - name: Print DNS diagnosis
+      ansible.builtin.debug:
+        msg: "{{ diagnose.stdout_lines }}"
+
