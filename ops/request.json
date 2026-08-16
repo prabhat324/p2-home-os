@@ -1,5 +1,5 @@
 {
-  "request_id": "reset-dashboard-route-baseline-20260816-1245",
-  "operation": "p2-dashboard-route-reset",
+  "request_id": "activate-dashboard-route-clean-20260816-1247",
+  "operation": "p2-dashboard-route",
   "target": "core-01"
 }
