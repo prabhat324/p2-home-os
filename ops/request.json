@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-productivity-sla-20260815-2016",
-  "operation": "osho-status",
-  "target": "compute-01"
+  "request_id": "osho-productivity-compute03-20260815-2017",
+  "operation": "status",
+  "target": "compute-03"
 }
