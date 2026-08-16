@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-compute04-stage-trace-20260816-0627",
-  "operation": "mavrick-listen-window",
+  "request_id": "mavrick-compute04-six-second-endpoint-20260816-0635",
+  "operation": "mavrick-deploy",
   "target": "compute-04"
 }
