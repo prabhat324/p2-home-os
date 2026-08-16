@@ -1,5 +1,5 @@
 {
-  "request_id": "first-growth-video-check-20260816-0100",
-  "operation": "osho-publisher-diagnose",
-  "target": "compute-01"
+  "request_id": "compute04-first-ping-20260816-0045",
+  "operation": "ping",
+  "target": "compute-04"
 }
