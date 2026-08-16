@@ -56,6 +56,8 @@ METRICS: dict[str, object] = {
 
 STOP = threading.Event()
 SPEAKING = threading.Event()
+INTERACTION_PENDING = threading.Event()
+INFERENCE_LOCK = threading.Lock()
 UTTERANCES: queue.Queue[np.ndarray] = queue.Queue(maxsize=1)
 SPEECH_MODEL: WhisperModel | None = None
 
@@ -165,9 +167,11 @@ def scene_change(previous: bytes | None, current: bytes) -> float:
     b = Image.open(io.BytesIO(current)).convert("L").resize((64, 36))
     return float(ImageStat.Stat(ImageChops.difference(a, b)).mean[0])
 
-def ollama(messages: list[dict], image: bytes | None = None) -> dict:
+def ollama(messages: list[dict], image: bytes | None = None, plain_reply: bool = False) -> dict:
     started = time.monotonic()
     content = messages[-1]["content"]
+    if plain_reply:
+        content += " Answer in one short plain-text sentence. Do not use JSON."
     user = {"role": "user", "content": content}
     if image is not None:
         user["images"] = [base64.b64encode(image).decode("ascii")]
@@ -176,10 +180,15 @@ def ollama(messages: list[dict], image: bytes | None = None) -> dict:
         "messages": [{"role": "system", "content": SYSTEM_PROMPT}, *messages[:-1], user],
         "stream": False,
         "think": False,
-        "format": SCHEMA,
-        "options": {"temperature": 0.55, "num_ctx": 4096, "num_predict": 256},
-        "keep_alive": "10m",
+        "options": {
+            "temperature": 0.4 if plain_reply else 0.55,
+            "num_ctx": 2048 if plain_reply else 4096,
+            "num_predict": 72 if plain_reply else 256,
+        },
+        "keep_alive": "30m",
     }
+    if not plain_reply:
+        payload["format"] = SCHEMA
     response = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=180)
     response.raise_for_status()
     message = response.json().get("message", {})
@@ -206,6 +215,15 @@ def ollama(messages: list[dict], image: bytes | None = None) -> dict:
         text = str(retry.json().get("message", {}).get("content") or "").strip()
     with STATE_LOCK:
         METRICS["vision_ms"] = round((time.monotonic() - started) * 1000)
+    if plain_reply:
+        if not text:
+            raise RuntimeError("empty plain model response")
+        return {
+            "person_present": image is not None,
+            "observation": "",
+            "reply": " ".join(text.split())[:300],
+            "speak": True,
+        }
     cleaned = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     try:
         return json.loads(cleaned)
@@ -378,6 +396,7 @@ def microphone_loop() -> None:
                             rms=int(rms),
                             threshold=int(dynamic_threshold),
                         )
+                        INTERACTION_PENDING.set()
                         status("listening", indicator="camera_led", retention="ram_only")
                     continue
 
@@ -452,6 +471,7 @@ def transcriber_loop() -> None:
                 handle_question(text)
             else:
                 log("transcription_empty")
+                INTERACTION_PENDING.clear()
                 status("ambient_ready", transcription="empty", retention="ram_only")
         except Exception as exc:
             log("transcription_failed", error=type(exc).__name__)
@@ -467,10 +487,12 @@ def handle_question(text: str) -> None:
         except Exception:
             pass
     try:
-        result = ollama(
-            [{"role": "user", "content": f"The person said: {text}. Reply naturally and briefly, using the current view only if useful."}],
-            frame,
-        )
+        with INFERENCE_LOCK:
+            result = ollama(
+                [{"role": "user", "content": f"The person said: {text}. Reply naturally and briefly, using the current view only if useful."}],
+                frame,
+                plain_reply=True,
+            )
         reply = str(result.get("reply", "")).strip()
         playback = "not_requested"
         if reply:
@@ -490,10 +512,13 @@ def handle_question(text: str) -> None:
         status("ambient_ready", camera=str(device) if device else None, retention="ram_only")
     except Exception as exc:
         log("question_failed", error=type(exc).__name__)
+    finally:
+        INTERACTION_PENDING.clear()
 
 def ambient_loop() -> None:
     previous: bytes | None = None
     last_comment = 0.0
+    last_analysis = 0.0
     camera_was_present = False
     while not STOP.is_set():
         device = camera_path()
@@ -514,18 +539,28 @@ def ambient_loop() -> None:
             change = scene_change(previous, frame)
             previous = frame
             now = time.monotonic()
-            if change >= 4.0 and now - last_comment >= COMMENT_COOLDOWN:
+            if (
+                change >= 4.0
+                and now - last_comment >= COMMENT_COOLDOWN
+                and now - last_analysis >= 60
+                and not INTERACTION_PENDING.is_set()
+                and INFERENCE_LOCK.acquire(blocking=False)
+            ):
+                last_analysis = now
                 status("local_vision_processing", retention="ram_only")
-                result = ollama(
+                try:
+                    result = ollama(
                     [{"role": "user", "content": "Observe the current scene. Mention activity or clothing only when clearly visible. Decide whether a short playful comment would improve this demo."}],
-                    frame,
-                )
-                if result.get("person_present") and result.get("speak"):
-                    reply = str(result.get("reply", "")).strip()
-                    if reply:
-                        speak(reply)
-                        last_comment = now
-                status("ambient_ready", camera=str(device), retention="ram_only")
+                        frame,
+                    )
+                    if result.get("person_present") and result.get("speak"):
+                        reply = str(result.get("reply", "")).strip()
+                        if reply:
+                            speak(reply)
+                            last_comment = now
+                    status("ambient_ready", camera=str(device), retention="ram_only")
+                finally:
+                    INFERENCE_LOCK.release()
             frame = b""
         except Exception as exc:
             log("ambient_retry", error=type(exc).__name__)
