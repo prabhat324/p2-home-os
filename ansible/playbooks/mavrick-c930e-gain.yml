@@ -1,0 +1,37 @@
+---
+- name: Raise C930e hardware microphone gain for Mavrick
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Stop Mavrick for exclusive mixer access
+      become: true
+      ansible.builtin.systemd:
+        name: mavrick.service
+        state: stopped
+
+    - name: Set every C930e capture control to maximum
+      become: true
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '=== BEFORE ==='
+        amixer -c C930e scontents 2>&1 || true
+        for control in Mic Capture; do
+          amixer -c C930e set "$control" 100% unmute 2>&1 || true
+        done
+        echo '=== AFTER ==='
+        amixer -c C930e scontents 2>&1 || true
+      args:
+        executable: /bin/bash
+      register: gain
+      changed_when: true
+
+    - name: Restart Mavrick
+      become: true
+      ansible.builtin.systemd:
+        name: mavrick.service
+        state: restarted
+        enabled: true
+
+    - name: Show C930e gain state
+      ansible.builtin.debug:
+        msg: "{{ gain.stdout_lines }}"
