@@ -3,24 +3,30 @@
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Inspect notification implementation
+    - name: Inspect notification implementation and psquare bot runtime
       ansible.builtin.shell: |
         set -o pipefail
         echo "NOW=$(date -Ins)"
-        echo "=== SERVICE ==="
-        systemctl show osho-autopilot.service -p ActiveState -p SubState -p FragmentPath -p DropInPaths --no-pager 2>/dev/null || true
-        echo "=== ACCESS ==="
-        id
-        sudo -n -l 2>&1 || true
-        stat -c "%A %U %G %n" /srv/compose/osho-worker /srv/compose/osho-worker/osho_autopilot.py /etc/systemd/system 2>/dev/null || true
-        echo "=== MANAGED PATCH HELPER ==="
-        sed -n "1,320p" /usr/local/sbin/p2ops-osho-managed-patch 2>/dev/null || true
-        echo "=== FILES REFERENCING NOTIFICATIONS ==="
-        grep -RIlE "smtp|sendmail|email|mailgun|notify|notification|webhook|discord" /srv/compose/osho-worker /srv/osho 2>/dev/null | sort | head -150 || true
-        echo "=== RELEVANT SOURCE LINES ==="
-        grep -RInE "send_email|send_mail|smtp|sendmail|notify|notification|webhook|discord" /srv/compose/osho-worker --include="*.py" --include="*.sh" --include="*.service" --include="*.timer" 2>/dev/null | head -300 || true
-        echo "=== RECENT AUTOPILOT EVENT SHAPES ==="
-        journalctl -u osho-autopilot.service --since "24 hours ago" --no-pager 2>/dev/null | grep -Ei "start|stop|candidate|approval|queue|render|complete|fail|upload|publish|email|notify" | tail -160 || true
+        echo "=== OSHO SERVICE ==="
+        systemctl show osho-autopilot.service -p ActiveState -p SubState --no-pager 2>/dev/null || true
+        echo "=== DISCORD PROCESSES ==="
+        pgrep -af 'osho-discord-notifier|osho-discord-bot' || true
+        echo "=== DISCORD BOT PID ==="
+        pidfile=/home/p2ops/.local/state/osho-discord-bot.pid
+        if [ -s "$pidfile" ]; then
+          pid=$(cat "$pidfile")
+          echo "PID=$pid"
+          if kill -0 "$pid" 2>/dev/null; then echo "BOT_PROCESS=running"; else echo "BOT_PROCESS=dead"; fi
+        else
+          echo "BOT_PROCESS=no-pidfile"
+        fi
+        echo "=== DISCORD BOT CONFIG SAFETY ==="
+        stat -c 'CONFIG_MODE=%a CONFIG_OWNER=%U:%G' /home/p2ops/.config/osho-discord-bot.env 2>/dev/null || true
+        grep -E '^DISCORD_CHANNEL_ID=' /home/p2ops/.config/osho-discord-bot.env 2>/dev/null | sed 's/=.*/=<configured>/' || true
+        echo "=== DISCORD BOT LOG ==="
+        tail -n 80 /home/p2ops/.local/state/osho-discord-bot.log 2>/dev/null || true
+        echo "=== DISCORD NOTIFIER LOG ==="
+        tail -n 30 /home/p2ops/.local/state/osho-discord-notifier.log 2>/dev/null || true
       args:
         executable: /bin/bash
       register: notification_diag
