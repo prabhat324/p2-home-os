@@ -1,0 +1,42 @@
+---
+- name: Compare host and live worker Growth V1 code on compute-01
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Inspect container code, mounts, image, and compose configuration
+      ansible.builtin.shell: |
+        set -o pipefail
+        cd /srv/compose/osho-worker
+        echo "NOW=$(date -Ins)"
+        echo '=== HOST CODE ==='
+        sha256sum app.py production_renderer.py 2>/dev/null || true
+        grep -nE 'osho-growth-v1|OSHO_GROWTH_TEMPLATE_V1' app.py production_renderer.py | head -40 || true
+        echo '=== CONTAINER ID / IMAGE ==='
+        docker inspect osho-worker --format 'ID={{.Id}} IMAGE={{.Image}} CREATED={{.Created}} STARTED={{.State.StartedAt}}' 2>/dev/null || true
+        echo '=== CONTAINER MOUNTS ==='
+        docker inspect osho-worker --format '{{range .Mounts}}{{println .Source "->" .Destination "RW=" .RW}}{{end}}' 2>/dev/null || true
+        echo '=== CONTAINER CODE LOCATIONS ==='
+        docker exec osho-worker sh -lc '
+          pwd
+          find / -maxdepth 3 -type f \( -name app.py -o -name production_renderer.py \) 2>/dev/null | sort
+          for f in /app/app.py /app/production_renderer.py /srv/compose/osho-worker/app.py /srv/compose/osho-worker/production_renderer.py; do
+            [ -f "$f" ] || continue
+            echo "--- $f ---"
+            sha256sum "$f" || true
+            grep -nE "osho-growth-v1|OSHO_GROWTH_TEMPLATE_V1" "$f" | head -30 || true
+          done
+        ' 2>/dev/null || true
+        echo '=== COMPOSE CONFIG ==='
+        docker compose config 2>/dev/null | sed -n '1,260p' || true
+        echo '=== IMAGE HISTORY ==='
+        img=$(docker inspect osho-worker --format '{{.Image}}' 2>/dev/null || true)
+        [ -n "$img" ] && docker image inspect "$img" --format 'IMAGE_CREATED={{.Created}} TAGS={{json .RepoTags}}' 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      register: diag
+      changed_when: false
+      failed_when: false
+
+    - name: Show host versus container diagnosis
+      ansible.builtin.debug:
+        msg: "{{ diag.stdout_lines }}"
