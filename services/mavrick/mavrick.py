@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+from collections import deque
 import io
 import json
 import os
@@ -38,6 +39,11 @@ COMMENT_COOLDOWN = int(os.getenv("MAVRICK_COMMENT_COOLDOWN", "180"))
 SPEECH_RMS_THRESHOLD = int(os.getenv("MAVRICK_SPEECH_RMS_THRESHOLD", "400"))
 MIC_SOFTWARE_GAIN = float(os.getenv("MAVRICK_MIC_SOFTWARE_GAIN", "4.0"))
 MAX_UTTERANCE_CHUNKS = int(os.getenv("MAVRICK_MAX_UTTERANCE_CHUNKS", "60"))
+SPEECH_END_SILENCE_CHUNKS = int(os.getenv("MAVRICK_SPEECH_END_SILENCE_CHUNKS", "6"))
+SPEECH_START_CHUNKS = int(os.getenv("MAVRICK_SPEECH_START_CHUNKS", "2"))
+PRE_ROLL_CHUNKS = int(os.getenv("MAVRICK_PRE_ROLL_CHUNKS", "5"))
+NOISE_WINDOW_CHUNKS = int(os.getenv("MAVRICK_NOISE_WINDOW_CHUNKS", "50"))
+VAD_NOISE_MULTIPLIER = float(os.getenv("MAVRICK_VAD_NOISE_MULTIPLIER", "2.2"))
 CAMERA_LISTEN_INDICATOR = os.getenv("MAVRICK_CAMERA_LISTEN_INDICATOR", "true").lower() in {"1", "true", "yes", "on"}
 STATUS_FILE = pathlib.Path("/run/mavrick/status.json")
 STATE_LOCK = threading.Lock()
@@ -49,7 +55,7 @@ METRICS: dict[str, object] = {
 
 STOP = threading.Event()
 SPEAKING = threading.Event()
-UTTERANCES: queue.Queue[np.ndarray] = queue.Queue(maxsize=3)
+UTTERANCES: queue.Queue[np.ndarray] = queue.Queue(maxsize=1)
 
 SYSTEM_PROMPT = """You are Mavrick, a private local ambient companion for a fun home demo.
 You may describe visible activity, objects, and clothing colors or styles, then make at most
@@ -261,6 +267,27 @@ def stop_camera_indicator(proc: subprocess.Popen | None) -> None:
         except Exception:
             pass
 
+def queue_latest_utterance(audio: np.ndarray, speech_chunks: int, peak_rms: float, threshold: float) -> None:
+    """Keep the freshest phrase so stale room-noise captures cannot jam conversation."""
+    while True:
+        try:
+            UTTERANCES.put_nowait(audio)
+            log(
+                "utterance_queued",
+                speech_chunks=speech_chunks,
+                peak_rms=int(peak_rms),
+                threshold=int(threshold),
+            )
+            status("transcribing", retention="ram_only")
+            return
+        except queue.Full:
+            try:
+                UTTERANCES.get_nowait()
+                log("utterance_replaced", reason="newer_speech")
+            except queue.Empty:
+                return
+
+
 def microphone_loop() -> None:
     chunk_samples = 1600
     command = [
@@ -269,61 +296,100 @@ def microphone_loop() -> None:
     ]
     while not STOP.is_set():
         proc = None
+        indicator = None
         try:
             proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             active: list[np.ndarray] = []
+            pre_roll: deque[np.ndarray] = deque(maxlen=PRE_ROLL_CHUNKS)
+            noise_samples: deque[float] = deque(maxlen=NOISE_WINDOW_CHUNKS)
             silence_chunks = 0
             speech_chunks = 0
-            indicator = None
+            speech_candidate_chunks = 0
             peak_rms = 0.0
             level_peak = 0.0
             last_level_log = time.monotonic()
+            dynamic_threshold = float(SPEECH_RMS_THRESHOLD)
             while not STOP.is_set() and proc.poll() is None:
                 raw = proc.stdout.read(chunk_samples * 2) if proc.stdout else b""
                 if len(raw) < chunk_samples * 2:
                     break
                 if SPEAKING.is_set():
                     active.clear()
-                    silence_chunks = speech_chunks = 0
+                    pre_roll.clear()
+                    silence_chunks = speech_chunks = speech_candidate_chunks = 0
                     continue
+
                 samples = np.frombuffer(raw, dtype=np.int16).copy()
                 rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
                 level_peak = max(level_peak, rms)
+
+                if not active:
+                    noise_samples.append(rms)
+                    if len(noise_samples) >= 10:
+                        noise_floor = float(np.median(np.asarray(noise_samples, dtype=np.float32)))
+                        dynamic_threshold = max(
+                            float(SPEECH_RMS_THRESHOLD),
+                            noise_floor * VAD_NOISE_MULTIPLIER,
+                        )
+                    pre_roll.append(samples)
+
                 if time.monotonic() - last_level_log >= 2.0:
-                    log("mic_level", rms=int(rms), peak=int(level_peak), threshold=SPEECH_RMS_THRESHOLD)
+                    log(
+                        "mic_level",
+                        rms=int(rms),
+                        peak=int(level_peak),
+                        threshold=int(dynamic_threshold),
+                    )
                     level_peak = 0.0
                     last_level_log = time.monotonic()
-                is_speech = rms >= SPEECH_RMS_THRESHOLD
+
+                is_speech = rms >= dynamic_threshold
+                if not active:
+                    speech_candidate_chunks = speech_candidate_chunks + 1 if is_speech else 0
+                    if speech_candidate_chunks >= SPEECH_START_CHUNKS:
+                        active.extend(list(pre_roll))
+                        speech_chunks = speech_candidate_chunks
+                        peak_rms = rms
+                        indicator = start_camera_indicator()
+                        log(
+                            "listening_started",
+                            rms=int(rms),
+                            threshold=int(dynamic_threshold),
+                        )
+                        status("listening", indicator="camera_led", retention="ram_only")
+                    continue
+
+                active.append(samples)
                 if is_speech:
                     peak_rms = max(peak_rms, rms)
-                    if indicator is None:
-                        indicator = start_camera_indicator()
-                        log("listening_started", rms=int(rms), threshold=SPEECH_RMS_THRESHOLD)
-                        status("listening", indicator="camera_led", retention="ram_only")
                     speech_chunks += 1
                     silence_chunks = 0
-                    active.append(samples)
-                elif active:
+                else:
                     silence_chunks += 1
-                    active.append(samples)
-                if active and (silence_chunks >= 8 or len(active) >= MAX_UTTERANCE_CHUNKS):
+
+                endpoint = silence_chunks >= SPEECH_END_SILENCE_CHUNKS
+                forced_endpoint = len(active) >= MAX_UTTERANCE_CHUNKS
+                if endpoint or forced_endpoint:
                     stop_camera_indicator(indicator)
                     indicator = None
                     if speech_chunks >= 3:
-                        audio = np.clip(np.concatenate(active).astype(np.float32) * MIC_SOFTWARE_GAIN / 32768.0, -1.0, 1.0)
-                        try:
-                            UTTERANCES.put_nowait(audio)
-                            log("utterance_queued", speech_chunks=speech_chunks, peak_rms=int(peak_rms))
-                            status("transcribing", retention="ram_only")
-                        except queue.Full:
-                            log("utterance_dropped", reason="queue_full")
+                        audio = np.clip(
+                            np.concatenate(active).astype(np.float32)
+                            * MIC_SOFTWARE_GAIN / 32768.0,
+                            -1.0,
+                            1.0,
+                        )
+                        queue_latest_utterance(
+                            audio, speech_chunks, peak_rms, dynamic_threshold
+                        )
                     active.clear()
-                    silence_chunks = speech_chunks = 0
+                    pre_roll.clear()
+                    silence_chunks = speech_chunks = speech_candidate_chunks = 0
                     peak_rms = 0.0
         except Exception as exc:
             log("microphone_retry", error=type(exc).__name__)
         finally:
-            stop_camera_indicator(locals().get("indicator"))
+            stop_camera_indicator(indicator)
             if proc is not None:
                 try:
                     proc.terminate()
