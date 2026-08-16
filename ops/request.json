@@ -1,5 +1,5 @@
 {
-  "request_id": "psquare-polished-responses-20260816-1056",
-  "operation": "osho-discord-deploy",
-  "target": "compute-01"
+  "request_id": "mavrick-compute04-mic-gain-20260816-0501",
+  "operation": "mavrick-deploy",
+  "target": "compute-04"
 }
