@@ -1,5 +1,5 @@
 {
-  "request_id": "compute03-worker-recover-20260815-2238",
-  "operation": "compute03-worker-recover",
-  "target": "compute-03"
+  "request_id": "first-growth-video-check-20260815-2306",
+  "operation": "osho-status",
+  "target": "compute-01"
 }
