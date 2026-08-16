@@ -1,0 +1,53 @@
+---
+- name: Diagnose Sonarr root-folder access on core-01
+  hosts: core-01
+  gather_facts: false
+  tasks:
+    - name: Collect Sonarr container, mount, path, and permission evidence
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '=== HOST ==='
+        hostname
+        id
+        echo '=== MEDIA MOUNT ==='
+        findmnt -T '/mnt/media/TV Shows' -o TARGET,SOURCE,FSTYPE,OPTIONS 2>&1 || true
+        stat -c '%U:%G %u:%g %a %n' /mnt/media '/mnt/media/TV Shows' /mnt/media/Downloads 2>&1 || true
+        echo '=== SONARR CONTAINER ==='
+        docker ps -a --filter name=sonarr --format '{{ "{{.Names}}" }}|{{ "{{.Status}}" }}|{{ "{{.Image}}" }}' 2>&1 || true
+        echo '=== SONARR MOUNTS ==='
+        docker inspect sonarr --format '{{ "{{range .Mounts}}{{println .Source \"->\" .Destination \"RW=\" .RW}}{{end}}" }}' 2>&1 || true
+        echo '=== SONARR ID AND PATHS ==='
+        docker exec sonarr sh -c 'id; for p in /tv "/mnt/media/TV Shows" /downloads; do echo "--- $p"; ls -ld "$p" 2>&1 || true; done' 2>&1 || true
+        echo '=== WRITE PROBES ==='
+        docker exec sonarr sh -c '
+          for p in /tv "/mnt/media/TV Shows"; do
+            if [ -d "$p" ]; then
+              probe="$p/.p2-sonarr-write-probe"
+              if touch "$probe" 2>/tmp/p2-probe-error; then
+                rm -f "$probe"
+                echo "WRITE_OK=$p"
+              else
+                echo "WRITE_FAIL=$p"
+                cat /tmp/p2-probe-error
+              fi
+            fi
+          done
+        ' 2>&1 || true
+        echo '=== COMPOSE FILES ==='
+        find /opt/docker/compose/sonarr -maxdepth 2 -type f \( -name 'compose.yml' -o -name 'compose.yaml' -o -name 'docker-compose.yml' -o -name 'docker-compose.yaml' \) -print 2>/dev/null || true
+        for f in /opt/docker/compose/sonarr/compose.yml /opt/docker/compose/sonarr/compose.yaml /opt/docker/compose/sonarr/docker-compose.yml /opt/docker/compose/sonarr/docker-compose.yaml; do
+          if [ -f "$f" ]; then
+            echo "--- $f"
+            sed -n '1,220p' "$f"
+          fi
+        done
+        echo '=== RECENT SONARR LOGS ==='
+        docker logs --tail 160 sonarr 2>&1 || true
+      args:
+        executable: /bin/bash
+      register: sonarr_diagnose
+      changed_when: false
+
+    - name: Print Sonarr diagnostic evidence
+      ansible.builtin.debug:
+        msg: "{{ sonarr_diagnose.stdout_lines }}"
