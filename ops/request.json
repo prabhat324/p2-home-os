@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-dns-helper-audit-20260816-1240",
-  "operation": "dashboard-dns-diagnose",
+  "request_id": "reset-dashboard-route-baseline-20260816-1245",
+  "operation": "p2-dashboard-route-reset",
   "target": "core-01"
 }
