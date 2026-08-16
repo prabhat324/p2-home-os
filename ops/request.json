@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-progress-diagnose-20260816-1018",
-  "operation": "osho-ranker-diagnose",
-  "target": "compute-01"
+  "request_id": "osho-gpu-productivity-check-20260816-1019",
+  "operation": "gpu-status",
+  "target": "gpu_nodes"
 }
