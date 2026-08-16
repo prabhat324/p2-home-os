@@ -1,0 +1,32 @@
+---
+- name: Play unmistakable internal speaker tone on compute-04
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Force internal speaker controls on
+      become: true
+      ansible.builtin.shell: |
+        set -euo pipefail
+        amixer -c PCH set Master 100% unmute
+        amixer -c PCH set Speaker 100% unmute
+        amixer -c PCH set 'Bass Speaker' unmute || true
+        amixer -c PCH set Headphone 100% unmute
+        amixer -c PCH sset 'Auto-Mute Mode' Disabled
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Play five-second 660 Hz tone through internal analogue output
+      become: true
+      ansible.builtin.shell: |
+        set -euo pipefail
+        runuser -u mavrick -- timeout 7 speaker-test -q -D front:CARD=PCH,DEV=0 -c 2 -t sine -f 660 -l 1
+        echo MAVRICK_INTERNAL_TONE=completed
+      args:
+        executable: /bin/bash
+      register: tone
+      changed_when: false
+
+    - name: Show tone result
+      ansible.builtin.debug:
+        msg: "{{ tone.stdout_lines }}"
