@@ -1,5 +1,5 @@
 {
-  "request_id": "compute04-gpu-20260816-0055",
-  "operation": "gpu-status",
+  "request_id": "compute04-bootstrap-20260816-0110",
+  "operation": "compute04-bootstrap",
   "target": "compute-04"
 }
