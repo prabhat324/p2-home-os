@@ -37,7 +37,7 @@ python3 -m venv /opt/mavrick/venv
 /opt/mavrick/venv/bin/pip install -r /opt/mavrick/requirements.txt
 
 runuser -u mavrick -- /opt/mavrick/venv/bin/python -m piper.download_voices \
-  --data-dir /var/lib/mavrick/models/piper en_US-lessac-medium
+  --data-dir /var/lib/mavrick/models/piper en_US-hfc_female-medium
 runuser -u mavrick -- /opt/mavrick/venv/bin/python - <<'PY'
 from faster_whisper import WhisperModel
 WhisperModel("tiny.en", device="cpu", compute_type="int8", download_root="/var/lib/mavrick/models/whisper")
