@@ -78,7 +78,7 @@ case "${operation}" in
   home-dashboard-inventory)
     [[ "${target}" == "all" ]] || { echo "home-dashboard-inventory is restricted to all" >&2; exit 2; }
     playbook="playbooks/home-dashboard-inventory.yml" ;;
-  mavrick-deploy)
+  mavrick-retire-compute02)\n    [[ "${target}" == "compute-02" ]] || { echo "mavrick-retire-compute02 is restricted to compute-02" >&2; exit 2; }\n    playbook="playbooks/mavrick-retire-compute02.yml" ;;\n  mavrick-deploy)
     [[ "${target}" == "compute-04" ]] || { echo "mavrick-deploy is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-deploy.yml" ;;
   mavrick-inventory)
