@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-productivity-sla-evidence-20260816-1016",
-  "operation": "osho-notifications-diagnose",
-  "target": "compute-01"
+  "request_id": "mavrick-compute04-audio-inventory-20260816-0310",
+  "operation": "mavrick-inventory",
+  "target": "compute-04"
 }
