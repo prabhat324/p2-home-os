@@ -1,0 +1,235 @@
+---
+- name: Deploy pSquare generative photo editing
+  hosts: compute-01
+  gather_facts: false
+  vars:
+    psquare_gen_worker: /home/p2ops/.local/bin/psquare-generative.py
+    psquare_gen_root: /home/p2ops/.local/share/psquare-generative
+    psquare_gen_venv: /home/p2ops/.local/share/psquare-generative/venv
+    psquare_ai_bin: /home/p2runner/.local/bin/psquare_ai.py
+    psquare_bot_bin: /home/p2runner/.local/bin/psquare-discord-bot.py
+    psquare_state: /home/p2runner/.local/state
+  tasks:
+    - name: Create isolated pSquare generative directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: p2ops
+        group: p2ops
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "/home/p2ops/.local/bin", mode: "0755" }
+        - { path: "{{ psquare_gen_root }}", mode: "0700" }
+        - { path: "{{ psquare_gen_root }}/hf", mode: "0700" }
+
+    - name: Install pSquare generative worker
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../services/psquare-discord/psquare_generative.py"
+        dest: "{{ psquare_gen_worker }}"
+        owner: p2ops
+        group: p2ops
+        mode: "0755"
+
+    - name: Create isolated generative Python environment
+      ansible.builtin.shell: |
+        set -eu
+        if [ ! -x "{{ psquare_gen_venv }}/bin/python" ]; then
+          python3 -m venv --system-site-packages "{{ psquare_gen_venv }}"
+          echo GENERATIVE_VENV_CREATED=yes
+        else
+          echo GENERATIVE_VENV_CREATED=no
+        fi
+        "{{ psquare_gen_venv }}/bin/pip" install --upgrade pip setuptools wheel >/dev/null
+        if ! "{{ psquare_gen_venv }}/bin/python" -c 'import torch' >/dev/null 2>&1; then
+          "{{ psquare_gen_venv }}/bin/pip" install --index-url https://download.pytorch.org/whl/cu128 torch torchvision
+          echo TORCH_INSTALLED=yes
+        else
+          echo TORCH_INSTALLED=no
+        fi
+        if ! "{{ psquare_gen_venv }}/bin/python" -c 'import diffusers, transformers, accelerate, safetensors, PIL' >/dev/null 2>&1; then
+          "{{ psquare_gen_venv }}/bin/pip" install 'diffusers>=0.32,<0.37' 'transformers>=4.48,<5' accelerate safetensors pillow
+          echo DIFFUSION_PACKAGES_INSTALLED=yes
+        else
+          echo DIFFUSION_PACKAGES_INSTALLED=no
+        fi
+      args:
+        executable: /bin/bash
+      register: psquare_gen_env
+      changed_when: "'yes' in psquare_gen_env.stdout"
+
+    - name: Validate CUDA and generative imports
+      ansible.builtin.shell: |
+        set -eu
+        "{{ psquare_gen_venv }}/bin/python" - <<'PY'
+        import torch
+        from diffusers import StableDiffusionInstructPix2PixPipeline
+        print('TORCH=' + torch.__version__)
+        print('CUDA_AVAILABLE=' + ('yes' if torch.cuda.is_available() else 'no'))
+        if not torch.cuda.is_available():
+            raise SystemExit(3)
+        print('GPU=' + torch.cuda.get_device_name(0))
+        PY
+        python3 -m py_compile "{{ psquare_gen_worker }}"
+      args:
+        executable: /bin/bash
+      register: psquare_gen_cuda
+      changed_when: false
+
+    - name: Warm model and complete real smoke-test edit
+      ansible.builtin.shell: |
+        set -eu
+        testdir="{{ psquare_gen_root }}/smoke"
+        mkdir -p "$testdir"
+        "{{ psquare_gen_venv }}/bin/python" - <<'PY'
+        from PIL import Image, ImageDraw
+        p='{{ psquare_gen_root }}/smoke/input.png'
+        im=Image.new('RGB',(256,256),(110,110,110))
+        d=ImageDraw.Draw(im)
+        d.rectangle((70,70,186,186),fill=(180,180,180))
+        im.save(p)
+        open('{{ psquare_gen_root }}/smoke/prompt.txt','w').write('make the lighting warmer while keeping the composition')
+        PY
+        HF_HOME="{{ psquare_gen_root }}/hf" PSQUARE_GENERATIVE_STEPS=2 \
+          "{{ psquare_gen_venv }}/bin/python" "{{ psquare_gen_worker }}" \
+          "$testdir/input.png" "$testdir/output.png" "$testdir/prompt.txt"
+        test -s "$testdir/output.png"
+        "{{ psquare_gen_venv }}/bin/python" - <<'PY'
+        from PIL import Image
+        im=Image.open('{{ psquare_gen_root }}/smoke/output.png')
+        print('GENERATIVE_SMOKE=ready')
+        print(f'GENERATIVE_SMOKE_SIZE={im.width}x{im.height}')
+        PY
+      args:
+        executable: /bin/bash
+      register: psquare_gen_smoke
+      changed_when: false
+      environment:
+        HF_HOME: "{{ psquare_gen_root }}/hf"
+        PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+
+    - name: Extend installed pSquare AI router with generative edits
+      ansible.builtin.blockinfile:
+        path: "{{ psquare_ai_bin }}"
+        marker: "# {mark} PSQUARE_GENERATIVE_EDIT_V1"
+        insertafter: EOF
+        block: |
+          # pSquare generative edit extension. Installed by psquare-generative-deploy.yml.
+          _psquare_base_image_edit = image_edit
+          _psquare_base_looks_like_edit = looks_like_edit
+          PSQUARE_GEN_PY = "/home/p2ops/.local/share/psquare-generative/venv/bin/python"
+          PSQUARE_GEN_WORKER = "/home/p2ops/.local/bin/psquare-generative.py"
+
+          def _psquare_is_generative(prompt: str) -> bool:
+              text = prompt.lower().strip()
+              # Keep deterministic solid-background jobs on the segmentation tool.
+              if _background_request(prompt) is not None:
+                  return False
+              if "background" in text or "backdrop" in text:
+                  return True
+              phrases = (
+                  "make it look", "make this look", "turn this into", "turn it into",
+                  "change the lighting", "change lighting", "change the weather",
+                  "change the sky", "change the outfit", "change clothes", "change clothing",
+                  "replace the", "remove the", "add a ", "add an ", "put this in",
+                  "put me in", "put the person in", "transform", "restyle",
+                  "cinematic", "watercolor", "oil painting", "pencil sketch", "anime",
+                  "cartoon", "cyberpunk", "vintage", "sunset", "night scene",
+                  "generative edit", "generatively edit",
+              )
+              return any(p in text for p in phrases)
+
+          def _psquare_generative_edit(attachment: dict, prompt: str):
+              source, error = download_image(attachment)
+              if error or source is None:
+                  return error or "I could not stage the image.", None
+              token = uuid.uuid4().hex
+              local_prompt = source.parent / "instruction.txt"
+              local_prompt.write_text(prompt[:700], encoding="utf-8")
+              remote_in = f"/tmp/psquare-gen-{token}{source.suffix}"
+              remote_out = f"/tmp/psquare-gen-{token}-edited.png"
+              remote_prompt = f"/tmp/psquare-gen-{token}.txt"
+              local_out = source.parent / "generative-edited.png"
+              try:
+                  rc, _ = _ansible("copy", f"src={source} dest={remote_in} mode=0600", timeout=90)
+                  if rc != 0:
+                      return "I could not stage the image on compute-01.", None
+                  rc, _ = _ansible("copy", f"src={local_prompt} dest={remote_prompt} mode=0600", timeout=90)
+                  if rc != 0:
+                      return "I could not stage the edit instruction on compute-01.", None
+                  command = f"HF_HOME=/home/p2ops/.local/share/psquare-generative/hf PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True {PSQUARE_GEN_PY} {PSQUARE_GEN_WORKER} {remote_in} {remote_out} {remote_prompt}"
+                  rc, output = _ansible("shell", command, timeout=900)
+                  if rc != 0:
+                      return "compute-01 could not complete that generative edit. Try a simpler instruction or a smaller image.", None
+                  rc, _ = _ansible("fetch", f"src={remote_out} dest={local_out} flat=yes", timeout=90)
+                  if rc != 0 or not local_out.exists():
+                      return "The generative edit finished, but I could not retrieve the result.", None
+                  return "✨ Generative edit completed locally on **compute-01**.", local_out
+              finally:
+                  _ansible("shell", f"rm -f {remote_in} {remote_out} {remote_prompt}", timeout=30)
+                  try:
+                      source.unlink(missing_ok=True)
+                  except Exception:
+                      pass
+
+          def image_edit(attachment: dict, prompt: str):
+              if _psquare_is_generative(prompt):
+                  return _psquare_generative_edit(attachment, prompt)
+              return _psquare_base_image_edit(attachment, prompt)
+
+          def looks_like_edit(prompt: str) -> bool:
+              return _psquare_base_looks_like_edit(prompt) or _psquare_is_generative(prompt)
+      delegate_to: core-01
+
+    - name: Validate extended pSquare AI module
+      ansible.builtin.shell: |
+        set -eu
+        python3 -m py_compile "{{ psquare_ai_bin }}"
+        PYTHONPATH="$(dirname "{{ psquare_ai_bin }}")" python3 - <<'PY'
+        import psquare_ai
+        assert psquare_ai.looks_like_edit('make this look cinematic')
+        assert psquare_ai.looks_like_edit('change the background to a city at night')
+        assert psquare_ai._background_request('make the background matte black') == 'black'
+        print('PSQUARE_GENERATIVE_ROUTER=ready')
+        PY
+      args:
+        executable: /bin/bash
+      register: psquare_gen_router
+      changed_when: false
+      delegate_to: core-01
+
+    - name: Restart pSquare after generative extension
+      ansible.builtin.shell: |
+        set -eu
+        pidfile="{{ psquare_state }}/psquare-discord.pid"
+        if [ -s "$pidfile" ]; then
+          oldpid="$(cat "$pidfile")"
+          kill "$oldpid" 2>/dev/null || true
+          for n in 1 2 3 4 5; do
+            kill -0 "$oldpid" 2>/dev/null || break
+            sleep 1
+          done
+        fi
+        for pid in $(pgrep -f '^python3 /home/p2runner/.local/bin/psquare-discord-bot.py$' 2>/dev/null || true); do
+          kill "$pid" 2>/dev/null || true
+        done
+        env -u RUNNER_TRACKING_ID nohup "{{ psquare_bot_bin }}" >> "{{ psquare_state }}/psquare-discord.log" 2>&1 </dev/null &
+        newpid=$!
+        echo "$newpid" > "$pidfile"
+        sleep 5
+        kill -0 "$newpid"
+        echo PSQUARE_STATUS=running
+        echo PSQUARE_PID=$newpid
+      args:
+        executable: /bin/bash
+      register: psquare_gen_restart
+      changed_when: true
+      delegate_to: core-01
+
+    - name: Show generative editing deployment status
+      ansible.builtin.debug:
+        msg:
+          - "{{ psquare_gen_cuda.stdout_lines }}"
+          - "{{ psquare_gen_smoke.stdout_lines }}"
+          - "{{ psquare_gen_router.stdout_lines }}"
+          - "{{ psquare_gen_restart.stdout_lines }}"
+          - "GENERATIVE_PHOTO_EDITING=ready"
