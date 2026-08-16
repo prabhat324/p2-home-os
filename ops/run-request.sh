@@ -123,6 +123,9 @@ case "${operation}" in
   mavrick-use-internal-speaker)
     [[ "${target}" == "compute-04" ]] || { echo "mavrick-use-internal-speaker is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-use-internal-speaker.yml" ;;
+  mavrick-c930e-gain)
+    [[ "${target}" == "compute-04" ]] || { echo "mavrick-c930e-gain is restricted to compute-04" >&2; exit 2; }
+    playbook="playbooks/mavrick-c930e-gain.yml" ;;
   mavrick-listen-window)
     [[ "${target}" == "compute-04" ]] || { echo "mavrick-listen-window is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-listen-window.yml" ;;
