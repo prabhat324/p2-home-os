@@ -153,6 +153,9 @@ case "${operation}" in
   home-dashboard-deploy)
     [[ "${target}" == "core-01" ]] || { echo "home-dashboard-deploy is restricted to core-01" >&2; exit 2; }
     playbook="playbooks/home-dashboard-deploy.yml" ;;
+  jellyfin-watchdog-deploy)
+    [[ "${target}" == "core-01" ]] || { echo "jellyfin-watchdog-deploy is restricted to core-01" >&2; exit 2; }
+    playbook="playbooks/jellyfin-watchdog-deploy.yml" ;;
   dashboard-dns-diagnose)
     [[ "${target}" == "core-01" ]] || { echo "dashboard-dns-diagnose is restricted to core-01" >&2; exit 2; }
     playbook="playbooks/dashboard-dns-diagnose.yml" ;;
