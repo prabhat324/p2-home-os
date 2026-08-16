@@ -6,7 +6,7 @@ services:
     network_mode: host
     environment:
       REVIEWMUSE_OLLAMA_URL: ${REVIEWMUSE_OLLAMA_URL:-http://127.0.0.1:11434}
-      REVIEWMUSE_MODEL: ${REVIEWMUSE_MODEL:-qwen3:4b}
+      REVIEWMUSE_MODEL: ${REVIEWMUSE_MODEL:-qwen3:1.7b}
       REVIEWMUSE_GOOGLE_REVIEW_URL: ${REVIEWMUSE_GOOGLE_REVIEW_URL:-https://www.google.com/maps}
     volumes:
       - ./data:/data
