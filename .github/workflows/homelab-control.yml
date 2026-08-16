@@ -46,6 +46,9 @@ jobs:
         shell: bash
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+          DISCORD_ALLOWED_USER_ID: ${{ secrets.DISCORD_ALLOWED_USER_ID }}
         run: |
           set -euo pipefail
           bash ops/run-request.sh ops/request.json
