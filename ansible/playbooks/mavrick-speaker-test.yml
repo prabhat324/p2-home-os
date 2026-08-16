@@ -1,6 +1,6 @@
 ---
 - name: Play a one-time Mavrick external speaker test
-  hosts: compute-02
+  hosts: compute-04
   gather_facts: false
   tasks:
     - name: Play audible test through the configured 3.5 mm output
