@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-compute04-c930e-gain-20260816-0518",
-  "operation": "mavrick-c930e-gain",
+  "request_id": "mavrick-compute04-live-trace-20260816-0525-v2",
+  "operation": "mavrick-listen-window",
   "target": "compute-04"
 }
