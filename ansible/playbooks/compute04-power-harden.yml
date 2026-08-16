@@ -1,0 +1,106 @@
+---
+- name: Harden compute-04 against lid-close sleep and Wi-Fi power saving
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Install Wi-Fi control utility
+      become: true
+      ansible.builtin.apt:
+        name: iw
+        state: present
+        update_cache: true
+
+    - name: Install persistent logind no-sleep policy
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/systemd/logind.conf.d/20-p2-server.conf
+        mode: "0644"
+        content: |
+          [Login]
+          HandleLidSwitch=ignore
+          HandleLidSwitchExternalPower=ignore
+          HandleLidSwitchDocked=ignore
+          LidSwitchIgnoreInhibited=yes
+          IdleAction=ignore
+
+    - name: Install Wi-Fi power-save disable helper
+      become: true
+      ansible.builtin.copy:
+        dest: /usr/local/sbin/p2-wifi-powersave-off
+        mode: "0755"
+        content: |
+          #!/bin/sh
+          for path in /sys/class/net/wl*; do
+              [ -e "$path" ] || continue
+              iface="${path##*/}"
+              /usr/sbin/iw dev "$iface" set power_save off || true
+          done
+
+    - name: Install Wi-Fi power-save systemd unit
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/p2-wifi-powersave-off.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Disable Wi-Fi power saving for P2 compute node
+          After=network.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/sbin/p2-wifi-powersave-off
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Mask every standard sleep target
+      become: true
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        masked: true
+      loop:
+        - sleep.target
+        - suspend.target
+        - hibernate.target
+        - hybrid-sleep.target
+
+    - name: Activate persistent policies
+      become: true
+      ansible.builtin.shell: |
+        set -e
+        systemctl daemon-reload
+        systemctl enable --now p2-wifi-powersave-off.service
+        systemctl restart systemd-logind
+      args:
+        executable: /bin/bash
+
+    - name: Verify no-sleep and Wi-Fi policies
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '=== LOGIND EFFECTIVE CONFIG ==='
+        systemd-analyze cat-config systemd/logind.conf | grep -E '^(HandleLidSwitch|HandleLidSwitchExternalPower|HandleLidSwitchDocked|LidSwitchIgnoreInhibited|IdleAction)=' | tail -10
+        echo '=== SLEEP TARGETS ==='
+        for unit in sleep.target suspend.target hibernate.target hybrid-sleep.target; do
+          printf '%s=' "$unit"
+          systemctl is-enabled "$unit" 2>&1 || true
+        done
+        echo '=== WIFI ==='
+        iw dev
+        for path in /sys/class/net/wl*; do
+          [ -e "$path" ] || continue
+          iface="${path##*/}"
+          printf '%s=' "$iface"
+          iw dev "$iface" get power_save 2>&1 || true
+        done
+        echo '=== POLICY SERVICE ==='
+        systemctl is-enabled p2-wifi-powersave-off.service
+        systemctl is-active p2-wifi-powersave-off.service
+      args:
+        executable: /bin/bash
+      register: power_verify
+      changed_when: false
+
+    - name: Print power-policy verification
+      ansible.builtin.debug:
+        msg: "{{ power_verify.stdout_lines }}"
