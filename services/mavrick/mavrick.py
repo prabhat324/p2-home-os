@@ -35,7 +35,7 @@ PIPER_VOICE = os.getenv("MAVRICK_PIPER_VOICE", "en_US-lessac-medium")
 PIPER_DATA = os.getenv("MAVRICK_PIPER_DATA", "/var/lib/mavrick/models/piper")
 AMBIENT_INTERVAL = int(os.getenv("MAVRICK_AMBIENT_INTERVAL", "45"))
 COMMENT_COOLDOWN = int(os.getenv("MAVRICK_COMMENT_COOLDOWN", "180"))
-SPEECH_RMS_THRESHOLD = int(os.getenv("MAVRICK_SPEECH_RMS_THRESHOLD", "120"))
+SPEECH_RMS_THRESHOLD = int(os.getenv("MAVRICK_SPEECH_RMS_THRESHOLD", "400"))
 MIC_SOFTWARE_GAIN = float(os.getenv("MAVRICK_MIC_SOFTWARE_GAIN", "4.0"))
 CAMERA_LISTEN_INDICATOR = os.getenv("MAVRICK_CAMERA_LISTEN_INDICATOR", "true").lower() in {"1", "true", "yes", "on"}
 STATUS_FILE = pathlib.Path("/run/mavrick/status.json")
@@ -353,7 +353,12 @@ def transcriber_loop() -> None:
             with STATE_LOCK:
                 METRICS["stt_ms"] = round((time.monotonic() - started) * 1000)
             if len(text) >= 2:
+                log("transcription_complete", characters=len(text))
+                status("transcription_complete", characters=len(text), retention="ram_only")
                 handle_question(text)
+            else:
+                log("transcription_empty")
+                status("ambient_ready", transcription="empty", retention="ram_only")
         except Exception as exc:
             log("transcription_failed", error=type(exc).__name__)
 
