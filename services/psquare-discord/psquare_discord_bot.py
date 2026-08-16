@@ -64,7 +64,7 @@ def discord_api(method: str, path: str, payload: dict | None = None) -> object:
         headers={
             "Authorization": f"Bot {TOKEN}",
             "Content-Type": "application/json",
-            "User-Agent": "pSquare-Home-OS/1.0",
+            "User-Agent": "pSquare-Home-OS/1.1",
         },
     )
     for attempt in range(5):
@@ -96,9 +96,12 @@ def post(text: str) -> None:
 
 
 def run(args: list[str], timeout: int = 18) -> str:
+    env = os.environ.copy()
+    env["ANSIBLE_DEPRECATION_WARNINGS"] = "False"
+    env["ANSIBLE_LOCALHOST_WARNING"] = "False"
     try:
         return subprocess.check_output(
-            args, text=True, stderr=subprocess.STDOUT, timeout=timeout
+            args, text=True, stderr=subprocess.STDOUT, timeout=timeout, env=env
         ).strip()
     except subprocess.CalledProcessError as exc:
         return (exc.output or f"exit {exc.returncode}").strip()
@@ -106,13 +109,34 @@ def run(args: list[str], timeout: int = 18) -> str:
         return f"unavailable ({type(exc).__name__})"
 
 
+def clean_ansible(raw: str) -> str:
+    """Remove Ansible transport noise while preserving the remote command output."""
+    text = raw.replace("\\n", "\n")
+    kept: list[str] = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if s.startswith("[WARNING]") or s.startswith("[DEPRECATION WARNING]"):
+            continue
+        if re.match(r"^\S+\s+\|\s+(SUCCESS|CHANGED)\s+\|", s):
+            continue
+        if re.match(r"^\S+\s+\|\s+(UNREACHABLE|FAILED)!?", s):
+            kept.append(s)
+            continue
+        if s in {"(stdout)", "(stderr)"}:
+            continue
+        kept.append(line.rstrip())
+    return "\n".join(kept).strip()
+
+
 def ansible(host: str, module: str, module_args: str = "", timeout: int = 22) -> str:
     if host not in ALLOWED_NODES and host not in {"all", "compute_nodes", "gpu_nodes", "osho_nodes"}:
         return "not allowed"
-    cmd = ["ansible", host, "-i", str(INVENTORY), "-m", module, "-o"]
+    cmd = ["ansible", host, "-i", str(INVENTORY), "-m", module]
     if module_args:
         cmd += ["-a", module_args]
-    return run(cmd, timeout=timeout)
+    return clean_ansible(run(cmd, timeout=timeout))
 
 
 def tcp_up(ip: str, port: int = 22) -> bool:
@@ -135,7 +159,7 @@ def dashboard() -> dict:
 
 
 def network_overview() -> str:
-    lines = ["🌐 **P² Home OS overview**"]
+    lines = ["🌐 **P² Home OS**"]
     online = 0
     for name, info in NODES.items():
         up = tcp_up(info["ip"])
@@ -145,10 +169,10 @@ def network_overview() -> str:
     s = d.get("summary") or {}
     if s:
         lines.append(
-            f"\n🎬 Osho: {s.get('processing', 0)} processing / {s.get('queued', 0)} queued / "
-            f"{s.get('uploaded', 0)} uploaded / {s.get('failed', 0)} failed"
+            f"\n🎬 Osho — {s.get('processing', 0)} processing, {s.get('queued', 0)} queued, "
+            f"{s.get('uploaded', 0)} uploaded, {s.get('failed', 0)} failed"
         )
-    lines.append(f"\nManaged nodes online: **{online}/{len(NODES)}**")
+    lines.append(f"\n**{online}/{len(NODES)} managed nodes online**")
     return "\n".join(lines)
 
 
@@ -160,7 +184,22 @@ def node_status(node: str) -> str:
     else:
         fixed = "printf 'uptime='; uptime -p; printf 'load='; cut -d' ' -f1-3 /proc/loadavg; free -h | awk '/Mem:/{print \"ram=\"$3\"/\"$2}'; df -h / | awk 'NR==2{print \"root=\"$3\"/\"$2\" used, \"$5}'; printf 'failed_services='; systemctl --failed --no-legend 2>/dev/null | wc -l"
         body = ansible(node, "shell", fixed)
-    return f"🖥️ **{node}**\n```\n{body[-1500:]}\n```"
+    values = {}
+    for line in body.splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            values[k.strip()] = v.strip()
+    if values:
+        return (
+            f"🖥️ **{node}**\n"
+            f"🟢 Reachable\n"
+            f"⏱️ {values.get('uptime', 'uptime unavailable')}\n"
+            f"📊 Load: **{values.get('load', '?')}**\n"
+            f"🧠 RAM: **{values.get('ram', '?')}**\n"
+            f"💾 Root: **{values.get('root', '?')}**\n"
+            f"{'✅' if values.get('failed_services', '0') == '0' else '⚠️'} Failed services: **{values.get('failed_services', '0')}**"
+        )
+    return f"🖥️ **{node}**\n```\n{body[-1200:]}\n```"
 
 
 def services_status(node: str) -> str:
@@ -168,19 +207,27 @@ def services_status(node: str) -> str:
         return "Unknown node."
     fixed = "systemctl list-units --type=service --state=running --no-legend --no-pager 2>/dev/null | awk '{print $1}' | head -35"
     body = run(["bash", "-lc", fixed]) if node == "core-01" else ansible(node, "shell", fixed)
-    return f"⚙️ **Running services — {node}**\n```\n{body[-1500:]}\n```"
+    services = [x.strip() for x in body.splitlines() if x.strip() and " | " not in x]
+    if not services:
+        return f"⚙️ **{node}** — no running-service data returned."
+    shown = ", ".join(f"`{x}`" for x in services[:20])
+    more = len(services) - min(len(services), 20)
+    return f"⚙️ **Running services — {node}**\n{shown}" + (f"\n…and **{more}** more." if more else "")
 
 
 def storage_status() -> str:
     fixed = "df -h -x tmpfs -x devtmpfs | awk 'NR==1 || $6==\"/\" || $6 ~ /^\\/mnt\\// {print}'"
     body = ansible("all", "shell", fixed, timeout=28)
-    return "💾 **P² storage snapshot**\n```\n" + body[-1650:] + "\n```"
+    return "💾 **P² storage snapshot**\n```\n" + body[-1550:] + "\n```"
 
 
 def gpu_status() -> str:
     fixed = "nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw --format=csv,noheader,nounits 2>/dev/null || echo no-nvidia-gpu"
     body = ansible("gpu_nodes", "shell", fixed, timeout=28)
-    return "🎮 **GPU nodes**\n```\n" + body[-1650:] + "\n```"
+    lines = [x.strip() for x in body.splitlines() if x.strip()]
+    if not lines:
+        return "🎮 **GPU nodes**\nNo GPU telemetry returned."
+    return "🎮 **GPU nodes**\n```\n" + "\n".join(lines[-20:]) + "\n```"
 
 
 def osho_status(detail: str = "status") -> str:
@@ -188,10 +235,10 @@ def osho_status(detail: str = "status") -> str:
     s = d.get("summary") or {}
     cur = d.get("current_job") or {}
     if not d:
-        return "🎬 **Project Osho**\nDashboard is currently unreachable from core-01."
+        return "🎬 **Osho**\nDashboard is currently unreachable from core-01."
     lines = [
-        "🎬 **Project Osho**",
-        f"Uploaded **{s.get('uploaded', 0)}** | Processing **{s.get('processing', 0)}** | Queued **{s.get('queued', 0)}** | Skipped **{s.get('skipped', 0)}** | Failed **{s.get('failed', 0)}**",
+        "🎬 **Osho**",
+        f"Uploaded **{s.get('uploaded', 0)}** · Processing **{s.get('processing', 0)}** · Queued **{s.get('queued', 0)}** · Skipped **{s.get('skipped', 0)}** · Failed **{s.get('failed', 0)}**",
     ]
     if cur:
         lines.append(
@@ -200,42 +247,85 @@ def osho_status(detail: str = "status") -> str:
         )
     if detail == "growth":
         fixed = "printf 'growth_metadata='; grep -RIl 'osho-growth-v1' /srv/osho/metadata 2>/dev/null | wc -l; printf 'renderer_marker='; grep -q 'OSHO_GROWTH_TEMPLATE_V1' /srv/compose/osho-worker/production_renderer.py 2>/dev/null && echo applied || echo missing"
-        lines.append("```\n" + ansible("compute-01", "shell", fixed)[-900:] + "\n```")
+        probe = ansible("compute-01", "shell", fixed)
+        vals = dict(re.findall(r"(growth_metadata|renderer_marker)=([^\s]+)", probe))
+        lines.append(
+            f"Growth V1 renderer: **{vals.get('renderer_marker', 'unknown')}** · "
+            f"Growth artifacts found: **{vals.get('growth_metadata', 'unknown')}**"
+        )
     if detail == "publish":
         fixed = "ls -1t /srv/osho/youtube/receipts/*.json 2>/dev/null | head -1 | xargs -r cat"
-        lines.append("Latest receipt:\n```\n" + ansible("compute-01", "shell", fixed)[-900:] + "\n```")
+        receipt = ansible("compute-01", "shell", fixed)
+        try:
+            start = receipt.find("{")
+            data = json.loads(receipt[start:]) if start >= 0 else {}
+        except Exception:
+            data = {}
+        if data:
+            lines.append(
+                f"Latest publication: **{data.get('title') or data.get('video_id') or 'unknown'}** "
+                f"({data.get('privacy_status') or data.get('status') or 'status unknown'})"
+            )
+        else:
+            lines.append("Latest publication receipt could not be parsed.")
     return "\n".join(lines)
 
 
-def mavrick_status() -> str:
-    fixed = "printf 'service='; systemctl is-active mavrick.service 2>/dev/null || true; printf 'enabled='; systemctl is-enabled mavrick.service 2>/dev/null || true; printf 'runtime='; cat /run/mavrick/status.json 2>/dev/null || echo missing; printf '\nmodel='; curl -fsS --max-time 5 http://127.0.0.1:11434/api/tags 2>/dev/null | jq -r 'if [.models[]? | select(.name == \"qwen3-vl:2b\" or .model == \"qwen3-vl:2b\")] | length > 0 then \"ready\" else \"missing\" end'"
+def mavrick_probe() -> dict[str, str]:
+    fixed = "printf 'service='; systemctl is-active mavrick.service 2>/dev/null || true; printf '\nenabled='; systemctl is-enabled mavrick.service 2>/dev/null || true; printf '\nruntime='; cat /run/mavrick/status.json 2>/dev/null || echo missing; printf '\nmodel='; curl -fsS --max-time 5 http://127.0.0.1:11434/api/tags 2>/dev/null | jq -r 'if [.models[]? | select(.name == \"qwen3-vl:2b\" or .model == \"qwen3-vl:2b\")] | length > 0 then \"ready\" else \"missing\" end'"
     body = ansible("compute-04", "shell", fixed)
-    return "👁️ **Project Mavrick — compute-04**\n```\n" + body[-1500:] + "\n```"
+    result: dict[str, str] = {}
+    for key in ("service", "enabled", "runtime", "model"):
+        m = re.search(rf"(?:^|\n){key}=(.*?)(?=\n(?:service|enabled|runtime|model)=|$)", body, re.S)
+        if m:
+            result[key] = m.group(1).strip()
+    return result
+
+
+def mavrick_status() -> str:
+    p = mavrick_probe()
+    service = p.get("service", "unknown")
+    enabled = p.get("enabled", "unknown")
+    model = p.get("model", "unknown")
+    runtime = p.get("runtime", "missing")
+    lines = ["👁️ **Mavrick — compute-04**"]
+    lines.append(f"{'🟢' if service == 'active' else '🔴'} Service: **{service}**")
+    lines.append(f"{'✅' if enabled == 'enabled' else '⚠️'} Auto-start: **{enabled}**")
+    lines.append(f"{'🧠' if model == 'ready' else '⚠️'} Vision model `qwen3-vl:2b`: **{model}**")
+    if runtime == "missing":
+        lines.append("⚠️ Runtime status file is **missing**; the service is running but has not published runtime state yet.")
+    else:
+        try:
+            data = json.loads(runtime)
+            state = data.get("status") or data.get("state") or data.get("mode") or "available"
+            lines.append(f"📡 Runtime: **{state}**")
+        except Exception:
+            lines.append("📡 Runtime status: **available**")
+    return "\n".join(lines)
 
 
 def projects_status() -> str:
     osho = dashboard()
     s = osho.get("summary") or {}
-    mav = ansible("compute-04", "shell", "printf 'mavrick='; systemctl is-active mavrick.service 2>/dev/null || true; printf ' model='; curl -fsS --max-time 4 http://127.0.0.1:11434/api/tags 2>/dev/null | jq -r 'if [.models[]? | select(.name == \"qwen3-vl:2b\" or .model == \"qwen3-vl:2b\")] | length > 0 then \"ready\" else \"missing\" end'")
+    mav = mavrick_probe()
     return (
-        "📁 **Projects overseen by p2-home-os**\n"
+        "📁 **pSquare project overview**\n"
         f"🎬 **Osho:** {s.get('processing', '?')} processing, {s.get('queued', '?')} queued, {s.get('failed', '?')} failed\n"
-        f"👁️ **Mavrick:** `{mav[-500:]}`\n"
-        "🏠 **Home infrastructure:** core services, dashboard, storage/media, Ollama/AI and compute nodes are available through pSquare status queries."
+        f"👁️ **Mavrick:** service **{mav.get('service', 'unknown')}**, model **{mav.get('model', 'unknown')}**\n"
+        "🏠 **P² Home OS:** core infrastructure, storage/media, AI services and managed compute nodes are available through pSquare."
     )
 
 
 def help_text() -> str:
     return (
-        "🤖 **Project pSquare — P² Home OS overseer**\n"
+        "🤖 **pSquare — P² Home OS overseer**\n"
         "Talk to me naturally in this channel. Examples:\n"
         "`psquare, what is happening on the network?`\n"
         "`psquare, what is Osho doing?`\n"
         "`psquare, did Growth V1 render anything?`\n"
         "`psquare, how is Mavrick?`\n"
         "`psquare, what are compute-01 and compute-03 doing?`\n"
-        "`psquare, show storage` / `psquare, show GPUs` / `psquare, projects`\n"
-        "Legacy commands such as `!osho progress` still work.\n\n"
+        "`psquare, show storage` / `psquare, show GPUs` / `psquare, projects`\n\n"
         "🔒 **Read-only:** pSquare can inspect the control plane but cannot restart, stop, publish, delete, or run arbitrary commands from Discord."
     )
 
@@ -299,7 +389,7 @@ def handle(content: str, my_id: str) -> str | None:
         return network_overview()
 
     return (
-        "I can inspect that if it maps to a managed p2-home-os resource, but I did not confidently classify the request.\n"
+        "I can inspect that if it maps to a managed P² Home OS resource, but I did not confidently classify the request.\n"
         "Try `psquare help`, or mention Osho, Mavrick, a compute node, storage, GPUs, projects, or overall network health."
     )
 
@@ -319,9 +409,22 @@ def save_state(state: dict) -> None:
     os.replace(tmp, STATE_FILE)
 
 
+def ensure_bot_name(me: dict) -> dict:
+    if str(me.get("username") or "") == "pSquare":
+        return me
+    try:
+        updated = discord_api("PATCH", "/users/@me", {"username": "pSquare"})
+        return updated if isinstance(updated, dict) else me
+    except Exception as exc:
+        print(f"pSquare username update skipped: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+        return me
+
+
 def main() -> int:
     state = load_state()
     me = discord_api("GET", "/users/@me")
+    if isinstance(me, dict):
+        me = ensure_bot_name(me)
     my_id = str(me.get("id", "")) if isinstance(me, dict) else ""
     last_id = str(state.get("last_message_id", ""))
     if not last_id:
@@ -330,7 +433,7 @@ def main() -> int:
             last_id = str(recent[0].get("id", ""))
             state["last_message_id"] = last_id
             save_state(state)
-    post("🟢 **Project pSquare network overseer online on core-01**\nTry: `psquare, what is happening on the network?`")
+    post("🟢 **pSquare online** — P² Home OS overseer on core-01.\nTry: `psquare, what is happening on the network?`")
     while True:
         try:
             suffix = "?limit=25"
@@ -359,7 +462,7 @@ def main() -> int:
         except KeyboardInterrupt:
             return 0
         except Exception as exc:
-            print(f"psquare bridge error: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+            print(f"pSquare bridge error: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
             time.sleep(8)
 
 
