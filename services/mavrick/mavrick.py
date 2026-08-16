@@ -34,6 +34,8 @@ PIPER_VOICE = os.getenv("MAVRICK_PIPER_VOICE", "en_US-lessac-medium")
 PIPER_DATA = os.getenv("MAVRICK_PIPER_DATA", "/var/lib/mavrick/models/piper")
 AMBIENT_INTERVAL = int(os.getenv("MAVRICK_AMBIENT_INTERVAL", "45"))
 COMMENT_COOLDOWN = int(os.getenv("MAVRICK_COMMENT_COOLDOWN", "180"))
+SPEECH_RMS_THRESHOLD = int(os.getenv("MAVRICK_SPEECH_RMS_THRESHOLD", "250"))
+CAMERA_LISTEN_INDICATOR = os.getenv("MAVRICK_CAMERA_LISTEN_INDICATOR", "true").lower() in {"1", "true", "yes", "on"}
 STATUS_FILE = pathlib.Path("/run/mavrick/status.json")
 STATE_LOCK = threading.Lock()
 CURRENT_STATE: dict[str, object] = {"state": "starting"}
@@ -205,6 +207,36 @@ def speak(text: str) -> None:
             time.sleep(0.7)
             SPEAKING.clear()
 
+def start_camera_indicator() -> subprocess.Popen | None:
+    if not CAMERA_LISTEN_INDICATOR:
+        return None
+    device = camera_path()
+    if device is None:
+        return None
+    command = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "-f", "v4l2", "-input_format", "mjpeg",
+        "-video_size", "640x360", "-i", str(device),
+        "-an", "-f", "null", "-",
+    ]
+    try:
+        return subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as exc:
+        log("listen_indicator_failed", error=type(exc).__name__)
+        return None
+
+def stop_camera_indicator(proc: subprocess.Popen | None) -> None:
+    if proc is None:
+        return
+    try:
+        proc.terminate()
+        proc.wait(timeout=2)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
 def microphone_loop() -> None:
     chunk_samples = 1600
     command = [
@@ -218,6 +250,8 @@ def microphone_loop() -> None:
             active: list[np.ndarray] = []
             silence_chunks = 0
             speech_chunks = 0
+            indicator = None
+            peak_rms = 0.0
             while not STOP.is_set() and proc.poll() is None:
                 raw = proc.stdout.read(chunk_samples * 2) if proc.stdout else b""
                 if len(raw) < chunk_samples * 2:
@@ -228,8 +262,13 @@ def microphone_loop() -> None:
                     continue
                 samples = np.frombuffer(raw, dtype=np.int16).copy()
                 rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
-                is_speech = rms >= 650
+                is_speech = rms >= SPEECH_RMS_THRESHOLD
                 if is_speech:
+                    peak_rms = max(peak_rms, rms)
+                    if indicator is None:
+                        indicator = start_camera_indicator()
+                        log("listening_started", rms=int(rms), threshold=SPEECH_RMS_THRESHOLD)
+                        status("listening", indicator="camera_led", retention="ram_only")
                     speech_chunks += 1
                     silence_chunks = 0
                     active.append(samples)
@@ -237,17 +276,23 @@ def microphone_loop() -> None:
                     silence_chunks += 1
                     active.append(samples)
                 if active and (silence_chunks >= 8 or len(active) >= 120):
+                    stop_camera_indicator(indicator)
+                    indicator = None
                     if speech_chunks >= 3:
                         audio = np.concatenate(active).astype(np.float32) / 32768.0
                         try:
                             UTTERANCES.put_nowait(audio)
+                            log("utterance_queued", speech_chunks=speech_chunks, peak_rms=int(peak_rms))
+                            status("transcribing", retention="ram_only")
                         except queue.Full:
-                            pass
+                            log("utterance_dropped", reason="queue_full")
                     active.clear()
                     silence_chunks = speech_chunks = 0
+                    peak_rms = 0.0
         except Exception as exc:
             log("microphone_retry", error=type(exc).__name__)
         finally:
+            stop_camera_indicator(locals().get("indicator"))
             if proc is not None:
                 try:
                     proc.terminate()
