@@ -39,6 +39,9 @@ case "${operation}" in
   compute03-worker-recover)
     [[ "${target}" == "compute-03" ]] || { echo "compute03-worker-recover is restricted to compute-03" >&2; exit 2; }
     playbook="playbooks/compute03-worker-recover.yml" ;;
+  compute04-bootstrap)
+    [[ "${target}" == "compute-04" ]] || { echo "compute04-bootstrap is restricted to compute-04" >&2; exit 2; }
+    playbook="playbooks/compute04-bootstrap.yml" ;;
   osho-thermal-pause)
     [[ "${target}" == "compute_nodes" ]] || { echo "osho-thermal-pause is restricted to compute_nodes" >&2; exit 2; }
     playbook="playbooks/osho-thermal-pause.yml" ;;
