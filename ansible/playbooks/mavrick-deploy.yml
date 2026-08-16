@@ -1,0 +1,60 @@
+---
+- name: Deploy Project Mavrick to compute-04
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Verify automation sudo
+      ansible.builtin.command: sudo -n true
+      changed_when: false
+
+    - name: Verify local Ollama is reachable
+      ansible.builtin.uri:
+        url: http://127.0.0.1:11434/api/version
+        return_content: true
+        timeout: 10
+      register: ollama_version
+      changed_when: false
+
+    - name: Install or update Mavrick from master
+      become: true
+      ansible.builtin.shell: |
+        set -euo pipefail
+        curl -fsSL https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/mavrick/install.sh | bash
+      args:
+        executable: /bin/bash
+      register: deploy
+      changed_when: true
+
+    - name: Start verified 2B vision model pull when missing
+      ansible.builtin.shell: |
+        set -euo pipefail
+        state=/home/p2ops/.local/state
+        mkdir -p "$state"
+        if curl -fsS http://127.0.0.1:11434/api/tags | grep -q '"qwen3-vl:2b"'; then
+          echo MODEL_STATE=present
+          exit 0
+        fi
+        nohup curl -fsS -N --max-time 7200 -H 'Content-Type: application/json'           -d '{"name":"qwen3-vl:2b","stream":true}'           http://127.0.0.1:11434/api/pull           > "$state/mavrick-model-pull.log" 2>&1 </dev/null &
+        echo $! > "$state/mavrick-model-pull.pid"
+        echo MODEL_STATE=pull-started
+      args:
+        executable: /bin/bash
+      register: model
+      changed_when: "'pull-started' in model.stdout"
+
+    - name: Verify new Mavrick service
+      ansible.builtin.shell: |
+        set -euo pipefail
+        systemctl is-enabled mavrick.service
+        systemctl is-active mavrick.service
+        echo "MAVRICK_HOST=$(hostname -s)"
+        echo "MAVRICK_CAMERA=$(readlink -f /dev/v4l/by-id/*C930e*video-index0 2>/dev/null || echo waiting)"
+        echo "MAVRICK_MODEL_STATE={{ model.stdout | trim }}"
+      args:
+        executable: /bin/bash
+      register: health
+      changed_when: false
+
+    - name: Show migration health
+      ansible.builtin.debug:
+        msg: "{{ health.stdout_lines }}"
