@@ -44,6 +44,8 @@ SPEECH_START_CHUNKS = int(os.getenv("MAVRICK_SPEECH_START_CHUNKS", "2"))
 PRE_ROLL_CHUNKS = int(os.getenv("MAVRICK_PRE_ROLL_CHUNKS", "5"))
 NOISE_WINDOW_CHUNKS = int(os.getenv("MAVRICK_NOISE_WINDOW_CHUNKS", "50"))
 VAD_NOISE_MULTIPLIER = float(os.getenv("MAVRICK_VAD_NOISE_MULTIPLIER", "2.2"))
+WAKE_WORD = os.getenv("MAVRICK_WAKE_WORD", "mavrick").strip().lower()
+WAKE_WINDOW_SECONDS = int(os.getenv("MAVRICK_WAKE_WINDOW_SECONDS", "10"))
 CAMERA_LISTEN_INDICATOR = os.getenv("MAVRICK_CAMERA_LISTEN_INDICATOR", "true").lower() in {"1", "true", "yes", "on"}
 STATUS_FILE = pathlib.Path("/run/mavrick/status.json")
 LAST_RESPONSE_FILE = pathlib.Path("/run/mavrick/last-response.json")
@@ -60,6 +62,7 @@ INTERACTION_PENDING = threading.Event()
 INFERENCE_LOCK = threading.Lock()
 UTTERANCES: queue.Queue[np.ndarray] = queue.Queue(maxsize=1)
 SPEECH_MODEL: WhisperModel | None = None
+WAKE_UNTIL = 0.0
 
 SYSTEM_PROMPT = """You are Mavrick, a private local ambient companion for a fun home demo.
 You may describe visible activity, objects, and clothing colors or styles, then make at most
@@ -171,7 +174,7 @@ def ollama(messages: list[dict], image: bytes | None = None, plain_reply: bool =
     started = time.monotonic()
     content = messages[-1]["content"]
     if plain_reply:
-        content += " Answer in one short plain-text sentence. Do not use JSON."
+        content += " /no_think Answer in one short plain-text sentence. Do not use JSON."
     user = {"role": "user", "content": content}
     if image is not None:
         user["images"] = [base64.b64encode(image).decode("ascii")]
@@ -179,7 +182,6 @@ def ollama(messages: list[dict], image: bytes | None = None, plain_reply: bool =
         "model": VISION_MODEL,
         "messages": [{"role": "system", "content": SYSTEM_PROMPT}, *messages[:-1], user],
         "stream": False,
-        "think": False,
         "options": {
             "temperature": 0.4 if plain_reply else 0.55,
             "num_ctx": 2048 if plain_reply else 4096,
@@ -188,6 +190,7 @@ def ollama(messages: list[dict], image: bytes | None = None, plain_reply: bool =
         "keep_alive": "30m",
     }
     if not plain_reply:
+        payload["think"] = False
         payload["format"] = SCHEMA
     response = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=180)
     response.raise_for_status()
@@ -462,6 +465,47 @@ def transcriber_loop() -> None:
             with STATE_LOCK:
                 METRICS["stt_ms"] = round((time.monotonic() - started) * 1000)
             if len(text) >= 2:
+                global WAKE_UNTIL
+                normalized = re.sub(r"[^a-z0-9' ]+", " ", text.lower())
+                wake_match = re.search(
+                    r"\b(mavrick|maverick|mavric|maverik)\b", normalized
+                )
+                now = time.monotonic()
+                if wake_match:
+                    WAKE_UNTIL = now + WAKE_WINDOW_SECONDS
+                    command = (
+                        normalized[:wake_match.start()]
+                        + " "
+                        + normalized[wake_match.end():]
+                    ).strip()
+                    log("wake_activated", window_seconds=WAKE_WINDOW_SECONDS)
+                    if len(command) < 2:
+                        LAST_RESPONSE_FILE.write_text(
+                            json.dumps({
+                                "at": time.time(),
+                                "transcription": text,
+                                "reply": None,
+                                "playback": "wake_window_open",
+                            }),
+                            encoding="utf-8",
+                        )
+                        status(
+                            "wake_window",
+                            seconds=WAKE_WINDOW_SECONDS,
+                            retention="ram_only",
+                        )
+                        INTERACTION_PENDING.clear()
+                        continue
+                    text = command
+                elif now < WAKE_UNTIL:
+                    WAKE_UNTIL = now + WAKE_WINDOW_SECONDS
+                    log("wake_followup", window_seconds=WAKE_WINDOW_SECONDS)
+                else:
+                    log("wake_ignored", reason="outside_window", characters=len(text))
+                    INTERACTION_PENDING.clear()
+                    status("waiting_for_wake_word", retention="ram_only")
+                    continue
+
                 log("transcription_complete", characters=len(text))
                 LAST_RESPONSE_FILE.write_text(
                     json.dumps({"at": time.time(), "transcription": text, "reply": None, "playback": "pending"}),
@@ -477,6 +521,7 @@ def transcriber_loop() -> None:
             log("transcription_failed", error=type(exc).__name__)
 
 def handle_question(text: str) -> None:
+    global WAKE_UNTIL
     started = time.monotonic()
     status("answering_question", retention="ram_only")
     device = camera_path()
@@ -509,7 +554,13 @@ def handle_question(text: str) -> None:
         )
         with STATE_LOCK:
             METRICS["total_ms"] = round((time.monotonic() - started) * 1000)
-        status("ambient_ready", camera=str(device) if device else None, retention="ram_only")
+        WAKE_UNTIL = time.monotonic() + WAKE_WINDOW_SECONDS
+        status(
+            "wake_window",
+            seconds=WAKE_WINDOW_SECONDS,
+            camera=str(device) if device else None,
+            retention="ram_only",
+        )
     except Exception as exc:
         log("question_failed", error=type(exc).__name__)
     finally:
