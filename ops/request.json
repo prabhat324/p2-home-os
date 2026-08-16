@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-growth-postreload-status-20260816-0939",
-  "operation": "osho-status",
-  "target": "compute-01"
+  "request_id": "mavrick-compute04-ping-20260816-0155",
+  "operation": "ping",
+  "target": "compute-04"
 }
