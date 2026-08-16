@@ -1,5 +1,5 @@
 {
-  "request_id": "psquare-background-replace-20260816-1120",
-  "operation": "osho-discord-deploy",
-  "target": "compute-01"
+  "request_id": "osho-full-hold-20260816-1105",
+  "operation": "osho-hold",
+  "target": "osho_nodes"
 }
