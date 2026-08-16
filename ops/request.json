@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-cancel-sudo-audit-20260816-0440",
-  "operation": "osho-cancel-audit",
-  "target": "osho_nodes"
+  "request_id": "first-growth-video-check-20260816-0308",
+  "operation": "osho-publisher-diagnose",
+  "target": "compute-01"
 }
