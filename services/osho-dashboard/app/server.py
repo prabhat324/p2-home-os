@@ -470,6 +470,9 @@ def analytics_dashboard_data():
 def reconciled_dashboard_data():
     data = base.dashboard_data()
     reconciliation = data.get("state_reconciliation") or {}
+    current_job = data.get("current_job") or {}
+    current_state = str(current_job.get("stage") or current_job.get("status") or "").lower()
+    project_on_hold = current_state in {"paused", "on_hold", "on hold", "hold", "held"}
 
     if reconciliation.get("fresh"):
         status_counts = reconciliation.get("status_counts") or {}
@@ -500,6 +503,13 @@ def reconciled_dashboard_data():
             for key in ("failed", "error")
         )
         summary["skipped"] = int(status_counts.get("skipped", 0) or 0)
+
+    if project_on_hold:
+        summary = data.setdefault("summary", {})
+        summary["processing"] = 0
+        data["project_status"] = "on_hold"
+        data["hold_job"] = current_job
+        data["current_job"] = None
 
     return data
 
