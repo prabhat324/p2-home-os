@@ -103,3 +103,4 @@
         msg: "{{ notifier_verify.stdout_lines }}"
 
 - import_playbook: psquare-discord-deploy.yml
+- import_playbook: psquare-generative-deploy.yml
