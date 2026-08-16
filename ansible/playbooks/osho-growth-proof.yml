@@ -1,0 +1,81 @@
+---
+- name: Prove whether recent Project Osho publications used Growth V1
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Correlate recent published sources with worker render jobs and metadata
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "NOW=$(date -Ins)"
+        python3 - <<'PY'
+        import json, pathlib, sqlite3, re
+        db='/srv/osho/library/catalog/catalog.sqlite'
+        work=pathlib.Path('/srv/osho/work')
+        meta=pathlib.Path('/srv/osho/metadata')
+        receipts=pathlib.Path('/srv/osho/youtube/receipts')
+        c=sqlite3.connect(f'file:{db}?mode=ro',uri=True); c.row_factory=sqlite3.Row
+        rows=c.execute("SELECT source_id,note,updated_at FROM osho_autopilot_state WHERE lower(status)='published' ORDER BY updated_at DESC LIMIT 12").fetchall()
+        jobs=[]
+        for p in work.glob('*/job.json'):
+            try:d=json.loads(p.read_text(errors='ignore'))
+            except Exception:continue
+            jobs.append((p.stat().st_mtime,p,d))
+        jobs.sort(reverse=True,key=lambda x:x[0])
+        print('RECENT_PUBLISHED_COUNT='+str(len(rows)))
+        for r in rows:
+            sid=str(r['source_id'])
+            print(f'=== SOURCE {sid} updated={r["updated_at"]} ===')
+            print('NOTE='+str(r['note']))
+            matched=[]
+            for mt,p,d in jobs:
+                blob=json.dumps(d,sort_keys=True)
+                if sid in blob or str(d.get('source_id') or '')==sid:
+                    matched.append((mt,p,d))
+            print('MATCHED_JOBS='+str(len(matched)))
+            for mt,p,d in matched[:4]:
+                print('JOB_PATH='+str(p))
+                for k in ('id','job_id','status','stage','source_id','source_title','output','render','render_path','video_path','growth_template','production_profile','template'):
+                    if k in d: print('JOB_'+k.upper()+'='+repr(d.get(k)))
+                txt=json.dumps(d,sort_keys=True)
+                print('JOB_HAS_GROWTH='+('yes' if ('osho-growth-v1' in txt or 'OSHO_GROWTH_TEMPLATE_V1' in txt) else 'no'))
+                for q in p.parent.rglob('*.json'):
+                    if q==p: continue
+                    try:t=q.read_text(errors='ignore')
+                    except Exception:continue
+                    if sid in t or 'osho-growth-v1' in t:
+                        print('JOB_JSON='+str(q))
+                        if 'osho-growth-v1' in t: print('JOB_JSON_HAS_GROWTH=yes')
+            for q in meta.glob(f'{sid}*.json'):
+                try:t=q.read_text(errors='ignore')
+                except Exception:continue
+                print('META_PATH='+str(q))
+                print('META_HAS_GROWTH='+('yes' if ('osho-growth-v1' in t or 'OSHO_GROWTH_TEMPLATE_V1' in t) else 'no'))
+                try:d=json.loads(t)
+                except Exception:d={}
+                for k in ('reel_id','title','youtube_video_id','youtube_url','growth_template','production_profile','output'):
+                    if k in d: print('META_'+k.upper()+'='+repr(d.get(k)))
+        c.close()
+        print('=== GLOBAL GROWTH FILE HITS ===')
+        hits=[]
+        for root in (work,meta,receipts):
+            if not root.exists(): continue
+            for q in root.rglob('*.json'):
+                try:t=q.read_text(errors='ignore')
+                except Exception:continue
+                if 'osho-growth-v1' in t or 'OSHO_GROWTH_TEMPLATE_V1' in t:
+                    hits.append((q.stat().st_mtime,q))
+        hits.sort(reverse=True)
+        print('GROWTH_JSON_COUNT='+str(len(hits)))
+        for mt,q in hits[:30]: print('GROWTH_JSON='+str(q))
+        PY
+        echo '=== RECENT WORKER GROWTH LOGS ==='
+        docker logs --since 8h osho-worker 2>&1 | grep -Ei 'GROWTH TEMPLATE APPLIED|osho-growth-v1|render_production_reel|render complete|youtube|upload' | tail -240 || true
+      args:
+        executable: /bin/bash
+      register: proof
+      changed_when: false
+      failed_when: false
+
+    - name: Show Growth V1 publication proof
+      ansible.builtin.debug:
+        msg: "{{ proof.stdout_lines }}"
