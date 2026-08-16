@@ -1,5 +1,5 @@
 {
-  "request_id": "psquare-discord-diagnose-20260816-1010",
-  "operation": "osho-notifications-diagnose",
-  "target": "compute-01"
+  "request_id": "mavrick-compute04-speaker-test-20260816-0256",
+  "operation": "mavrick-speaker-test",
+  "target": "compute-04"
 }
