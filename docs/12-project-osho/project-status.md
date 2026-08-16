@@ -1,8 +1,8 @@
 # Project Osho Status
 
-## Full hold — 2026-08-16
+## Full hold requested — enforcement pending — 2026-08-16
 
-Project Osho is on an indefinite, reversible **full hold** by owner decision.
+Project Osho has an indefinite, reversible **full hold requested** by owner decision. Enforcement is pending one-time node-administrator authorization because the `p2ops` control account is not permitted to stop or disable system services.
 
 The hold policy is:
 
@@ -42,3 +42,7 @@ The system proved that a distributed, file-backed media pipeline could reuse tra
 The principal operational lesson is that a successful render or a dashboard `ready_to_upload` count is not proof of publication. Future publishing pipelines must treat a verified platform ID plus a durable receipt as the end-to-end success condition. They should retain idempotency checks, bounded retries, preflight validation, file-backed state, explicit reconciliation, and separation between rendering and publication.
 
 The project remains preserved for audit and possible future study; the hold is not a deletion.
+
+## Enforcement record
+
+The first control run (`31955607723`) reached compute-01, compute-02, and compute-03 but made no changes because sudo rejected Ansible privilege escalation. The subsequent audit (`31955639960`) succeeded and confirmed active Osho services on compute-01 and compute-03. Do not mark this hold enforced until a successful control run verifies no active Osho units, containers, processes, resident Ollama models, or Osho GPU processes.
