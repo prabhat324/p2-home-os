@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-hold-sudo-audit-20260816-1128",
-  "operation": "osho-cancel-audit",
-  "target": "osho_nodes"
+  "request_id": "mavrick-always-awake-20260816-0125",
+  "operation": "mavrick-deploy",
+  "target": "compute-04"
 }
