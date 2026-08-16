@@ -1,5 +1,5 @@
 {
-  "request_id": "sonarr-media-verify-20260816-0015",
-  "operation": "sonarr-diagnose",
+  "request_id": "sonarr-root-fix-20260816-0025",
+  "operation": "sonarr-root-fix",
   "target": "core-01"
 }
