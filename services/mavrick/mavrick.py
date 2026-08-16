@@ -46,6 +46,7 @@ NOISE_WINDOW_CHUNKS = int(os.getenv("MAVRICK_NOISE_WINDOW_CHUNKS", "50"))
 VAD_NOISE_MULTIPLIER = float(os.getenv("MAVRICK_VAD_NOISE_MULTIPLIER", "2.2"))
 CAMERA_LISTEN_INDICATOR = os.getenv("MAVRICK_CAMERA_LISTEN_INDICATOR", "true").lower() in {"1", "true", "yes", "on"}
 STATUS_FILE = pathlib.Path("/run/mavrick/status.json")
+LAST_RESPONSE_FILE = pathlib.Path("/run/mavrick/last-response.json")
 STATE_LOCK = threading.Lock()
 CURRENT_STATE: dict[str, object] = {"state": "starting"}
 METRICS: dict[str, object] = {
@@ -403,7 +404,10 @@ def microphone_loop() -> None:
 
 def transcriber_loop() -> None:
     status("loading_speech_model")
-    model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8", download_root=WHISPER_ROOT)
+    model = WhisperModel(
+        WHISPER_MODEL, device="cpu", compute_type="int8",
+        download_root=WHISPER_ROOT, local_files_only=True,
+    )
     log("speech_model_ready")
     while not STOP.is_set():
         try:
@@ -421,6 +425,10 @@ def transcriber_loop() -> None:
                 METRICS["stt_ms"] = round((time.monotonic() - started) * 1000)
             if len(text) >= 2:
                 log("transcription_complete", characters=len(text))
+                LAST_RESPONSE_FILE.write_text(
+                    json.dumps({"at": time.time(), "transcription": text, "reply": None, "playback": "pending"}),
+                    encoding="utf-8",
+                )
                 status("transcription_complete", characters=len(text), retention="ram_only")
                 handle_question(text)
             else:
@@ -445,8 +453,19 @@ def handle_question(text: str) -> None:
             frame,
         )
         reply = str(result.get("reply", "")).strip()
+        playback = "not_requested"
         if reply:
             speak(reply)
+            playback = "attempted"
+        LAST_RESPONSE_FILE.write_text(
+            json.dumps({
+                "at": time.time(),
+                "transcription": text,
+                "reply": reply or None,
+                "playback": playback,
+            }),
+            encoding="utf-8",
+        )
         with STATE_LOCK:
             METRICS["total_ms"] = round((time.monotonic() - started) * 1000)
         status("ambient_ready", camera=str(device) if device else None, retention="ram_only")
