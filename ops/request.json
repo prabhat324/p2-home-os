@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-first-growth-v1-check-r2-20260816-1309",
-  "operation": "osho-status",
-  "target": "compute-01"
+  "request_id": "diag-core01-jellyfin-20260816-1344",
+  "operation": "ping",
+  "target": "all"
 }
