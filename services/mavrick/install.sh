@@ -36,8 +36,17 @@ python3 -m venv /opt/mavrick/venv
 /opt/mavrick/venv/bin/pip install --upgrade pip wheel
 /opt/mavrick/venv/bin/pip install -r /opt/mavrick/requirements.txt
 
-runuser -u mavrick -- /opt/mavrick/venv/bin/python -m piper.download_voices \
-  --data-dir /var/lib/mavrick/models/piper en_US-hfc_female-medium
+VOICE_BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/hfc_female/medium"
+curl -fL "$VOICE_BASE/en_US-hfc_female-medium.onnx" \
+  -o /var/lib/mavrick/models/piper/en_US-hfc_female-medium.onnx
+curl -fL "$VOICE_BASE/en_US-hfc_female-medium.onnx.json" \
+  -o /var/lib/mavrick/models/piper/en_US-hfc_female-medium.onnx.json
+chown mavrick:mavrick \
+  /var/lib/mavrick/models/piper/en_US-hfc_female-medium.onnx \
+  /var/lib/mavrick/models/piper/en_US-hfc_female-medium.onnx.json
+chmod 0600 \
+  /var/lib/mavrick/models/piper/en_US-hfc_female-medium.onnx \
+  /var/lib/mavrick/models/piper/en_US-hfc_female-medium.onnx.json
 runuser -u mavrick -- /opt/mavrick/venv/bin/python - <<'PY'
 from faster_whisper import WhisperModel
 WhisperModel("tiny.en", device="cpu", compute_type="int8", download_root="/var/lib/mavrick/models/whisper")
