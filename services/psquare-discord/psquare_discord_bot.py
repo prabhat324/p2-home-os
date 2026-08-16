@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Read-only Discord overseer for the P² Home OS control plane.
+"""Discord gateway and local AI overseer for the P² Home OS control plane.
 
-Runs on core-01 and uses only fixed, allowlisted read-only probes. User text is
-never interpolated into shell commands. Natural-language routing is deterministic
-and limited to status/inspection intents.
+Runs on core-01. Infrastructure probes are fixed and read-only. General Q&A and
+photo understanding are routed to compute-01's local Ollama service. Basic image
+edits are isolated FFmpeg jobs on compute-01; user text is never executed as shell
+code and infrastructure-changing commands are not exposed through Discord.
 """
 from __future__ import annotations
 
@@ -18,6 +19,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
+
+import psquare_ai
 
 HOME = pathlib.Path.home()
 CONFIG = HOME / ".config" / "psquare-discord.env"
@@ -64,7 +68,7 @@ def discord_api(method: str, path: str, payload: dict | None = None) -> object:
         headers={
             "Authorization": f"Bot {TOKEN}",
             "Content-Type": "application/json",
-            "User-Agent": "pSquare-Home-OS/1.1",
+            "User-Agent": "pSquare-Home-OS/1.2",
         },
     )
     for attempt in range(5):
@@ -95,14 +99,49 @@ def post(text: str) -> None:
     })
 
 
+def post_file(text: str, path: pathlib.Path) -> None:
+    if not path.exists():
+        post(text + "\n⚠️ The output file was not found.")
+        return
+    if path.stat().st_size > 8 * 1024 * 1024:
+        post(text + "\n⚠️ The edited image is larger than the current 8 MB Discord upload limit for pSquare.")
+        return
+    boundary = "----pSquare" + uuid.uuid4().hex
+    payload = json.dumps({"content": text[:1500], "allowed_mentions": {"parse": []}}).encode("utf-8")
+    file_bytes = path.read_bytes()
+    mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+    body = bytearray()
+    body.extend(f"--{boundary}\r\n".encode())
+    body.extend(b'Content-Disposition: form-data; name="payload_json"\r\n')
+    body.extend(b"Content-Type: application/json\r\n\r\n")
+    body.extend(payload)
+    body.extend(b"\r\n")
+    body.extend(f"--{boundary}\r\n".encode())
+    body.extend(f'Content-Disposition: form-data; name="files[0]"; filename="{path.name}"\r\n'.encode())
+    body.extend(f"Content-Type: {mime}\r\n\r\n".encode())
+    body.extend(file_bytes)
+    body.extend(b"\r\n")
+    body.extend(f"--{boundary}--\r\n".encode())
+    req = urllib.request.Request(
+        API + f"/channels/{CHANNEL_ID}/messages",
+        data=bytes(body),
+        method="POST",
+        headers={
+            "Authorization": f"Bot {TOKEN}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "User-Agent": "pSquare-Home-OS/1.2",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=45) as response:
+        response.read()
+
+
 def run(args: list[str], timeout: int = 18) -> str:
     env = os.environ.copy()
     env["ANSIBLE_DEPRECATION_WARNINGS"] = "False"
     env["ANSIBLE_LOCALHOST_WARNING"] = "False"
     try:
-        return subprocess.check_output(
-            args, text=True, stderr=subprocess.STDOUT, timeout=timeout, env=env
-        ).strip()
+        return subprocess.check_output(args, text=True, stderr=subprocess.STDOUT, timeout=timeout, env=env).strip()
     except subprocess.CalledProcessError as exc:
         return (exc.output or f"exit {exc.returncode}").strip()
     except Exception as exc:
@@ -110,7 +149,6 @@ def run(args: list[str], timeout: int = 18) -> str:
 
 
 def clean_ansible(raw: str) -> str:
-    """Remove Ansible transport noise while preserving the remote command output."""
     text = raw.replace("\\n", "\n")
     kept: list[str] = []
     for line in text.splitlines():
@@ -120,9 +158,6 @@ def clean_ansible(raw: str) -> str:
         if s.startswith("[WARNING]") or s.startswith("[DEPRECATION WARNING]"):
             continue
         if re.match(r"^\S+\s+\|\s+(SUCCESS|CHANGED)\s+\|", s):
-            continue
-        if re.match(r"^\S+\s+\|\s+(UNREACHABLE|FAILED)!?", s):
-            kept.append(s)
             continue
         if s in {"(stdout)", "(stderr)"}:
             continue
@@ -168,10 +203,7 @@ def network_overview() -> str:
     d = dashboard()
     s = d.get("summary") or {}
     if s:
-        lines.append(
-            f"\n🎬 Osho — {s.get('processing', 0)} processing, {s.get('queued', 0)} queued, "
-            f"{s.get('uploaded', 0)} uploaded, {s.get('failed', 0)} failed"
-        )
+        lines.append(f"\n🎬 Osho — {s.get('processing', 0)} processing, {s.get('queued', 0)} queued, {s.get('uploaded', 0)} uploaded, {s.get('failed', 0)} failed")
     lines.append(f"\n**{online}/{len(NODES)} managed nodes online**")
     return "\n".join(lines)
 
@@ -191,8 +223,7 @@ def node_status(node: str) -> str:
             values[k.strip()] = v.strip()
     if values:
         return (
-            f"🖥️ **{node}**\n"
-            f"🟢 Reachable\n"
+            f"🖥️ **{node}**\n🟢 Reachable\n"
             f"⏱️ {values.get('uptime', 'uptime unavailable')}\n"
             f"📊 Load: **{values.get('load', '?')}**\n"
             f"🧠 RAM: **{values.get('ram', '?')}**\n"
@@ -225,9 +256,7 @@ def gpu_status() -> str:
     fixed = "nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw --format=csv,noheader,nounits 2>/dev/null || echo no-nvidia-gpu"
     body = ansible("gpu_nodes", "shell", fixed, timeout=28)
     lines = [x.strip() for x in body.splitlines() if x.strip()]
-    if not lines:
-        return "🎮 **GPU nodes**\nNo GPU telemetry returned."
-    return "🎮 **GPU nodes**\n```\n" + "\n".join(lines[-20:]) + "\n```"
+    return "🎮 **GPU nodes**\n```\n" + "\n".join(lines[-20:]) + "\n```" if lines else "🎮 **GPU nodes**\nNo GPU telemetry returned."
 
 
 def osho_status(detail: str = "status") -> str:
@@ -236,23 +265,14 @@ def osho_status(detail: str = "status") -> str:
     cur = d.get("current_job") or {}
     if not d:
         return "🎬 **Osho**\nDashboard is currently unreachable from core-01."
-    lines = [
-        "🎬 **Osho**",
-        f"Uploaded **{s.get('uploaded', 0)}** · Processing **{s.get('processing', 0)}** · Queued **{s.get('queued', 0)}** · Skipped **{s.get('skipped', 0)}** · Failed **{s.get('failed', 0)}**",
-    ]
+    lines = ["🎬 **Osho**", f"Uploaded **{s.get('uploaded', 0)}** · Processing **{s.get('processing', 0)}** · Queued **{s.get('queued', 0)}** · Skipped **{s.get('skipped', 0)}** · Failed **{s.get('failed', 0)}**"]
     if cur:
-        lines.append(
-            f"Current: **{cur.get('title') or cur.get('id')}** — {cur.get('stage') or cur.get('status')} "
-            f"({cur.get('progress', '?')}%) on {cur.get('worker') or 'unknown'}"
-        )
+        lines.append(f"Current: **{cur.get('title') or cur.get('id')}** — {cur.get('stage') or cur.get('status')} ({cur.get('progress', '?')}%) on {cur.get('worker') or 'unknown'}")
     if detail == "growth":
         fixed = "printf 'growth_metadata='; grep -RIl 'osho-growth-v1' /srv/osho/metadata 2>/dev/null | wc -l; printf 'renderer_marker='; grep -q 'OSHO_GROWTH_TEMPLATE_V1' /srv/compose/osho-worker/production_renderer.py 2>/dev/null && echo applied || echo missing"
         probe = ansible("compute-01", "shell", fixed)
         vals = dict(re.findall(r"(growth_metadata|renderer_marker)=([^\s]+)", probe))
-        lines.append(
-            f"Growth V1 renderer: **{vals.get('renderer_marker', 'unknown')}** · "
-            f"Growth artifacts found: **{vals.get('growth_metadata', 'unknown')}**"
-        )
+        lines.append(f"Growth V1 renderer: **{vals.get('renderer_marker', 'unknown')}** · Growth artifacts found: **{vals.get('growth_metadata', 'unknown')}**")
     if detail == "publish":
         fixed = "ls -1t /srv/osho/youtube/receipts/*.json 2>/dev/null | head -1 | xargs -r cat"
         receipt = ansible("compute-01", "shell", fixed)
@@ -261,13 +281,7 @@ def osho_status(detail: str = "status") -> str:
             data = json.loads(receipt[start:]) if start >= 0 else {}
         except Exception:
             data = {}
-        if data:
-            lines.append(
-                f"Latest publication: **{data.get('title') or data.get('video_id') or 'unknown'}** "
-                f"({data.get('privacy_status') or data.get('status') or 'status unknown'})"
-            )
-        else:
-            lines.append("Latest publication receipt could not be parsed.")
+        lines.append(f"Latest publication: **{data.get('title') or data.get('video_id') or 'unknown'}** ({data.get('privacy_status') or data.get('status') or 'status unknown'})" if data else "Latest publication receipt could not be parsed.")
     return "\n".join(lines)
 
 
@@ -284,21 +298,14 @@ def mavrick_probe() -> dict[str, str]:
 
 def mavrick_status() -> str:
     p = mavrick_probe()
-    service = p.get("service", "unknown")
-    enabled = p.get("enabled", "unknown")
-    model = p.get("model", "unknown")
-    runtime = p.get("runtime", "missing")
-    lines = ["👁️ **Mavrick — compute-04**"]
-    lines.append(f"{'🟢' if service == 'active' else '🔴'} Service: **{service}**")
-    lines.append(f"{'✅' if enabled == 'enabled' else '⚠️'} Auto-start: **{enabled}**")
-    lines.append(f"{'🧠' if model == 'ready' else '⚠️'} Vision model `qwen3-vl:2b`: **{model}**")
+    service, enabled, model, runtime = p.get("service", "unknown"), p.get("enabled", "unknown"), p.get("model", "unknown"), p.get("runtime", "missing")
+    lines = ["👁️ **Mavrick — compute-04**", f"{'🟢' if service == 'active' else '🔴'} Service: **{service}**", f"{'✅' if enabled == 'enabled' else '⚠️'} Auto-start: **{enabled}**", f"{'🧠' if model == 'ready' else '⚠️'} Vision model `qwen3-vl:2b`: **{model}**"]
     if runtime == "missing":
         lines.append("⚠️ Runtime status file is **missing**; the service is running but has not published runtime state yet.")
     else:
         try:
             data = json.loads(runtime)
-            state = data.get("status") or data.get("state") or data.get("mode") or "available"
-            lines.append(f"📡 Runtime: **{state}**")
+            lines.append(f"📡 Runtime: **{data.get('status') or data.get('state') or data.get('mode') or 'available'}**")
         except Exception:
             lines.append("📡 Runtime status: **available**")
     return "\n".join(lines)
@@ -318,35 +325,35 @@ def projects_status() -> str:
 
 def help_text() -> str:
     return (
-        "🤖 **pSquare — P² Home OS overseer**\n"
-        "Talk to me naturally in this channel. Examples:\n"
-        "`psquare, what is happening on the network?`\n"
-        "`psquare, what is Osho doing?`\n"
-        "`psquare, did Growth V1 render anything?`\n"
-        "`psquare, how is Mavrick?`\n"
-        "`psquare, what are compute-01 and compute-03 doing?`\n"
-        "`psquare, show storage` / `psquare, show GPUs` / `psquare, projects`\n\n"
-        "🔒 **Read-only:** pSquare can inspect the control plane but cannot restart, stop, publish, delete, or run arbitrary commands from Discord."
+        "🤖 **pSquare — local P² Home OS assistant**\n"
+        "Ask naturally: `psquare, explain quantum computing` or `psquare, how is Mavrick?`\n"
+        "Attach a photo and ask: `psquare, what is in this image?` or `psquare, read the visible text`.\n"
+        "Basic photo edits: `psquare, make this square`, `resize to 1080x1080`, `rotate right`, `grayscale`, `brighten`, `increase contrast`, `blur`, or `convert to PNG`.\n"
+        "Infrastructure examples: `psquare, what is Osho doing?`, `show GPUs`, `show storage`, `what is compute-01 doing?`.\n\n"
+        "🧠 General Q&A uses local `qwen3:8b` on compute-01. Photo understanding uses local `qwen3-vl:2b`.\n"
+        "🔒 Infrastructure control remains read-only. Image edits create isolated derived files only; Discord cannot run arbitrary shell commands."
     )
 
 
 def normalize(content: str, my_id: str) -> tuple[str, bool]:
     raw = " ".join(content.strip().split())
     low = raw.lower()
-    addressed = False
-    if low.startswith(("!psquare", "!osho", "!mavrick", "!network", "!compute")):
-        addressed = True
-    if low.startswith("psquare") or low.startswith("p square"):
-        addressed = True
-    mention = f"<@{my_id}>"
-    mention2 = f"<@!{my_id}>"
+    addressed = low.startswith(("!psquare", "!osho", "!mavrick", "!network", "!compute", "psquare", "p square"))
+    mention, mention2 = f"<@{my_id}>", f"<@!{my_id}>"
     if mention in raw or mention2 in raw:
         addressed = True
         raw = raw.replace(mention, "psquare").replace(mention2, "psquare")
     return " ".join(raw.lower().split()), addressed
 
 
-def handle(content: str, my_id: str) -> str | None:
+def clean_prompt(content: str, my_id: str) -> str:
+    raw = " ".join(content.strip().split())
+    raw = raw.replace(f"<@{my_id}>", "psquare").replace(f"<@!{my_id}>", "psquare")
+    raw = re.sub(r"^[! ]*(psquare|p square)[,: ]*", "", raw, flags=re.I)
+    return raw.strip()
+
+
+def handle_status(content: str, my_id: str) -> str | None:
     text, addressed = normalize(content, my_id)
     if not addressed:
         return None
@@ -359,24 +366,17 @@ def handle(content: str, my_id: str) -> str | None:
         text = "network " + text[len("!network"):].strip()
     elif text.startswith("!compute"):
         text = "compute " + text[len("!compute"):].strip()
-
     if not text or "help" in text or "what can you do" in text:
         return help_text()
-
-    node_hits = re.findall(r"(?:core|compute)-0[1-4]", text)
-    node_hits = list(dict.fromkeys(n for n in node_hits if n in ALLOWED_NODES))
+    node_hits = list(dict.fromkeys(n for n in re.findall(r"(?:core|compute)-0[1-4]", text) if n in ALLOWED_NODES))
     if node_hits:
-        if "service" in text or "running on" in text:
-            return "\n\n".join(services_status(n) for n in node_hits[:2])
-        return "\n\n".join(node_status(n) for n in node_hits[:2])
-
+        return "\n\n".join(services_status(n) if "service" in text or "running on" in text else node_status(n) for n in node_hits[:2])
     if "osho" in text:
         if "growth" in text or "template" in text or "new edit" in text:
             return osho_status("growth")
         if any(k in text for k in ("upload", "publish", "youtube", "last video", "hasn't uploaded", "has not uploaded")):
             return osho_status("publish")
         return osho_status("status")
-
     if "mavrick" in text or "maverick" in text:
         return mavrick_status()
     if any(k in text for k in ("storage", "disk", "drive", "mount")):
@@ -387,11 +387,7 @@ def handle(content: str, my_id: str) -> str | None:
         return projects_status()
     if any(k in text for k in ("network", "everything", "all systems", "overall", "resources", "health", "what is happening", "what's happening")):
         return network_overview()
-
-    return (
-        "I can inspect that if it maps to a managed P² Home OS resource, but I did not confidently classify the request.\n"
-        "Try `psquare help`, or mention Osho, Mavrick, a compute node, storage, GPUs, projects, or overall network health."
-    )
+    return None
 
 
 def load_state() -> dict:
@@ -433,12 +429,10 @@ def main() -> int:
             last_id = str(recent[0].get("id", ""))
             state["last_message_id"] = last_id
             save_state(state)
-    post("🟢 **pSquare online** — P² Home OS overseer on core-01.\nTry: `psquare, what is happening on the network?`")
+    post("🟢 **pSquare online** — local AI + P² Home OS overseer. Try `psquare help`.")
     while True:
         try:
-            suffix = "?limit=25"
-            if last_id:
-                suffix += "&after=" + urllib.parse.quote(last_id)
+            suffix = "?limit=25" + ("&after=" + urllib.parse.quote(last_id) if last_id else "")
             messages = discord_api("GET", f"/channels/{CHANNEL_ID}/messages{suffix}")
             if not isinstance(messages, list):
                 time.sleep(3)
@@ -453,9 +447,30 @@ def main() -> int:
                     continue
                 if ALLOWED_USER_ID and author_id != ALLOWED_USER_ID:
                     continue
-                response = handle(str(msg.get("content") or ""), my_id)
+                content = str(msg.get("content") or "")
+                _, addressed = normalize(content, my_id)
+                if not addressed:
+                    continue
+                prompt = clean_prompt(content, my_id)
+                attachments = msg.get("attachments") or []
+                image = next((a for a in attachments if str(a.get("content_type") or "").startswith("image/")), None)
+                if image:
+                    if psquare_ai.looks_like_edit(prompt):
+                        text, output = psquare_ai.image_edit(image, prompt)
+                        try:
+                            post_file(text, output) if output else post(text)
+                        finally:
+                            psquare_ai.cleanup_job_file(output)
+                    else:
+                        answer = psquare_ai.vision_answer(image, prompt)
+                        post("🖼️ **Photo analysis — compute-01**\n" + answer)
+                    continue
+                response = handle_status(content, my_id)
                 if response:
                     post(response)
+                else:
+                    answer = psquare_ai.text_answer(prompt)
+                    post("🧠 **compute-01**\n" + answer)
             state["last_message_id"] = last_id
             save_state(state)
             time.sleep(3)
