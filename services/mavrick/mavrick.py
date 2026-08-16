@@ -177,13 +177,33 @@ def ollama(messages: list[dict], image: bytes | None = None) -> dict:
         "stream": False,
         "think": False,
         "format": SCHEMA,
-        "options": {"temperature": 0.65, "num_ctx": 4096, "num_predict": 120},
+        "options": {"temperature": 0.55, "num_ctx": 4096, "num_predict": 256},
         "keep_alive": "10m",
     }
     response = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=180)
     response.raise_for_status()
     message = response.json().get("message", {})
     text = str(message.get("content") or "").strip()
+    if not text:
+        log("model_plain_retry", reason="empty_structured_response")
+        fallback_payload = dict(payload)
+        fallback_payload.pop("format", None)
+        fallback_payload["messages"] = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            *messages[:-1],
+            {
+                **user,
+                "content": content + " Reply in plain text only; do not return JSON.",
+            },
+        ]
+        fallback_payload["options"] = {
+            "temperature": 0.45, "num_ctx": 4096, "num_predict": 160,
+        }
+        retry = requests.post(
+            f"{OLLAMA_URL}/api/chat", json=fallback_payload, timeout=180
+        )
+        retry.raise_for_status()
+        text = str(retry.json().get("message", {}).get("content") or "").strip()
     with STATE_LOCK:
         METRICS["vision_ms"] = round((time.monotonic() - started) * 1000)
     cleaned = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
