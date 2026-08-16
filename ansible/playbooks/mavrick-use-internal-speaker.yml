@@ -1,6 +1,6 @@
 ---
 - name: Route Mavrick audio to verified built-in speakers
-  hosts: compute-02
+  hosts: compute-04
   gather_facts: false
   tasks:
     - name: Stop Mavrick before changing output route
