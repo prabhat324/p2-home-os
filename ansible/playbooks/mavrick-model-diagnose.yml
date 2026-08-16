@@ -1,6 +1,6 @@
 ---
 - name: Diagnose repeated Mavrick model digest mismatches
-  hosts: compute-02
+  hosts: compute-04
   gather_facts: false
   tasks:
     - name: Inspect Ollama runtime storage and corruption evidence
