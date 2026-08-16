@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-compute04-audio-inventory-20260816-0310",
-  "operation": "mavrick-inventory",
-  "target": "compute-04"
+  "request_id": "osho-progress-diagnose-20260816-1018",
+  "operation": "osho-ranker-diagnose",
+  "target": "compute-01"
 }
