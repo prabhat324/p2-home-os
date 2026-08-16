@@ -20,7 +20,7 @@ OLLAMA_URL = os.getenv('REVIEWMUSE_OLLAMA_URL', 'http://127.0.0.1:11434').rstrip
 MODEL = os.getenv('REVIEWMUSE_MODEL', 'qwen3:4b')
 GOOGLE_REVIEW_URL = os.getenv('REVIEWMUSE_GOOGLE_REVIEW_URL', 'https://www.google.com/maps')
 
-app = FastAPI(title='ReviewMuse', version='0.1.1')
+app = FastAPI(title='ReviewMuse', version='0.1.2')
 app.mount('/static', StaticFiles(directory=BASE_DIR / 'static'), name='static')
 env = Environment(loader=FileSystemLoader(BASE_DIR / 'templates'), autoescape=select_autoescape(['html']))
 
@@ -107,7 +107,7 @@ def review_flow(slug: str) -> HTMLResponse:
 
 @app.get('/health')
 def health() -> dict[str, Any]:
-    return {'status': 'healthy', 'service': 'ReviewMuse', 'version': '0.1.1', 'model': MODEL}
+    return {'status': 'healthy', 'service': 'ReviewMuse', 'version': '0.1.2', 'model': MODEL}
 
 
 @app.post('/api/event')
@@ -141,7 +141,7 @@ Rules:
 '''
 
     try:
-        async with httpx.AsyncClient(timeout=45) as client:
+        async with httpx.AsyncClient(timeout=120) as client:
             response = await client.post(
                 f'{OLLAMA_URL}/api/generate',
                 json={
