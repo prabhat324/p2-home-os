@@ -1,5 +1,5 @@
 {
-  "request_id": "compute03-worker-final-confirm-20260815-2312",
-  "operation": "home-dashboard-inventory",
-  "target": "all"
+  "request_id": "sonarr-root-diagnose-20260815-2335",
+  "operation": "sonarr-diagnose",
+  "target": "core-01"
 }
