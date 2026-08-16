@@ -1,5 +1,5 @@
 {
-  "request_id": "inspect-compute01-after-reconnect-20260816-1349",
+  "request_id": "verify-jellyfin-after-reconnect-20260816-1351",
   "operation": "status",
   "target": "compute-01"
 }
