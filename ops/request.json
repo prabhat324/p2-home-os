@@ -1,5 +1,5 @@
 {
-  "request_id": "compute03-postreboot-osho-20260815-2232",
-  "operation": "osho-status",
-  "target": "compute-03"
+  "request_id": "dashboard-post-compute03-reboot-20260815-2233",
+  "operation": "dashboard-diagnose",
+  "target": "compute-02"
 }
