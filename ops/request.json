@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-compute04-speaker-test-20260816-0256",
-  "operation": "mavrick-speaker-test",
-  "target": "compute-04"
+  "request_id": "osho-productivity-sla-20260816-1013",
+  "operation": "osho-status",
+  "target": "compute-01"
 }
