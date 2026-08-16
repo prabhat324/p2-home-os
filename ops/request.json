@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-read-response-20260816-0200",
-  "operation": "mavrick-events",
+  "request_id": "mavrick-vision-plain-retry-20260816-0203",
+  "operation": "mavrick-deploy",
   "target": "compute-04"
 }
