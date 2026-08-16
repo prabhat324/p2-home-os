@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-productivity-sla-20260816-0126",
-  "operation": "osho-status",
-  "target": "osho_nodes"
+  "request_id": "compute04-samsung-format-20260816-0200",
+  "operation": "compute04-storage-init",
+  "target": "compute-04"
 }
