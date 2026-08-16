@@ -1,5 +1,5 @@
 ---
-- name: Replace legacy Osho interactive bot with shared pSquare overseer
+- name: Deploy shared pSquare Discord overseer
   hosts: compute-01
   gather_facts: false
   vars:
@@ -8,6 +8,7 @@
     discord_allowed_user_id: "{{ lookup('env', 'DISCORD_ALLOWED_USER_ID') }}"
     discord_webhook_url: "{{ lookup('env', 'DISCORD_WEBHOOK_URL') }}"
     psquare_bin: /home/p2runner/.local/bin/psquare-discord-bot.py
+    psquare_ai_bin: /home/p2runner/.local/bin/psquare_ai.py
     psquare_config: /home/p2runner/.config/psquare-discord.env
     psquare_inventory: /home/p2runner/.config/psquare/hosts.yml
     psquare_state: /home/p2runner/.local/state
@@ -79,17 +80,27 @@
       loop:
         - { path: "/home/p2runner/.local/bin", mode: "0755" }
         - { path: "/home/p2runner/.local/state", mode: "0700" }
+        - { path: "/home/p2runner/.local/state/psquare-jobs", mode: "0700" }
         - { path: "/home/p2runner/.config", mode: "0700" }
         - { path: "/home/p2runner/.config/psquare", mode: "0700" }
       delegate_to: core-01
 
-    - name: Install pSquare network overseer on core-01
+    - name: Install pSquare Discord gateway on core-01
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/../../services/psquare-discord/psquare_discord_bot.py"
         dest: "{{ psquare_bin }}"
         owner: p2runner
         group: p2runner
         mode: "0755"
+      delegate_to: core-01
+
+    - name: Install pSquare local AI helper on core-01
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../services/psquare-discord/psquare_ai.py"
+        dest: "{{ psquare_ai_bin }}"
+        owner: p2runner
+        group: p2runner
+        mode: "0644"
       delegate_to: core-01
 
     - name: Install managed inventory snapshot for pSquare
@@ -117,7 +128,7 @@
     - name: Validate pSquare Python and Ansible runtime on core-01
       ansible.builtin.shell: |
         set -eu
-        python3 -m py_compile "{{ psquare_bin }}"
+        python3 -m py_compile "{{ psquare_bin }}" "{{ psquare_ai_bin }}"
         command -v ansible
         test -r /home/p2runner/.ssh/id_ed25519_p2homeos
         echo RUNTIME_VALID=yes
@@ -127,9 +138,66 @@
       changed_when: false
       delegate_to: core-01
 
+    - name: Validate compute-01 local AI and image prerequisites
+      ansible.builtin.shell: |
+        set -eu
+        command -v ffmpeg >/dev/null
+        command -v curl >/dev/null
+        curl -fsS --max-time 8 http://127.0.0.1:11434/api/tags >/tmp/psquare-ollama-tags.json
+        python3 - <<'PY'
+        import json
+        p='/tmp/psquare-ollama-tags.json'
+        d=json.load(open(p))
+        names={str(x.get('name') or x.get('model') or '') for x in d.get('models',[])}
+        print('TEXT_MODEL=' + ('ready' if 'qwen3:8b' in names else 'missing'))
+        print('VISION_MODEL=' + ('ready' if 'qwen3-vl:2b' in names else 'missing'))
+        raise SystemExit(0 if 'qwen3:8b' in names else 3)
+        PY
+      args:
+        executable: /bin/bash
+      register: psquare_compute01_prereq
+      changed_when: false
+
+    - name: Check whether pSquare vision model is installed on compute-01
+      ansible.builtin.shell: |
+        curl -fsS --max-time 8 http://127.0.0.1:11434/api/tags | python3 -c 'import json,sys; d=json.load(sys.stdin); n={str(x.get("name") or x.get("model") or "") for x in d.get("models",[])}; raise SystemExit(0 if "qwen3-vl:2b" in n else 1)'
+      args:
+        executable: /bin/bash
+      register: psquare_vision_present
+      changed_when: false
+      failed_when: false
+
+    - name: Pull pSquare vision model on compute-01 when missing
+      ansible.builtin.shell: |
+        set -eu
+        curl -fsS --max-time 1800 http://127.0.0.1:11434/api/pull \
+          -H 'Content-Type: application/json' \
+          -d '{"model":"qwen3-vl:2b","stream":false}' >/tmp/psquare-vision-pull.json
+        python3 - <<'PY'
+        import json
+        d=json.load(open('/tmp/psquare-vision-pull.json'))
+        print('VISION_PULL_STATUS=' + str(d.get('status','unknown')))
+        PY
+      args:
+        executable: /bin/bash
+      when: psquare_vision_present.rc != 0
+      register: psquare_vision_pull
+      changed_when: true
+
+    - name: Verify pSquare compute-01 AI models
+      ansible.builtin.shell: |
+        set -eu
+        curl -fsS --max-time 8 http://127.0.0.1:11434/api/tags | python3 -c 'import json,sys; d=json.load(sys.stdin); n={str(x.get("name") or x.get("model") or "") for x in d.get("models",[])}; print("TEXT_MODEL=" + ("ready" if "qwen3:8b" in n else "missing")); print("VISION_MODEL=" + ("ready" if "qwen3-vl:2b" in n else "missing")); raise SystemExit(0 if {"qwen3:8b","qwen3-vl:2b"} <= n else 2)'
+        command -v ffmpeg >/dev/null
+        echo IMAGE_EDIT_ENGINE=ready
+      args:
+        executable: /bin/bash
+      register: psquare_ai_verify
+      changed_when: false
+
     - name: Keep pSquare running after core-01 reboot
       ansible.builtin.cron:
-        name: Project pSquare Discord overseer
+        name: pSquare Discord overseer
         special_time: reboot
         user: p2runner
         job: "/usr/bin/nohup {{ psquare_bin }} >> {{ psquare_state }}/psquare-discord.log 2>&1 &"
@@ -183,6 +251,7 @@
       ansible.builtin.debug:
         msg:
           - "{{ psquare_start.stdout_lines }}"
+          - "COMPUTE01_AI={{ psquare_ai_verify.stdout_lines }}"
           - "MANAGED_NODE_PROBE={{ psquare_ping.stdout_lines }}"
-          - "LEGACY_OSHO_INTERACTIVE_BOT=retired"
+          - "PSQUARE_CAPABILITIES=text_qa,photo_qa,basic_image_edit,network_status"
           - "OSHO_WEBHOOK_NOTIFIER=preserved"
