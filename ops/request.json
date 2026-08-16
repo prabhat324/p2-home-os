@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-always-awake-20260816-0125",
-  "operation": "mavrick-deploy",
+  "request_id": "mavrick-verify-always-awake-20260816-0128",
+  "operation": "mavrick-status",
   "target": "compute-04"
 }
