@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-warm-female-voice-20260816-0222",
-  "operation": "mavrick-deploy",
+  "request_id": "mavrick-warm-voice-sample-20260816-0224",
+  "operation": "mavrick-audible-tts-compute04",
   "target": "compute-04"
 }
