@@ -1,5 +1,5 @@
 {
-  "request_id": "verify-jellyfin-after-reconnect-20260816-1351",
-  "operation": "status",
-  "target": "compute-01"
+  "request_id": "deploy-jellyfin-critical-watchdog-20260816-1352",
+  "operation": "jellyfin-watchdog-deploy",
+  "target": "core-01"
 }
