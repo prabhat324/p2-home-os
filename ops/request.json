@@ -1,5 +1,5 @@
 {
-  "request_id": "first-growth-video-check-20260815-2306",
-  "operation": "osho-status",
-  "target": "compute-01"
+  "request_id": "compute03-worker-postfix-verify-20260815-2257",
+  "operation": "home-dashboard-inventory",
+  "target": "all"
 }
