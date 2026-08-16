@@ -2,9 +2,9 @@
 """Local instruction-driven generative image editor for pSquare.
 
 Runs only on compute-01. Uses InstructPix2Pix with CUDA when available and CPU
-offload to stay within the Quadro RTX 3000 6GB VRAM envelope. Inputs/outputs are
-controller-generated temporary paths; prompts are passed as argv data and are
-never interpreted by a shell inside this worker.
+offload to stay within the Quadro RTX 3000 6GB VRAM envelope. Inputs, outputs,
+and prompt files are controller-generated paths; prompt text is never executed
+as shell code.
 """
 from __future__ import annotations
 
@@ -46,7 +46,6 @@ def load_pipeline() -> StableDiffusionInstructPix2PixPipeline:
     pipe.set_progress_bar_config(disable=True)
     pipe.enable_attention_slicing("max")
     if torch.cuda.is_available():
-        # CPU offload keeps peak GPU memory well below a full resident SD pipeline.
         pipe.enable_model_cpu_offload()
     else:
         pipe.to("cpu")
@@ -54,18 +53,20 @@ def load_pipeline() -> StableDiffusionInstructPix2PixPipeline:
 
 
 def main() -> int:
-    if len(sys.argv) < 4:
-        print("usage: psquare_generative.py INPUT OUTPUT INSTRUCTION", file=sys.stderr)
+    if len(sys.argv) != 4:
+        print("usage: psquare_generative.py INPUT OUTPUT PROMPT_FILE", file=sys.stderr)
         return 2
 
     src = pathlib.Path(sys.argv[1])
     dst = pathlib.Path(sys.argv[2])
-    instruction = " ".join(sys.argv[3:]).strip()
-    if not src.is_file() or not instruction:
-        print("missing input or instruction", file=sys.stderr)
+    prompt_file = pathlib.Path(sys.argv[3])
+    if not src.is_file() or not prompt_file.is_file():
+        print("missing input or prompt file", file=sys.stderr)
         return 3
-    if len(instruction) > 700:
-        print("instruction too long", file=sys.stderr)
+
+    instruction = prompt_file.read_text(encoding="utf-8", errors="replace").strip()
+    if not instruction or len(instruction) > 700:
+        print("invalid instruction length", file=sys.stderr)
         return 4
 
     image = fit_image(Image.open(src))
