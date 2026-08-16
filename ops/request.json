@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-compute04-six-second-endpoint-20260816-0635",
-  "operation": "mavrick-deploy",
+  "request_id": "mavrick-compute04-events-20260816-0645",
+  "operation": "mavrick-events",
   "target": "compute-04"
 }
