@@ -1,5 +1,5 @@
 {
-  "request_id": "compute04-connectivity-retry-20260816-0220",
+  "request_id": "compute04-online-after-restart-20260816-0230",
   "operation": "ping",
   "target": "compute-04"
 }
