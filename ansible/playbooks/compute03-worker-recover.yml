@@ -1,0 +1,75 @@
+---
+- name: Recover compute-03 Project Osho worker after reboot
+  hosts: compute-03
+  gather_facts: false
+  become: true
+  vars:
+    osho_worker_dir: /srv/compose/osho-worker
+    osho_worker_compose: /srv/compose/osho-worker/compose.yml
+  tasks:
+    - name: Ensure Docker starts at boot
+      ansible.builtin.systemd:
+        name: docker.service
+        enabled: true
+        state: started
+
+    - name: Verify worker compose file exists
+      ansible.builtin.stat:
+        path: "{{ osho_worker_compose }}"
+      register: worker_compose
+
+    - name: Stop if worker compose file is missing
+      ansible.builtin.fail:
+        msg: "Missing {{ osho_worker_compose }}"
+      when: not worker_compose.stat.exists
+
+    - name: Start Project Osho worker
+      ansible.builtin.command:
+        cmd: docker compose -f "{{ osho_worker_compose }}" up -d
+        chdir: "{{ osho_worker_dir }}"
+      register: compose_up
+      changed_when: true
+
+    - name: Make worker survive future host reboots
+      ansible.builtin.command:
+        cmd: docker update --restart unless-stopped osho-worker
+      register: restart_policy
+      changed_when: "'osho-worker' in restart_policy.stdout"
+
+    - name: Wait for worker API
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 8800
+        timeout: 90
+
+    - name: Verify worker health endpoint
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8800/health
+        method: GET
+        return_content: true
+        status_code: 200
+        timeout: 15
+      register: worker_health
+      retries: 6
+      delay: 5
+      until: worker_health.status == 200
+
+    - name: Inspect runtime and restart policy
+      ansible.builtin.command:
+        cmd: docker inspect -f "{{ '{{' }}.State.Status{{ '}}' }}|{{ '{{' }}.State.Running{{ '}}' }}|{{ '{{' }}.HostConfig.RestartPolicy.Name{{ '}}' }}" osho-worker
+      register: worker_runtime
+      changed_when: false
+
+    - name: Verify NVIDIA GPU remains available
+      ansible.builtin.command:
+        cmd: nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu --format=csv,noheader
+      register: gpu_status
+      changed_when: false
+
+    - name: Show post-recovery verification
+      ansible.builtin.debug:
+        msg:
+          - "COMPOSE={{ compose_up.stdout_lines }}"
+          - "RUNTIME={{ worker_runtime.stdout }}"
+          - "HEALTH={{ worker_health.content }}"
+          - "GPU={{ gpu_status.stdout }}"
