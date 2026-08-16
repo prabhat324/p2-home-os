@@ -22,6 +22,9 @@
         curl -sS -o /dev/null -w 'CADDY_HTTP=%{http_code}\n' --max-time 5 -H 'Host: dashboard.home.arpa' http://127.0.0.1/ || true
         echo '=== NAMED_URL ==='
         curl -sS -o /dev/null -w 'NAMED_HTTP=%{http_code}\n' --max-time 5 http://dashboard.home.arpa/ || true
+        echo '=== OSHO_DASHBOARD_STATE ==='
+        curl -fsS --max-time 5 http://192.168.0.88:8787/api/dashboard 2>/dev/null |
+          python3 -c 'import json,sys; d=json.load(sys.stdin); s=d.get("summary") or {}; j=d.get("current_job") or {}; r=d.get("state_reconciliation") or {}; print("PROCESSING="+str(s.get("processing"))); print("CURRENT_JOB="+str(j.get("id") or j.get("job_id") or j.get("source_id") or "")); print("CURRENT_STATUS="+str(j.get("status") or j.get("stage") or "")); print("CURRENT_UPDATED="+str(j.get("updated_at") or "")); print("RECONCILIATION_FRESH="+str(r.get("fresh"))); print("RECONCILIATION_RECEIVED="+str(r.get("received_at") or "")); print("STATUS_COUNTS="+json.dumps(r.get("status_counts") or {},sort_keys=True))' || true
         echo '=== ROUTE_COUNT ==='
         grep -c '^http://dashboard\.home\.arpa {' /opt/docker/compose/caddy/Caddyfile 2>/dev/null || true
         echo '=== CONTAINERS ==='
