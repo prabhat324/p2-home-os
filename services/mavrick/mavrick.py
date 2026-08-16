@@ -35,7 +35,8 @@ PIPER_VOICE = os.getenv("MAVRICK_PIPER_VOICE", "en_US-lessac-medium")
 PIPER_DATA = os.getenv("MAVRICK_PIPER_DATA", "/var/lib/mavrick/models/piper")
 AMBIENT_INTERVAL = int(os.getenv("MAVRICK_AMBIENT_INTERVAL", "45"))
 COMMENT_COOLDOWN = int(os.getenv("MAVRICK_COMMENT_COOLDOWN", "180"))
-SPEECH_RMS_THRESHOLD = int(os.getenv("MAVRICK_SPEECH_RMS_THRESHOLD", "250"))
+SPEECH_RMS_THRESHOLD = int(os.getenv("MAVRICK_SPEECH_RMS_THRESHOLD", "120"))
+MIC_SOFTWARE_GAIN = float(os.getenv("MAVRICK_MIC_SOFTWARE_GAIN", "4.0"))
 CAMERA_LISTEN_INDICATOR = os.getenv("MAVRICK_CAMERA_LISTEN_INDICATOR", "true").lower() in {"1", "true", "yes", "on"}
 STATUS_FILE = pathlib.Path("/run/mavrick/status.json")
 STATE_LOCK = threading.Lock()
@@ -301,7 +302,7 @@ def microphone_loop() -> None:
                     stop_camera_indicator(indicator)
                     indicator = None
                     if speech_chunks >= 3:
-                        audio = np.concatenate(active).astype(np.float32) / 32768.0
+                        audio = np.clip(np.concatenate(active).astype(np.float32) * MIC_SOFTWARE_GAIN / 32768.0, -1.0, 1.0)
                         try:
                             UTTERANCES.put_nowait(audio)
                             log("utterance_queued", speech_chunks=speech_chunks, peak_rms=int(peak_rms))
