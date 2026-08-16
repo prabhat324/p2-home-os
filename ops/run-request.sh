@@ -51,6 +51,9 @@ case "${operation}" in
   compute04-power-harden)
     [[ "${target}" == "compute-04" ]] || { echo "compute04-power-harden is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/compute04-power-harden.yml" ;;
+  compute04-benchmark)
+    [[ "${target}" == "compute-04" ]] || { echo "compute04-benchmark is restricted to compute-04" >&2; exit 2; }
+    playbook="playbooks/compute04-benchmark.yml" ;;
   osho-thermal-pause)
     [[ "${target}" == "compute_nodes" ]] || { echo "osho-thermal-pause is restricted to compute_nodes" >&2; exit 2; }
     playbook="playbooks/osho-thermal-pause.yml" ;;
