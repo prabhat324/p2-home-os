@@ -1,5 +1,5 @@
 {
-  "request_id": "activate-dashboard-home-arpa-after-restore-20260816-1218",
-  "operation": "p2-dashboard-route",
-  "target": "core-01"
+  "request_id": "mavrick-warm-female-voice-20260816-0222",
+  "operation": "mavrick-deploy",
+  "target": "compute-04"
 }
