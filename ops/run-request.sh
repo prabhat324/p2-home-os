@@ -19,7 +19,7 @@ if [[ ! "${request_id}" =~ ^[A-Za-z0-9._-]{1,80}$ ]]; then
 fi
 
 case "${target}" in
-  all|core-01|compute-01|compute-02|compute-03|control_nodes|compute_nodes|gpu_nodes|osho_nodes) ;;
+  all|core-01|compute-01|compute-02|compute-03|compute-04|control_nodes|compute_nodes|gpu_nodes|osho_nodes) ;;
   *) echo "Target is not allowed: ${target}" >&2; exit 2 ;;
 esac
 
