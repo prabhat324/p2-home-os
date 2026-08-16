@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-confirm-transcriber-ready-20260816-0154",
-  "operation": "mavrick-events",
-  "target": "compute-04"
+  "request_id": "psquare-generative-router-fix-20260816-1142",
+  "operation": "osho-discord-deploy",
+  "target": "compute-01"
 }
