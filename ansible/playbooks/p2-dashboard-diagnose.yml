@@ -8,6 +8,14 @@
         set -o pipefail
         echo '=== DNS ==='
         getent hosts dashboard.home.arpa || true
+        echo '=== ADGUARD_DIRECT ==='
+        if command -v dig >/dev/null 2>&1; then
+          dig +short @127.0.0.1 dashboard.home.arpa A || true
+          dig +short @192.168.0.203 dashboard.home.arpa A || true
+        else
+          nslookup dashboard.home.arpa 127.0.0.1 2>&1 || true
+          nslookup dashboard.home.arpa 192.168.0.203 2>&1 || true
+        fi
         echo '=== BACKEND ==='
         curl -sS -o /dev/null -w 'BACKEND_HTTP=%{http_code}\n' --max-time 5 http://192.168.0.88:8787/ || true
         echo '=== CADDY_HOST_HEADER ==='
