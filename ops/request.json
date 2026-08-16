@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-compute04-audio-fix-20260816-0318",
-  "operation": "mavrick-audio-fix-compute04",
-  "target": "compute-04"
+  "request_id": "osho-buffer-refill-20260816-1019",
+  "operation": "osho-buffer",
+  "target": "compute-01"
 }
