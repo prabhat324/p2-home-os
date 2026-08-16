@@ -129,6 +129,9 @@ case "${operation}" in
   mavrick-listen-window)
     [[ "${target}" == "compute-04" ]] || { echo "mavrick-listen-window is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-listen-window.yml" ;;
+  mavrick-whisper-test)
+    [[ "${target}" == "compute-04" ]] || { echo "mavrick-whisper-test is restricted to compute-04" >&2; exit 2; }
+    playbook="playbooks/mavrick-whisper-test.yml" ;;
   mavrick-runtime-diagnose)
     [[ "${target}" == "compute-04" ]] || { echo "mavrick-runtime-diagnose is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-runtime-diagnose.yml" ;;
