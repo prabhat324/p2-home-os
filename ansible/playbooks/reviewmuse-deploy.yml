@@ -85,21 +85,35 @@
       until: health.status == 200
       changed_when: false
 
-    - name: Verify landing page, customer demo, and local AI generation
+    - name: Verify customer flow, business portal, analytics, and local AI
       ansible.builtin.shell: |
         set -euo pipefail
-        curl -fsS http://127.0.0.1:8794/ | grep -q 'Turn real experiences into'
-        curl -fsS http://127.0.0.1:8794/r/demo | grep -q 'Write with assistance'
+        base=http://127.0.0.1:8794
+        cookies=/tmp/reviewmuse-business-cookie.txt
+        rm -f "$cookies"
+
+        curl -fsS "$base/" | grep -q 'Business login'
+        curl -fsS "$base/r/demo" | grep -q 'Write with assistance'
+        curl -fsS "$base/business/login" | grep -q 'BUSINESS PORTAL'
+
+        login_code="$(curl -sS -o /dev/null -w '%{http_code}' -c "$cookies" \
+          -X POST -d 'slug=demo&password=reviewmuse-local' "$base/business/login")"
+        test "$login_code" = '303'
+        curl -fsS -b "$cookies" "$base/business/demo" | grep -q 'CONVERSION FUNNEL'
+        curl -fsS -b "$cookies" "$base/business/demo" | grep -q 'CUSTOM BRANDING'
+
         ai_test="$(curl -fsS --max-time 100 -H 'Content-Type: application/json' \
           -d '{"slug":"demo","rating":5,"highlights":["Friendly staff","Fast service"],"details":"The team explained everything clearly and made the visit easy.","tone":"natural"}' \
-          http://127.0.0.1:8794/api/generate)"
+          "$base/api/generate")"
         printf '%s' "$ai_test" | grep -q '"source":"local-ai"'
         printf '%s' "$ai_test" | grep -q '"review":"'
+
         docker ps --filter name=reviewmuse | tail -n +2
         echo 'HEALTH={{ health.content }}'
         echo 'AI_SOURCE=local-ai'
         echo 'LAN_URL=http://192.168.0.177:8794/'
         echo 'DEMO_URL=http://192.168.0.177:8794/r/demo'
+        echo 'BUSINESS_URL=http://192.168.0.177:8794/business/login'
       args:
         executable: /bin/bash
       register: verification
