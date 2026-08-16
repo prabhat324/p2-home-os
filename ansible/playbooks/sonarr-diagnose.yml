@@ -12,14 +12,14 @@
         echo '=== MEDIA MOUNT ==='
         findmnt -T '/mnt/media/TV Shows' -o TARGET,SOURCE,FSTYPE,OPTIONS 2>&1 || true
         stat -c '%U:%G %u:%g %a %n' /mnt/media '/mnt/media/TV Shows' /mnt/media/Downloads 2>&1 || true
-        echo '=== SONARR CONTAINER ==='
-        docker ps -a --filter name=sonarr --format '{{ "{{.Names}}" }}|{{ "{{.Status}}" }}|{{ "{{.Image}}" }}' 2>&1 || true
+        echo '=== SUDO ACCESS ==='\n        sudo -n -l 2>&1 || true\n        echo '=== SONARR CONTAINER ==='
+        sudo -n docker ps -a --filter name=sonarr --format '{{ "{{.Names}}" }}|{{ "{{.Status}}" }}|{{ "{{.Image}}" }}' 2>&1 || true
         echo '=== SONARR MOUNTS ==='
         docker inspect sonarr --format '{{ "{{range .Mounts}}{{println .Source \"->\" .Destination \"RW=\" .RW}}{{end}}" }}' 2>&1 || true
         echo '=== SONARR ID AND PATHS ==='
-        docker exec sonarr sh -c 'id; for p in /tv "/mnt/media/TV Shows" /downloads; do echo "--- $p"; ls -ld "$p" 2>&1 || true; done' 2>&1 || true
+        sudo -n docker exec sonarr sh -c 'id; for p in /tv "/mnt/media/TV Shows" /downloads; do echo "--- $p"; ls -ld "$p" 2>&1 || true; done' 2>&1 || true
         echo '=== WRITE PROBES ==='
-        docker exec sonarr sh -c '
+        sudo -n docker exec sonarr sh -c '
           for p in /tv "/mnt/media/TV Shows"; do
             if [ -d "$p" ]; then
               probe="$p/.p2-sonarr-write-probe"
@@ -42,7 +42,7 @@
           fi
         done
         echo '=== RECENT SONARR LOGS ==='
-        docker logs --tail 160 sonarr 2>&1 || true
+        sudo -n docker logs --tail 160 sonarr 2>&1 || true
       args:
         executable: /bin/bash
       register: sonarr_diagnose
