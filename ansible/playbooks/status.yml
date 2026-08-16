@@ -28,6 +28,18 @@
           sed -n '1,160p' /opt/docker/compose/glances/docker-compose.yml 2>/dev/null || true
           docker ps --filter name=glances --format '{{ "{{.Names}}" }}|{{ "{{.Status}}" }}' 2>&1 || true
           sudo -n -l 2>&1 | head -80 || true
+          echo '=== PSQUARE DISCORD OVERSEER ==='
+          psquare_pid="$(cat /home/p2runner/.local/state/psquare-discord.pid 2>/dev/null || true)"
+          echo "PSQUARE_PID=${psquare_pid:-missing}"
+          if [ -n "$psquare_pid" ] && kill -0 "$psquare_pid" 2>/dev/null; then
+            echo 'PSQUARE_STATUS=running'
+            ps -o pid=,etimes=,cmd= -p "$psquare_pid" 2>/dev/null || true
+          else
+            echo 'PSQUARE_STATUS=stopped'
+          fi
+          echo "PSQUARE_CRON=$(crontab -l -u p2runner 2>/dev/null | grep -c 'psquare-discord-bot.py' || true)"
+          echo "PSQUARE_CONFIG_MODE=$(stat -c %a /home/p2runner/.config/psquare-discord.env 2>/dev/null || echo missing)"
+          echo "PSQUARE_INVENTORY_MODE=$(stat -c %a /home/p2runner/.config/psquare/hosts.yml 2>/dev/null || echo missing)"
         fi
       args:
         executable: /bin/bash
