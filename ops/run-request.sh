@@ -102,6 +102,9 @@ case "${operation}" in
   mavrick-audio-loopback)
     [[ "${target}" == "compute-04" ]] || { echo "mavrick-audio-loopback is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-audio-loopback.yml" ;;
+  mavrick-audio-fix-compute04)
+    [[ "${target}" == "compute-04" ]] || { echo "mavrick-audio-fix-compute04 is restricted to compute-04" >&2; exit 2; }
+    playbook="playbooks/mavrick-audio-fix-compute04.yml" ;;
   mavrick-audio-routes)
     [[ "${target}" == "compute-04" ]] || { echo "mavrick-audio-routes is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-audio-routes.yml" ;;
