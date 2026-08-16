@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-full-hold-20260816-1105",
-  "operation": "osho-hold",
+  "request_id": "osho-hold-sudo-audit-20260816-1128",
+  "operation": "osho-cancel-audit",
   "target": "osho_nodes"
 }
