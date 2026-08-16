@@ -1,5 +1,5 @@
 {
-  "request_id": "sonarr-root-diagnose-20260815-2345",
+  "request_id": "sonarr-api-diagnose-20260815-2350",
   "operation": "sonarr-diagnose",
   "target": "core-01"
 }
