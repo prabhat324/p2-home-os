@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-reliability-diagnose-20260816-0250",
-  "operation": "mavrick-events",
+  "request_id": "mavrick-qwen-raw-diagnose-20260816-0255",
+  "operation": "mavrick-model-diagnose",
   "target": "compute-04"
 }
