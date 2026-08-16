@@ -126,6 +126,14 @@ OSHO_PROGRESS_PANEL = """
       const r = await fetch('/api/dashboard', {cache:'no-store'});
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const d = await r.json();
+      if (d.project_status === 'on_hold') {
+        body.style.display = 'none';
+        empty.style.display = 'block';
+        empty.textContent = 'Project Osho is on hold. No processing workload is running.';
+        badge.textContent = 'On Hold';
+        badge.className = 'badge warn';
+        return;
+      }
       const job = d.current_job;
       const processing = Number(d.summary?.processing || 0);
       if (!job) {
