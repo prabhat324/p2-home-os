@@ -1,0 +1,28 @@
+---
+- name: Retire old Project Mavrick instance on compute-02
+  hosts: compute-02
+  gather_facts: false
+  tasks:
+    - name: Stop and disable old Mavrick service
+      become: true
+      ansible.builtin.systemd:
+        name: mavrick.service
+        state: stopped
+        enabled: false
+      register: retired
+
+    - name: Verify old instance is inactive
+      ansible.builtin.shell: |
+        set -euo pipefail
+        echo "MAVRICK_OLD_HOST=$(hostname -s)"
+        echo "MAVRICK_OLD_ACTIVE=$(systemctl is-active mavrick.service 2>/dev/null || true)"
+        echo "MAVRICK_OLD_ENABLED=$(systemctl is-enabled mavrick.service 2>/dev/null || true)"
+      args:
+        executable: /bin/bash
+      register: verify
+      changed_when: false
+      failed_when: "'MAVRICK_OLD_ACTIVE=inactive' not in verify.stdout"
+
+    - name: Show retirement state
+      ansible.builtin.debug:
+        msg: "{{ verify.stdout_lines }}"
