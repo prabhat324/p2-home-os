@@ -1,6 +1,6 @@
 ---
 - name: Recover Mavrick with the smaller verified Qwen vision model
-  hosts: compute-02
+  hosts: compute-04
   gather_facts: false
   tasks:
     - name: Pull qwen3-vl 2B and wait for digest verification
