@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-compute04-whisper-test-20260816-0600",
-  "operation": "mavrick-whisper-test",
-  "target": "compute-04"
+  "request_id": "psquare-local-ai-image-workflow-20260816-1100",
+  "operation": "osho-discord-deploy",
+  "target": "compute-01"
 }
