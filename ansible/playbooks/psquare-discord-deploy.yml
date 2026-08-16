@@ -1,23 +1,30 @@
 ---
-- name: Retire legacy interactive Osho bot from compute-01
+- name: Replace legacy Osho interactive bot with shared pSquare overseer
   hosts: compute-01
   gather_facts: false
+  vars:
+    discord_bot_token: "{{ lookup('env', 'DISCORD_BOT_TOKEN') }}"
+    discord_channel_id: "{{ lookup('env', 'DISCORD_CHANNEL_ID') }}"
+    discord_allowed_user_id: "{{ lookup('env', 'DISCORD_ALLOWED_USER_ID') }}"
+    discord_webhook_url: "{{ lookup('env', 'DISCORD_WEBHOOK_URL') }}"
+    psquare_bin: /home/p2runner/.local/bin/psquare-discord-bot.py
+    psquare_config: /home/p2runner/.config/psquare-discord.env
+    psquare_inventory: /home/p2runner/.config/psquare/hosts.yml
+    psquare_state: /home/p2runner/.local/state
   tasks:
-    - name: Remove legacy interactive bot reboot job
+    - name: Remove legacy Osho interactive bot reboot job
       ansible.builtin.cron:
         name: Project Osho two-way Discord bot
         user: p2ops
         state: absent
 
-    - name: Stop legacy interactive bot without touching Osho notifier
+    - name: Stop legacy Osho interactive bot without touching webhook notifier
       ansible.builtin.shell: |
         set -eu
         pidfile=/home/p2ops/.local/state/osho-discord-bot.pid
         if [ -s "$pidfile" ]; then
           pid="$(cat "$pidfile")"
-          if kill -0 "$pid" 2>/dev/null; then
-            kill "$pid"
-          fi
+          if kill -0 "$pid" 2>/dev/null; then kill "$pid"; fi
           rm -f "$pidfile"
         fi
         pkill -f '/home/p2ops/.local/bin/osho-discord-bot.py' 2>/dev/null || true
@@ -28,21 +35,6 @@
       register: legacy_stop
       changed_when: true
 
-- name: Deploy Project pSquare network overseer on core-01
-  hosts: core-01
-  gather_facts: false
-  vars:
-    discord_bot_token: "{{ lookup('env', 'DISCORD_BOT_TOKEN') }}"
-    discord_channel_id: "{{ lookup('env', 'DISCORD_CHANNEL_ID') }}"
-    discord_allowed_user_id: "{{ lookup('env', 'DISCORD_ALLOWED_USER_ID') }}"
-    discord_webhook_url: "{{ lookup('env', 'DISCORD_WEBHOOK_URL') }}"
-    psquare_home: /home/p2runner
-    psquare_bin: /home/p2runner/.local/bin/psquare-discord-bot.py
-    psquare_config: /home/p2runner/.config/psquare-discord.env
-    psquare_inventory_dir: /home/p2runner/.config/psquare
-    psquare_inventory: /home/p2runner/.config/psquare/hosts.yml
-    psquare_state: /home/p2runner/.local/state
-  tasks:
     - name: Use explicitly configured Discord channel when present
       ansible.builtin.set_fact:
         effective_discord_channel_id: "{{ discord_channel_id }}"
@@ -58,6 +50,7 @@
       register: discord_webhook_info
       when: discord_channel_id | length == 0
       no_log: true
+      delegate_to: core-01
 
     - name: Use webhook channel ID
       ansible.builtin.set_fact:
@@ -74,7 +67,7 @@
         fail_msg: pSquare Discord token/channel configuration is invalid
       no_log: true
 
-    - name: Create pSquare directories
+    - name: Create pSquare directories on core-01
       ansible.builtin.file:
         path: "{{ item.path }}"
         state: directory
@@ -86,14 +79,16 @@
         - { path: "/home/p2runner/.local/state", mode: "0700" }
         - { path: "/home/p2runner/.config", mode: "0700" }
         - { path: "/home/p2runner/.config/psquare", mode: "0700" }
+      delegate_to: core-01
 
-    - name: Install pSquare network overseer
+    - name: Install pSquare network overseer on core-01
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/../../services/psquare-discord/psquare_discord_bot.py"
         dest: "{{ psquare_bin }}"
         owner: p2runner
         group: p2runner
         mode: "0755"
+      delegate_to: core-01
 
     - name: Install managed inventory snapshot for pSquare
       ansible.builtin.copy:
@@ -102,6 +97,7 @@
         owner: p2runner
         group: p2runner
         mode: "0600"
+      delegate_to: core-01
 
     - name: Install pSquare Discord credentials
       ansible.builtin.copy:
@@ -114,8 +110,9 @@
         group: p2runner
         mode: "0600"
       no_log: true
+      delegate_to: core-01
 
-    - name: Validate pSquare Python and Ansible runtime
+    - name: Validate pSquare Python and Ansible runtime on core-01
       ansible.builtin.shell: |
         set -eu
         python3 -m py_compile "{{ psquare_bin }}"
@@ -126,15 +123,17 @@
         executable: /bin/bash
       register: runtime_check
       changed_when: false
+      delegate_to: core-01
 
-    - name: Keep pSquare running after reboot
+    - name: Keep pSquare running after core-01 reboot
       ansible.builtin.cron:
         name: Project pSquare Discord overseer
         special_time: reboot
         user: p2runner
         job: "/usr/bin/nohup {{ psquare_bin }} >> {{ psquare_state }}/psquare-discord.log 2>&1 &"
+      delegate_to: core-01
 
-    - name: Restart pSquare overseer
+    - name: Restart pSquare overseer on core-01
       ansible.builtin.shell: |
         set -eu
         pidfile="{{ psquare_state }}/psquare-discord.pid"
@@ -163,8 +162,9 @@
         executable: /bin/bash
       register: psquare_start
       changed_when: true
+      delegate_to: core-01
 
-    - name: Verify pSquare can reach managed nodes read-only
+    - name: Verify pSquare read-only Ansible reachability from core-01
       ansible.builtin.shell: |
         set -o pipefail
         ansible all -i "{{ psquare_inventory }}" -m ping -o 2>&1 | sed -E 's/(SUCCESS|UNREACHABLE|FAILED).*/\1/'
@@ -173,6 +173,7 @@
       register: psquare_ping
       changed_when: false
       failed_when: false
+      delegate_to: core-01
 
     - name: Show pSquare deployment status
       ansible.builtin.debug:
