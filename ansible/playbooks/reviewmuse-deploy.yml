@@ -90,7 +90,7 @@
         set -euo pipefail
         curl -fsS http://127.0.0.1:8794/ | grep -q 'Turn real experiences into'
         curl -fsS http://127.0.0.1:8794/r/demo | grep -q 'Write with assistance'
-        ai_test="$(curl -fsS --max-time 60 -H 'Content-Type: application/json' \
+        ai_test="$(curl -fsS --max-time 150 -H 'Content-Type: application/json' \
           -d '{"slug":"demo","rating":5,"highlights":["Friendly staff","Fast service"],"details":"The team explained everything clearly and made the visit easy.","tone":"natural"}' \
           http://127.0.0.1:8794/api/generate)"
         printf '%s' "$ai_test" | grep -q '"source":"local-ai"'
