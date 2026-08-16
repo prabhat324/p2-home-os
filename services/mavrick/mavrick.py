@@ -37,6 +37,7 @@ AMBIENT_INTERVAL = int(os.getenv("MAVRICK_AMBIENT_INTERVAL", "45"))
 COMMENT_COOLDOWN = int(os.getenv("MAVRICK_COMMENT_COOLDOWN", "180"))
 SPEECH_RMS_THRESHOLD = int(os.getenv("MAVRICK_SPEECH_RMS_THRESHOLD", "400"))
 MIC_SOFTWARE_GAIN = float(os.getenv("MAVRICK_MIC_SOFTWARE_GAIN", "4.0"))
+MAX_UTTERANCE_CHUNKS = int(os.getenv("MAVRICK_MAX_UTTERANCE_CHUNKS", "60"))
 CAMERA_LISTEN_INDICATOR = os.getenv("MAVRICK_CAMERA_LISTEN_INDICATOR", "true").lower() in {"1", "true", "yes", "on"}
 STATUS_FILE = pathlib.Path("/run/mavrick/status.json")
 STATE_LOCK = threading.Lock()
@@ -305,7 +306,7 @@ def microphone_loop() -> None:
                 elif active:
                     silence_chunks += 1
                     active.append(samples)
-                if active and (silence_chunks >= 8 or len(active) >= 120):
+                if active and (silence_chunks >= 8 or len(active) >= MAX_UTTERANCE_CHUNKS):
                     stop_camera_indicator(indicator)
                     indicator = None
                     if speech_chunks >= 3:
