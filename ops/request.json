@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-buffer-refill-20260816-1019",
-  "operation": "osho-buffer",
-  "target": "compute-01"
+  "request_id": "mavrick-compute04-listen-indicator-20260816-0330",
+  "operation": "mavrick-deploy",
+  "target": "compute-04"
 }
