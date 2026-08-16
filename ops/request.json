@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-warm-voice-sample-20260816-0224",
-  "operation": "mavrick-audible-tts-compute04",
-  "target": "compute-04"
+  "request_id": "diagnose-dashboard-home-arpa-e2e-20260816-1225",
+  "operation": "p2-dashboard-diagnose",
+  "target": "core-01"
 }
