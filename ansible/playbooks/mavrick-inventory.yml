@@ -1,6 +1,6 @@
 ---
 - name: Inventory Project Mavrick hardware and runtime
-  hosts: compute-02
+  hosts: compute-04
   gather_facts: false
   tasks:
     - name: Inspect camera audio compute and services without capturing media
@@ -87,7 +87,7 @@
       ansible.builtin.shell: |
         set -o pipefail
         curl -fsS --max-time 10 http://127.0.0.1:11434/api/tags \
-          | jq -e '.models | any(.name == "qwen3-vl:4b" or .model == "qwen3-vl:4b")'
+          | jq -e '.models | any(.name == "qwen3-vl:2b" or .model == "qwen3-vl:2b")'
       args:
         executable: /bin/bash
       changed_when: false
