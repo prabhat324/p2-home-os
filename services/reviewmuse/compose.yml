@@ -8,5 +8,7 @@ services:
       REVIEWMUSE_OLLAMA_URL: ${REVIEWMUSE_OLLAMA_URL:-http://127.0.0.1:11434}
       REVIEWMUSE_MODEL: ${REVIEWMUSE_MODEL:-qwen3:1.7b}
       REVIEWMUSE_GOOGLE_REVIEW_URL: ${REVIEWMUSE_GOOGLE_REVIEW_URL:-https://www.google.com/maps}
+      REVIEWMUSE_ADMIN_PASSWORD: ${REVIEWMUSE_ADMIN_PASSWORD:-reviewmuse-local}
+      REVIEWMUSE_SESSION_SECRET: ${REVIEWMUSE_SESSION_SECRET:-reviewmuse-local-session-change-before-public}
     volumes:
       - ./data:/data
