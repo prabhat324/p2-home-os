@@ -101,3 +101,5 @@
     - name: Show notifier status
       ansible.builtin.debug:
         msg: "{{ notifier_verify.stdout_lines }}"
+
+- import_playbook: osho-discord-bot-deploy.yml
