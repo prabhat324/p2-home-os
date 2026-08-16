@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-live-trace-20260816-0132",
-  "operation": "mavrick-events",
+  "request_id": "mavrick-restart-fixed-runtime-20260816-0137",
+  "operation": "mavrick-deploy",
   "target": "compute-04"
 }
