@@ -1,5 +1,5 @@
 {
-  "request_id": "compute04-power-harden-20260816-0300",
-  "operation": "compute04-power-harden",
+  "request_id": "compute04-samsung-format-20260816-0310",
+  "operation": "compute04-storage-init",
   "target": "compute-04"
 }
