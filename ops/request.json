@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-productivity-hold-audit-20260816-1418",
-  "operation": "osho-hold-audit",
-  "target": "osho_nodes"
+  "request_id": "first-growth-video-check-20260816-1504",
+  "operation": "osho-status",
+  "target": "compute-01"
 }
