@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-offline-whisper-trace-20260816-0146",
-  "operation": "mavrick-deploy",
+  "request_id": "mavrick-verify-whisper-ready-20260816-0148",
+  "operation": "mavrick-events",
   "target": "compute-04"
 }
