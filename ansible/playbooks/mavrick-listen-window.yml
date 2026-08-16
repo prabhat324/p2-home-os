@@ -11,7 +11,7 @@
         echo "MAVRICK_LISTEN_WINDOW_START=$since"
         sleep 45
         echo '=== EVENTS ==='
-        journalctl -u mavrick.service --since "$since" --no-pager           | grep -E 'MAVRICK event=(mic_level|listening_started|utterance_queued|utterance_dropped|speech_model_ready|transcription_failed|question_failed|model_text_fallback|spoke|speech_failed|listen_indicator_failed|microphone_retry)' || true
+        journalctl -u mavrick.service --since "$since" --no-pager           | grep -E 'MAVRICK event=(mic_level|listening_started|utterance_queued|utterance_dropped|speech_model_ready|transcription_complete|transcription_empty|transcription_failed|question_failed|model_text_fallback|spoke|speech_failed|listen_indicator_failed|microphone_retry)' || true
         echo '=== STATUS ==='
         cat /run/mavrick/status.json 2>/dev/null || echo missing
         echo
