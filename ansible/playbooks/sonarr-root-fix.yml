@@ -1,0 +1,62 @@
+---
+- name: Repair Sonarr stored root path after media remount
+  hosts: core-01
+  gather_facts: false
+  tasks:
+    - name: Replace old Sonarr root and series paths through local API
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        import json, urllib.request, urllib.error, xml.etree.ElementTree as ET
+        cfg='/opt/docker/compose/sonarr/config/config.xml'
+        old='/tv'
+        new='/media/TV Shows'
+        root=ET.parse(cfg).getroot()
+        key=(root.findtext('ApiKey') or '').strip()
+        port=(root.findtext('Port') or '8989').strip()
+        urlbase=(root.findtext('UrlBase') or '').strip().strip('/')
+        base='http://127.0.0.1:'+port+('/'+urlbase if urlbase else '')+'/api/v3'
+        headers={'X-Api-Key':key,'Content-Type':'application/json'}
+
+        def call(method,path,payload=None):
+            data=None if payload is None else json.dumps(payload).encode()
+            req=urllib.request.Request(base+path,data=data,headers=headers,method=method)
+            with urllib.request.urlopen(req,timeout=15) as r:
+                raw=r.read()
+                return json.loads(raw) if raw else None
+
+        roots=call('GET','/rootfolder')
+        target=next((x for x in roots if x.get('path')==new),None)
+        if not target:
+            target=call('POST','/rootfolder',{'path':new})
+            print('CREATED_ROOT='+new)
+
+        series=call('GET','/series')
+        changed=0
+        for item in series:
+            path=item.get('path') or ''
+            if path==old or path.startswith(old+'/'):
+                item['path']=new+path[len(old):]
+                item['rootFolderPath']=new
+                item['moveFiles']=False
+                call('PUT','/series/'+str(item['id']),item)
+                changed+=1
+                print('UPDATED_SERIES=%s -> %s' % (path,item['path']))
+
+        roots=call('GET','/rootfolder')
+        for item in roots:
+            if item.get('path')==old:
+                call('DELETE','/rootfolder/'+str(item['id']))
+                print('DELETED_ROOT='+old)
+
+        roots=call('GET','/rootfolder')
+        print('SERIES_UPDATED='+str(changed))
+        print('ROOTS='+json.dumps([{'id':x.get('id'),'path':x.get('path'),'accessible':x.get('accessible')} for x in roots],sort_keys=True))
+        PY
+      args:
+        executable: /bin/bash
+      register: sonarr_root_fix
+      changed_when: "'CREATED_ROOT=' in sonarr_root_fix.stdout or 'UPDATED_SERIES=' in sonarr_root_fix.stdout or 'DELETED_ROOT=' in sonarr_root_fix.stdout"
+
+    - name: Print Sonarr root repair result
+      ansible.builtin.debug:
+        msg: "{{ sonarr_root_fix.stdout_lines }}"
