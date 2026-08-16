@@ -1,6 +1,6 @@
 ---
 - name: Verify compute-02 built-in speakers with Logitech microphone
-  hosts: compute-02
+  hosts: compute-04
   gather_facts: false
   vars:
     mic_device: "plughw:CARD=C930e,DEV=0"
