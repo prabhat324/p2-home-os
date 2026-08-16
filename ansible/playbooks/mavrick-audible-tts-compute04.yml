@@ -1,0 +1,33 @@
+---
+- name: Play Mavrick synthesized speech test on compute-04
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Set audible speaker volume
+      become: true
+      ansible.builtin.shell: |
+        amixer -c PCH set Master 90% unmute >/dev/null
+        amixer -c PCH set Speaker 90% unmute >/dev/null
+        amixer -c PCH set 'Bass Speaker' unmute >/dev/null || true
+        amixer -c PCH sset 'Auto-Mute Mode' Disabled >/dev/null
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Synthesize and play Mavrick test phrase
+      become: true
+      ansible.builtin.shell: |
+        set -euo pipefail
+        wav=/dev/shm/mavrick-audible-tts.wav
+        runuser -u mavrick -- /opt/mavrick/venv/bin/python -m piper           -m en_US-lessac-medium --data-dir /var/lib/mavrick/models/piper           -f "$wav" -- "Hello Prabhat. Mavrick speech output is working."
+        runuser -u mavrick -- aplay -q -D plughw:CARD=PCH,DEV=0 "$wav"
+        rm -f "$wav"
+        echo MAVRICK_AUDIBLE_TTS=passed
+      args:
+        executable: /bin/bash
+      register: result
+      changed_when: false
+
+    - name: Show speech test result
+      ansible.builtin.debug:
+        msg: "{{ result.stdout_lines }}"
