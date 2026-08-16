@@ -27,9 +27,11 @@
           if kill -0 "$pid" 2>/dev/null; then kill "$pid"; fi
           rm -f "$pidfile"
         fi
-        pkill -f '/home/p2ops/.local/bin/osho-discord-bot.py' 2>/dev/null || true
+        for pid in $(pgrep -f '^python3 /home/p2ops/.local/bin/osho-discord-bot.py$' 2>/dev/null || true); do
+          kill "$pid" 2>/dev/null || true
+        done
         echo LEGACY_INTERACTIVE_BOT=stopped
-        echo OSHO_NOTIFIER_COUNT="$(pgrep -fc '/home/p2ops/.local/bin/osho-discord-notifier.py' || true)"
+        echo OSHO_NOTIFIER_COUNT="$(pgrep -fc '^python3 /home/p2ops/.local/bin/osho-discord-notifier.py$' || true)"
       args:
         executable: /bin/bash
       register: legacy_stop
@@ -147,7 +149,9 @@
             done
           fi
         fi
-        pkill -f '/home/p2runner/.local/bin/psquare-discord-bot.py' 2>/dev/null || true
+        for pid in $(pgrep -f '^python3 /home/p2runner/.local/bin/psquare-discord-bot.py$' 2>/dev/null || true); do
+          kill "$pid" 2>/dev/null || true
+        done
         nohup "{{ psquare_bin }}" >> "{{ psquare_state }}/psquare-discord.log" 2>&1 </dev/null &
         newpid=$!
         echo "$newpid" > "$pidfile"
