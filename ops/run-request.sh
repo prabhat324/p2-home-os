@@ -96,6 +96,9 @@ case "${operation}" in
   mavrick-model-recover)
     [[ "${target}" == "compute-04" ]] || { echo "mavrick-model-recover is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-model-recover.yml" ;;
+  mavrick-speaker-diagnose-compute04)
+    [[ "${target}" == "compute-04" ]] || { echo "mavrick-speaker-diagnose-compute04 is restricted to compute-04" >&2; exit 2; }
+    playbook="playbooks/mavrick-speaker-diagnose-compute04.yml" ;;
   mavrick-speaker-test)
     [[ "${target}" == "compute-04" ]] || { echo "mavrick-speaker-test is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-speaker-test.yml" ;;
