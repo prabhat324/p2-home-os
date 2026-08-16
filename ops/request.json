@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-compute04-internal-tone-20260816-0420-v2",
-  "operation": "mavrick-internal-tone-compute04",
+  "request_id": "mavrick-compute04-audible-tts-20260816-0428",
+  "operation": "mavrick-audible-tts-compute04",
   "target": "compute-04"
 }
