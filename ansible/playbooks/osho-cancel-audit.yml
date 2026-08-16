@@ -1,0 +1,42 @@
+---
+- name: Audit Project Osho services before cancellation
+  hosts:
+    - compute-01
+    - compute-03
+  gather_facts: false
+  tasks:
+    - name: Collect Osho services, processes, containers and active jobs
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "HOST=$(hostname)"
+        echo '=== UNIT FILES ==='
+        systemctl list-unit-files --no-pager | grep -Ei 'osho|youtube|publish' || true
+        echo '=== ACTIVE UNITS ==='
+        systemctl list-units --type=service --all --no-pager | grep -Ei 'osho|youtube|publish|ollama' || true
+        echo '=== PROCESSES ==='
+        ps -eo pid,user,etimes,comm,args | grep -Ei 'osho|hook_ranker|retention_qa|youtube.*upload|publisher' | grep -vE 'grep|ansible' || true
+        echo '=== CONTAINERS ==='
+        docker ps -a --format '{{ "{{.Names}}" }}|{{ "{{.Status}}" }}|{{ "{{.Image}}" }}' 2>/dev/null | grep -Ei 'osho|ollama' || true
+        echo '=== ACTIVE JOB COUNT ==='
+        python3 - <<'PY'
+        import json,pathlib
+        root=pathlib.Path('/srv/osho/work')
+        terminal={'complete','completed','failed','cancelled','canceled','published','done','skipped'}
+        active=[]
+        for p in root.glob('*/job.json') if root.exists() else []:
+            try:d=json.loads(p.read_text())
+            except Exception:continue
+            s=str(d.get('status') or d.get('stage') or '').lower()
+            if s and s not in terminal:active.append((p.parent.name,s))
+        print('ACTIVE_COUNT='+str(len(active)))
+        for x in active[:20]:print('ACTIVE_JOB='+x[0]+'|'+x[1])
+        PY
+      args:
+        executable: /bin/bash
+      register: audit
+      changed_when: false
+      failed_when: false
+
+    - name: Print Osho cancellation audit
+      ansible.builtin.debug:
+        msg: "{{ audit.stdout_lines }}"
