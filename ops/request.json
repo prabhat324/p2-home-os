@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-growth-reload-20260816-0938",
-  "operation": "osho-growth-diagnose",
+  "request_id": "osho-growth-postreload-status-20260816-0939",
+  "operation": "osho-status",
   "target": "compute-01"
 }
