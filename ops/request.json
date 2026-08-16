@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-hold-verify-compute03-20260816-1138",
-  "operation": "osho-cancel-audit",
-  "target": "osho_nodes"
+  "request_id": "mavrick-post-restart-trace-20260816-0139",
+  "operation": "mavrick-events",
+  "target": "compute-04"
 }
