@@ -1,6 +1,6 @@
 # Project Osho
 
-> **Project status — full hold requested; enforcement pending (2026-08-16):** Data and documentation are preserved. Node-admin authorization is still required to stop and disable the active workloads. See [Project Status](project-status.md).
+> **Project status — full hold enforced (2026-08-16):** Osho processing and publishing are stopped; project data and documentation are preserved. The shared P2 Command Center remains active. See [Project Status](project-status.md).
 
 Project Osho is an automated short-form video production and publishing pipeline built on the P² Home OS compute cluster.
 
