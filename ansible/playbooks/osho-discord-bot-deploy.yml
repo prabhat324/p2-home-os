@@ -6,17 +6,40 @@
     discord_bot_token: "{{ lookup('env', 'DISCORD_BOT_TOKEN') }}"
     discord_channel_id: "{{ lookup('env', 'DISCORD_CHANNEL_ID') }}"
     discord_allowed_user_id: "{{ lookup('env', 'DISCORD_ALLOWED_USER_ID') }}"
+    discord_webhook_url: "{{ lookup('env', 'DISCORD_WEBHOOK_URL') }}"
     bot_bin: /home/p2ops/.local/bin/osho-discord-bot.py
     bot_config: /home/p2ops/.config/osho-discord-bot.env
     state_dir: /home/p2ops/.local/state
   tasks:
+    - name: Use explicitly configured channel ID when present
+      ansible.builtin.set_fact:
+        effective_discord_channel_id: "{{ discord_channel_id }}"
+      when: discord_channel_id | length > 0
+      no_log: true
+
+    - name: Resolve channel ID from existing Project Osho webhook
+      ansible.builtin.uri:
+        url: "{{ discord_webhook_url }}"
+        method: GET
+        return_content: true
+        status_code: 200
+      register: discord_webhook_info
+      when: discord_channel_id | length == 0
+      no_log: true
+
+    - name: Use webhook channel ID
+      ansible.builtin.set_fact:
+        effective_discord_channel_id: "{{ discord_webhook_info.json.channel_id }}"
+      when: discord_channel_id | length == 0
+      no_log: true
+
     - name: Validate Discord bot credentials
       ansible.builtin.assert:
         that:
           - discord_bot_token | length > 40
-          - discord_channel_id is match('^[0-9]{10,25}$')
+          - effective_discord_channel_id is match('^[0-9]{10,25}$')
           - discord_allowed_user_id | length == 0 or discord_allowed_user_id is match('^[0-9]{10,25}$')
-        fail_msg: DISCORD_BOT_TOKEN / DISCORD_CHANNEL_ID are missing or invalid
+        fail_msg: DISCORD_BOT_TOKEN is missing/invalid or the Discord channel could not be resolved
       no_log: true
 
     - name: Create bot directories
@@ -43,7 +66,7 @@
       ansible.builtin.copy:
         content: |
           DISCORD_BOT_TOKEN={{ discord_bot_token }}
-          DISCORD_CHANNEL_ID={{ discord_channel_id }}
+          DISCORD_CHANNEL_ID={{ effective_discord_channel_id }}
           DISCORD_ALLOWED_USER_ID={{ discord_allowed_user_id }}
         dest: "{{ bot_config }}"
         owner: p2ops
