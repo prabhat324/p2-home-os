@@ -3,121 +3,114 @@
   hosts: compute-01
   gather_facts: false
   tasks:
-    - name: Read authoritative autopilot status counts
-      ansible.builtin.shell: |
-        set -euo pipefail
-        python3 - <<'PY'
-        import sqlite3
-        from pathlib import Path
-
-        db = Path('/srv/osho/library/catalog/catalog.sqlite')
-        conn = sqlite3.connect(f'file:{db}?mode=ro&immutable=1', uri=True, timeout=2)
-        rows = conn.execute(
-            """
-            SELECT lower(trim(status)) AS status, COUNT(*) AS count
-            FROM osho_autopilot_state
-            WHERE status IS NOT NULL AND trim(status) <> ''
-            GROUP BY lower(trim(status))
-            ORDER BY status
-            """
-        ).fetchall()
-        conn.close()
-        for status, count in rows:
-            print(f'{status}={count}')
-        PY
-      args:
-        executable: /bin/bash
-      register: status_counts
-      changed_when: false
-
-    - name: Show authoritative autopilot status counts
-      ansible.builtin.debug:
-        msg: "{{ status_counts.stdout_lines }}"
-
-    - name: Read durable YouTube receipt identities
+    - name: Find first Growth Template V1 render or publish evidence
       ansible.builtin.shell: |
         set -euo pipefail
         python3 - <<'PY'
         import json
         from pathlib import Path
+        from datetime import datetime
 
-        root = Path('/srv/osho/youtube/receipts')
-        rows = []
-        if root.exists():
-            for path in sorted(root.rglob('*.json')):
+        roots = [
+            Path('/srv/osho/renders'),
+            Path('/srv/osho/work'),
+            Path('/srv/osho/youtube/receipts'),
+        ]
+        marker = 'osho-growth-v1'
+        matches = []
+
+        def walk_values(obj):
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    yield str(k), v
+                    yield from walk_values(v)
+            elif isinstance(obj, list):
+                for v in obj:
+                    yield from walk_values(v)
+
+        def marker_present(data):
+            for k, v in walk_values(data):
+                if k in ('growth_template', 'production_profile') and str(v) == marker:
+                    return True
+            return False
+
+        def pick(data, *keys):
+            if not isinstance(data, dict):
+                return None
+            for key in keys:
+                if data.get(key) not in (None, ''):
+                    return data.get(key)
+            for v in data.values():
+                if isinstance(v, dict):
+                    got = pick(v, *keys)
+                    if got not in (None, ''):
+                        return got
+            return None
+
+        for root in roots:
+            if not root.exists():
+                continue
+            for path in root.rglob('*.json'):
                 try:
                     data = json.loads(path.read_text(encoding='utf-8'))
-                except Exception as exc:
-                    print(f'INVALID_RECEIPT file={path.name} error={type(exc).__name__}')
+                except Exception:
                     continue
-                if not isinstance(data, dict):
-                    print(f'INVALID_RECEIPT file={path.name} error=not-object')
+                if not marker_present(data):
                     continue
-                rows.append((
-                    path.name,
-                    data.get('source_id'),
-                    data.get('job_id'),
-                    data.get('video_id'),
-                    data.get('uploaded_at') or data.get('published_at') or data.get('created_at'),
-                    data.get('title'),
-                ))
+                stat = path.stat()
+                matches.append({
+                    'path': str(path),
+                    'mtime': datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat(),
+                    'reel_id': pick(data, 'reel_id', 'job_id', 'render_id'),
+                    'source_id': pick(data, 'source_id'),
+                    'title': pick(data, 'title', 'youtube_title'),
+                    'video_id': pick(data, 'video_id', 'youtube_video_id'),
+                    'published_at': pick(data, 'published_at', 'uploaded_at', 'publish_time', 'created_at'),
+                })
 
-        print(f'RECEIPT_FILES={len(rows)}')
-        video_ids = {str(r[3]) for r in rows if r[3]}
-        source_ids = {str(r[1]) for r in rows if r[1]}
-        job_ids = {str(r[2]) for r in rows if r[2]}
-        print(f'UNIQUE_VIDEO_IDS={len(video_ids)}')
-        print(f'UNIQUE_SOURCE_IDS={len(source_ids)}')
-        print(f'UNIQUE_JOB_IDS={len(job_ids)}')
-        for row in rows:
-            print('RECEIPT', *[f'{k}={v!r}' for k, v in zip(
-                ('file','source_id','job_id','video_id','timestamp','title'), row
-            )])
+        matches.sort(key=lambda x: (x.get('published_at') or x['mtime'], x['path']))
+        print('GROWTH_MATCH_COUNT=' + str(len(matches)))
+        for i, row in enumerate(matches, 1):
+            print('GROWTH_MATCH_' + str(i) + '=' + json.dumps(row, ensure_ascii=False, sort_keys=True))
+
+        # Correlate any growth render with durable YouTube receipts by source/reel id.
+        receipts = []
+        receipt_root = Path('/srv/osho/youtube/receipts')
+        if receipt_root.exists():
+            for path in receipt_root.rglob('*.json'):
+                try:
+                    data = json.loads(path.read_text(encoding='utf-8'))
+                except Exception:
+                    continue
+                if isinstance(data, dict):
+                    receipts.append((path, data))
+
+        first = matches[0] if matches else None
+        if first:
+            ids = {str(x) for x in (first.get('reel_id'), first.get('source_id')) if x not in (None, '')}
+            correlated = []
+            for path, data in receipts:
+                candidates = {str(data.get(k)) for k in ('source_id','job_id','reel_id') if data.get(k) not in (None,'')}
+                if ids & candidates:
+                    correlated.append({
+                        'path': str(path),
+                        'source_id': data.get('source_id'),
+                        'reel_id': data.get('reel_id') or data.get('job_id'),
+                        'video_id': data.get('video_id'),
+                        'title': data.get('title'),
+                        'published_at': data.get('published_at') or data.get('uploaded_at') or data.get('created_at'),
+                    })
+            correlated.sort(key=lambda x: (x.get('published_at') or '', x['path']))
+            print('FIRST_GROWTH=' + json.dumps(first, ensure_ascii=False, sort_keys=True))
+            print('FIRST_GROWTH_RECEIPT_COUNT=' + str(len(correlated)))
+            for row in correlated:
+                print('FIRST_GROWTH_RECEIPT=' + json.dumps(row, ensure_ascii=False, sort_keys=True))
         PY
       args:
         executable: /bin/bash
-      register: receipts
+      register: growth_audit
       changed_when: false
 
-    - name: Show durable YouTube receipt identities
+    - name: Show first Growth Template V1 evidence
       ansible.builtin.debug:
-        msg: "{{ receipts.stdout_lines }}"
-
-    - name: Inspect sanitized recent receipt schema
-      ansible.builtin.shell: |
-        set -euo pipefail
-        python3 - <<'PY'
-        import json
-        from pathlib import Path
-        root = Path('/srv/osho/youtube/receipts')
-        paths = sorted(root.glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True)[:5]
-        for path in paths:
-            data = json.loads(path.read_text(encoding='utf-8'))
-            print(path.name, 'keys=' + ','.join(sorted(data)),
-                  'privacy=' + repr(data.get('privacy')),
-                  'privacy_status=' + repr(data.get('privacy_status')))
-        PY
-      args:
-        executable: /bin/bash
-      register: receipt_schema
-      changed_when: false
-
-    - name: Show sanitized recent receipt schema
-      ansible.builtin.debug:
-        msg: "{{ receipt_schema.stdout_lines }}"
-
-    - name: Read current reconciled dashboard summary
-      ansible.builtin.uri:
-        url: http://192.168.0.88:8787/api/dashboard
-        return_content: true
-        timeout: 5
-      register: dashboard
-      changed_when: false
-
-    - name: Show reconciled dashboard summary
-      ansible.builtin.debug:
-        msg:
-          - "dashboard_version={{ dashboard.json.dashboard_version | default('unknown') }}"
-          - "summary={{ dashboard.json.summary | default({}) }}"
-          - "state_reconciliation={{ dashboard.json.state_reconciliation | default({}) }}"
-          - "latest_upload={{ dashboard.json.latest_upload | default({}) }}"
+        msg: "{{ growth_audit.stdout_lines }}"
