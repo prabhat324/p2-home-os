@@ -1,5 +1,7 @@
 # Project Osho
 
+> **Project status — full hold (2026-08-16):** All Osho workloads, automatic starts, containers, resident models, and publishing are disabled while project data and documentation are preserved. See [Project Status](project-status.md).
+
 Project Osho is an automated short-form video production and publishing pipeline built on the P² Home OS compute cluster.
 
 Its goal is to take authorized/licensed long-form source material, identify strong short-form moments, render them as vertical videos, generate publishing metadata, and ultimately publish them to YouTube with minimal or zero manual intervention.
@@ -34,6 +36,7 @@ As of 2026-08-14, the project has moved beyond a single-machine prototype and is
 
 ## Documentation map
 
+- [Project Status](project-status.md) — authoritative hold state, preservation policy, and lessons learned.
 - [Architecture](architecture.md) — host roles, services, data flow, scaling model.
 - [Pipeline](pipeline.md) — source-to-upload processing stages and current scoring/ranking logic.
 - [Services and Paths](services-and-paths.md) — containers, systemd units, ports, storage layout, APIs.
