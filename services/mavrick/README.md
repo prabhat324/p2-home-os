@@ -1,12 +1,12 @@
 # Project Mavrick
 
-Project Mavrick is a fully local, privacy-first ambient camera companion running on `compute-02`. When the Logitech camera is connected, it can observe the current scene, respond to spoken questions, describe clearly visible activities or clothing, and occasionally make a short, gentle joke.
+Project Mavrick is a fully local, privacy-first ambient camera companion running on `compute-04`. When the Logitech camera is connected, it can observe the current scene, respond to spoken questions, describe clearly visible activities or clothing, and occasionally make a short, gentle joke.
 
 It is a fun home demonstration project with no cloud-service budget and no publishing workflow.
 
 ## Hardware
 
-- Host: `compute-02`
+- Host: `compute-04`
 - Camera and microphone: Logitech Webcam C930e
 - Speaker: external speaker through the computer's 3.5 mm analogue output
 
@@ -21,7 +21,7 @@ Default device mappings:
 1. `arecord` reads microphone PCM into memory.
 2. Faster-Whisper `tiny.en` performs local speech recognition.
 3. `ffmpeg` captures a single camera frame into memory when vision is needed.
-4. Ollama `qwen3-vl:4b` performs local vision and response generation.
+4. Ollama `qwen3-vl:2b` performs local vision and response generation.
 5. Piper `en_US-lessac-medium` creates local speech.
 6. `aplay` sends speech to the external speaker.
 
@@ -62,7 +62,7 @@ This design minimizes retention, but anyone demonstrating the system should stil
 
 ## Installation
 
-Run once on `compute-02`:
+Run once on `compute-04`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/mavrick/install.sh | sudo bash
@@ -120,7 +120,7 @@ To confirm the vision model is installed:
 ollama list
 ```
 
-The list should contain `qwen3-vl:4b`.
+The list should contain `qwen3-vl:2b`.
 
 ## Configuration
 
@@ -130,7 +130,7 @@ Important settings:
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `MAVRICK_VISION_MODEL` | `qwen3-vl:4b` | Local Ollama vision model |
+| `MAVRICK_VISION_MODEL` | `qwen3-vl:2b` | Local Ollama vision model |
 | `MAVRICK_AMBIENT_INTERVAL` | `45` | Seconds between ambient checks |
 | `MAVRICK_COMMENT_COOLDOWN` | `180` | Minimum seconds between unsolicited comments |
 | `MAVRICK_MIC_DEVICE` | C930e ALSA device | Microphone input |
@@ -146,7 +146,7 @@ sudo systemctl restart mavrick
 
 ### `ambient_retry error=HTTPError`
 
-Ollama is reachable but rejected the request. During initial setup this usually means `qwen3-vl:4b` is still downloading or has not registered. Check `ollama list`.
+Ollama is reachable but rejected the request. During initial setup this usually means `qwen3-vl:2b` is still downloading or has not registered. Check `ollama list`.
 
 ### No camera response
 
@@ -191,7 +191,7 @@ Operational checks and model management use:
 GitHub: prabhat324/p2-home-os
 Branch: ops-control
 GitHub Actions runner: core-01
-Path: runner -> Ansible -> compute-02
+Path: runner -> Ansible -> compute-04
 ```
 
 Approved Mavrick operations include:
@@ -220,5 +220,5 @@ sudo userdel mavrick
 The Ollama model is separate and can be removed with:
 
 ```bash
-ollama rm qwen3-vl:4b
+ollama rm qwen3-vl:2b
 ```
