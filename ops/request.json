@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-whisper-main-init-20260816-0152",
-  "operation": "mavrick-deploy",
+  "request_id": "mavrick-confirm-transcriber-ready-20260816-0154",
+  "operation": "mavrick-events",
   "target": "compute-04"
 }
