@@ -1,6 +1,6 @@
 ---
 - name: Pull Project Mavrick local vision model
-  hosts: compute-02
+  hosts: compute-04
   gather_facts: false
   tasks:
     - name: Check whether Qwen vision model is already present
@@ -15,7 +15,7 @@
         set -eu
         state=/home/p2ops/.local/state
         mkdir -p "$state"
-        if curl -fsS http://127.0.0.1:11434/api/tags | grep -q '"name":"qwen3-vl:4b"'; then
+        if curl -fsS http://127.0.0.1:11434/api/tags | grep -q '"name":"qwen3-vl:2b"'; then
           echo "MODEL_STATE=present"
           exit 0
         fi
@@ -26,7 +26,7 @@
         fi
         nohup curl -sS -N --max-time 7200 \
           -H "Content-Type: application/json" \
-          -d '{"name":"qwen3-vl:4b","stream":true}' \
+          -d '{"name":"qwen3-vl:2b","stream":true}' \
           http://127.0.0.1:11434/api/pull \
           > "$state/mavrick-model-pull.log" 2>&1 </dev/null &
         pid=$!
