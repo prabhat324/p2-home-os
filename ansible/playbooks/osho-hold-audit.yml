@@ -1,0 +1,40 @@
+---
+- name: Verify Project Osho full-hold state on every Osho node
+  hosts: osho_nodes
+  gather_facts: false
+  tasks:
+    - name: Collect hold and resource state
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "HOST=$(hostname)"
+        echo '=== ACTIVE_OSHO_UNITS ==='
+        systemctl list-units --all --no-legend --no-pager 2>/dev/null |
+          awk 'tolower($0) ~ /osho/ && $3 == "active" {print}' || true
+        echo '=== ENABLED_OSHO_UNITS ==='
+        systemctl list-unit-files --no-legend --no-pager 2>/dev/null |
+          awk 'tolower($1) ~ /osho/ && $2 == "enabled" {print}' || true
+        echo '=== ACTIVE_OSHO_CONTAINERS ==='
+        docker ps --format '{% raw %}{{.Names}}|{{.Image}}|{{.Status}}{% endraw %}' 2>/dev/null |
+          awk 'tolower($0) ~ /osho/ {print}' || true
+        echo '=== ACTIVE_OSHO_PROCESSES ==='
+        ps -eo pid,user,comm,args |
+          grep -Ei 'osho_autopilot|hook_ranker|retention_qa|osho-dashboard|osho-discord|/srv/osho/' |
+          grep -vE 'grep|ansible' || true
+        echo '=== RESIDENT_OLLAMA_MODELS ==='
+        if command -v ollama >/dev/null 2>&1; then ollama ps 2>&1 || true; fi
+        echo '=== NVIDIA_GPU ==='
+        if command -v nvidia-smi >/dev/null 2>&1; then
+          nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu --format=csv,noheader 2>/dev/null || true
+          echo '=== NVIDIA_COMPUTE_PROCESSES ==='
+          nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader 2>/dev/null || true
+        fi
+      args:
+        executable: /bin/bash
+      register: audit
+      changed_when: false
+      failed_when: false
+
+    - name: Print hold audit
+      ansible.builtin.debug:
+        msg: "{{ audit.stdout_lines }}"
+
