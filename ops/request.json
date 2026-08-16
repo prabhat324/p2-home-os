@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-productivity-repair-20260816-1417",
-  "operation": "osho-maintenance",
-  "target": "compute-01"
+  "request_id": "osho-productivity-hold-audit-20260816-1418",
+  "operation": "osho-hold-audit",
+  "target": "osho_nodes"
 }
