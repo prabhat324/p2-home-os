@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-compute02-retire-20260816-0239-v2",
-  "operation": "mavrick-retire-compute02",
-  "target": "compute-02"
+  "request_id": "psquare-discord-deploy-20260816-1000",
+  "operation": "osho-discord-deploy",
+  "target": "compute-01"
 }
