@@ -60,6 +60,9 @@ case "${operation}" in
   osho-cancel-audit)
     [[ "${target}" == "osho_nodes" ]] || { echo "osho-cancel-audit is restricted to osho_nodes" >&2; exit 2; }
     playbook="playbooks/osho-cancel-audit.yml" ;;
+  osho-cancel)
+    [[ "${target}" == "osho_nodes" ]] || { echo "osho-cancel is restricted to osho_nodes" >&2; exit 2; }
+    playbook="playbooks/osho-cancel.yml" ;;
   ollama-status)
     [[ "${target}" == "compute-01" ]] || { echo "ollama-status is restricted to compute-01" >&2; exit 2; }
     playbook="playbooks/ollama-status.yml" ;;
