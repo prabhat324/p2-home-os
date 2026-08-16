@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-amy-voice-sample-20260816-0242",
-  "operation": "mavrick-audible-tts-compute04",
-  "target": "compute-04"
+  "request_id": "dashboard-dns-helper-audit-20260816-1240",
+  "operation": "dashboard-dns-diagnose",
+  "target": "core-01"
 }
