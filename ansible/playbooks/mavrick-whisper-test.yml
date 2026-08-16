@@ -1,0 +1,48 @@
+---
+- name: Test Mavrick Whisper independently on compute-04
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Stop Mavrick to release memory
+      become: true
+      ansible.builtin.systemd:
+        name: mavrick.service
+        state: stopped
+
+    - name: Generate known speech and transcribe it
+      become: true
+      ansible.builtin.shell: |
+        set -euo pipefail
+        wav=/dev/shm/mavrick-whisper-test.wav
+        runuser -u mavrick -- /opt/mavrick/venv/bin/python -m piper           -m en_US-lessac-medium --data-dir /var/lib/mavrick/models/piper           -f "$wav" -- "Mavrick transcription test is working."
+        runuser -u mavrick -- timeout 240 /opt/mavrick/venv/bin/python - "$wav" <<'PY'
+        import sys, time
+        from faster_whisper import WhisperModel
+        started=time.monotonic()
+        model=WhisperModel("tiny.en", device="cpu", compute_type="int8",
+                           download_root="/var/lib/mavrick/models/whisper")
+        print(f"MAVRICK_WHISPER_LOAD_MS={int((time.monotonic()-started)*1000)}")
+        started=time.monotonic()
+        segments, info=model.transcribe(sys.argv[1], language="en", beam_size=1,
+                                        vad_filter=True, condition_on_previous_text=False)
+        text=" ".join(s.text.strip() for s in segments).strip()
+        print(f"MAVRICK_WHISPER_TRANSCRIBE_MS={int((time.monotonic()-started)*1000)}")
+        print(f"MAVRICK_WHISPER_TEXT_LENGTH={len(text)}")
+        print(f"MAVRICK_WHISPER_OK={str(bool(text)).lower()}")
+        PY
+        rm -f "$wav"
+      args:
+        executable: /bin/bash
+      register: whisper
+      changed_when: false
+
+    - name: Restart Mavrick
+      become: true
+      ansible.builtin.systemd:
+        name: mavrick.service
+        state: restarted
+        enabled: true
+
+    - name: Show Whisper result
+      ansible.builtin.debug:
+        msg: "{{ whisper.stdout_lines }}"
