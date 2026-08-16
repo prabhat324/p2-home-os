@@ -1,0 +1,89 @@
+---
+- name: Diagnose Mavrick end-to-end runtime on compute-04
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Inspect service state and privacy-safe logs
+      become: true
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '=== SERVICE ==='
+        systemctl --no-pager --full status mavrick.service 2>&1 || true
+        echo '=== STATUS ==='
+        cat /run/mavrick/status.json 2>/dev/null || echo missing
+        echo
+        echo '=== CONFIG ==='
+        grep -E '^MAVRICK_(VISION_MODEL|MIC_DEVICE|SPEAKER_DEVICE|SPEECH_RMS_THRESHOLD|CAMERA_LISTEN_INDICATOR)=' /etc/mavrick/config.env || true
+        echo '=== JOURNAL ==='
+        journalctl -u mavrick.service -n 120 --no-pager 2>&1 || true
+      args:
+        executable: /bin/bash
+      register: runtime
+      changed_when: false
+
+    - name: Stop service for exclusive microphone test
+      become: true
+      ansible.builtin.systemd:
+        name: mavrick.service
+        state: stopped
+
+    - name: Measure C930e microphone signal without retaining content
+      become: true
+      ansible.builtin.shell: |
+        set -euo pipefail
+        raw=/dev/shm/mavrick-mic-test.raw
+        runuser -u mavrick -- timeout 8 arecord -q -D plughw:CARD=C930e,DEV=0 -f S16_LE -r 16000 -c 1 -d 5 -t raw "$raw"
+        /opt/mavrick/venv/bin/python - "$raw" <<'PY'
+        import numpy as np, pathlib, sys
+        p=pathlib.Path(sys.argv[1])
+        x=np.fromfile(p,dtype=np.int16).astype(np.float32)
+        rms=float(np.sqrt(np.mean(x*x))) if x.size else 0
+        peak=float(np.max(np.abs(x))) if x.size else 0
+        print(f"MAVRICK_MIC_SAMPLES={x.size}")
+        print(f"MAVRICK_MIC_RMS={rms:.1f}")
+        print(f"MAVRICK_MIC_PEAK={peak:.1f}")
+        p.unlink(missing_ok=True)
+        PY
+      args:
+        executable: /bin/bash
+      register: mic
+      changed_when: false
+
+    - name: Test Piper synthesis without retaining speech
+      become: true
+      ansible.builtin.shell: |
+        set -euo pipefail
+        wav=/dev/shm/mavrick-tts-diagnostic.wav
+        runuser -u mavrick -- /opt/mavrick/venv/bin/python -m piper           -m en_US-lessac-medium --data-dir /var/lib/mavrick/models/piper           -f "$wav" -- "Mavrick audio diagnostic successful."
+        test -s "$wav"
+        echo "MAVRICK_TTS_BYTES=$(stat -c %s "$wav")"
+        rm -f "$wav"
+      args:
+        executable: /bin/bash
+      register: tts
+      changed_when: false
+
+    - name: Test Ollama model response
+      ansible.builtin.shell: |
+        set -euo pipefail
+        curl -fsS --max-time 180 http://127.0.0.1:11434/api/chat           -H 'Content-Type: application/json'           -d '{"model":"qwen3-vl:2b","messages":[{"role":"user","content":"Reply with the word ready."}],"stream":false}'           | jq -e '.message.content | length > 0'
+        echo MAVRICK_OLLAMA_CHAT=passed
+      args:
+        executable: /bin/bash
+      register: ollama
+      changed_when: false
+
+    - name: Restart Mavrick
+      become: true
+      ansible.builtin.systemd:
+        name: mavrick.service
+        state: restarted
+        enabled: true
+
+    - name: Show diagnostic summary
+      ansible.builtin.debug:
+        msg:
+          - "{{ mic.stdout_lines }}"
+          - "{{ tts.stdout_lines }}"
+          - "{{ ollama.stdout_lines }}"
+          - "{{ runtime.stdout_lines }}"
