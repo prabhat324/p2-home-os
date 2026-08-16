@@ -57,6 +57,7 @@ METRICS: dict[str, object] = {
 STOP = threading.Event()
 SPEAKING = threading.Event()
 UTTERANCES: queue.Queue[np.ndarray] = queue.Queue(maxsize=1)
+SPEECH_MODEL: WhisperModel | None = None
 
 SYSTEM_PROMPT = """You are Mavrick, a private local ambient companion for a fun home demo.
 You may describe visible activity, objects, and clothing colors or styles, then make at most
@@ -403,12 +404,10 @@ def microphone_loop() -> None:
         STOP.wait(3)
 
 def transcriber_loop() -> None:
-    status("loading_speech_model")
-    model = WhisperModel(
-        WHISPER_MODEL, device="cpu", compute_type="int8",
-        download_root=WHISPER_ROOT, local_files_only=True,
-    )
-    log("speech_model_ready")
+    model = SPEECH_MODEL
+    if model is None:
+        log("speech_model_failed", error="not_initialized")
+        return
     while not STOP.is_set():
         try:
             audio = UTTERANCES.get(timeout=1)
@@ -519,8 +518,19 @@ def shutdown(_signum: int, _frame: object) -> None:
 def main() -> int:
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
+    global SPEECH_MODEL
     STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
     log("started", privacy="local_only_ram_media")
+    status("loading_speech_model")
+    try:
+        SPEECH_MODEL = WhisperModel(
+            WHISPER_MODEL, device="cpu", compute_type="int8",
+            download_root=WHISPER_ROOT, local_files_only=True,
+        )
+        log("speech_model_ready")
+    except Exception as exc:
+        log("speech_model_failed", error=type(exc).__name__)
+        raise
     threads = [
         threading.Thread(target=microphone_loop, name="microphone", daemon=True),
         threading.Thread(target=transcriber_loop, name="transcriber", daemon=True),
