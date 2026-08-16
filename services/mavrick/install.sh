@@ -46,7 +46,8 @@ PY
 
 /opt/mavrick/venv/bin/python -m py_compile /opt/mavrick/mavrick.py
 systemctl daemon-reload
-systemctl enable --now mavrick.service
+systemctl enable mavrick.service
+systemctl restart mavrick.service
 sleep 5
 
 echo "MAVRICK_SERVICE=$(systemctl is-active mavrick.service || true)"
