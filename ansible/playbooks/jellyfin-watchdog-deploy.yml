@@ -1,0 +1,111 @@
+---
+- name: Deploy critical Jellyfin Discord watchdog
+  hosts: core-01
+  gather_facts: false
+  vars:
+    watchdog_src: "{{ playbook_dir }}/../../services/psquare-discord/jellyfin_watchdog.py"
+    watchdog_bin: /home/p2runner/.local/bin/jellyfin-watchdog.py
+    watchdog_state_dir: /home/p2runner/.local/state
+    watchdog_pid: /home/p2runner/.local/state/jellyfin-watchdog.pid
+    watchdog_log: /home/p2runner/.local/state/jellyfin-watchdog.log
+    psquare_config: /home/p2runner/.config/psquare-discord.env
+    psquare_inventory: /home/p2runner/.config/psquare/hosts.yml
+  tasks:
+    - name: Ensure watchdog directories exist
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: p2runner
+        group: p2runner
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "/home/p2runner/.local/bin", mode: "0755" }
+        - { path: "{{ watchdog_state_dir }}", mode: "0700" }
+
+    - name: Verify existing pSquare Discord configuration is present
+      ansible.builtin.shell: |
+        set -eu
+        test -r "{{ psquare_config }}"
+        test -r "{{ psquare_inventory }}"
+        grep -q '^DISCORD_BOT_TOKEN=' "{{ psquare_config }}"
+        grep -q '^DISCORD_CHANNEL_ID=' "{{ psquare_config }}"
+        command -v ansible >/dev/null
+        echo WATCHDOG_PREREQUISITES=ready
+      args:
+        executable: /bin/bash
+      register: watchdog_prereq
+      changed_when: false
+
+    - name: Install Jellyfin watchdog
+      ansible.builtin.copy:
+        src: "{{ watchdog_src }}"
+        dest: "{{ watchdog_bin }}"
+        owner: p2runner
+        group: p2runner
+        mode: "0755"
+
+    - name: Validate watchdog Python
+      ansible.builtin.shell: |
+        set -eu
+        python3 -m py_compile "{{ watchdog_bin }}"
+        echo WATCHDOG_PYTHON=valid
+      args:
+        executable: /bin/bash
+      register: watchdog_python
+      changed_when: false
+
+    - name: Keep Jellyfin watchdog running after core-01 reboot
+      ansible.builtin.cron:
+        name: P2 critical Jellyfin Discord watchdog
+        special_time: reboot
+        user: p2runner
+        job: "/usr/bin/nohup {{ watchdog_bin }} >> {{ watchdog_log }} 2>&1 &"
+
+    - name: Restart Jellyfin watchdog
+      ansible.builtin.shell: |
+        set -eu
+        if [ -s "{{ watchdog_pid }}" ]; then
+          oldpid="$(cat "{{ watchdog_pid }}")"
+          if kill -0 "$oldpid" 2>/dev/null; then
+            kill "$oldpid" 2>/dev/null || true
+            for n in 1 2 3 4 5; do
+              kill -0 "$oldpid" 2>/dev/null || break
+              sleep 1
+            done
+          fi
+        fi
+        for pid in $(pgrep -f '^python3 /home/p2runner/.local/bin/jellyfin-watchdog.py$' 2>/dev/null || true); do
+          kill "$pid" 2>/dev/null || true
+        done
+        env -u RUNNER_TRACKING_ID nohup "{{ watchdog_bin }}" >> "{{ watchdog_log }}" 2>&1 </dev/null &
+        newpid=$!
+        echo "$newpid" > "{{ watchdog_pid }}"
+        sleep 3
+        kill -0 "$newpid"
+        echo WATCHDOG_STATUS=running
+        echo WATCHDOG_PID=$newpid
+      args:
+        executable: /bin/bash
+      register: watchdog_start
+      changed_when: true
+
+    - name: Run immediate Jellyfin health verification
+      ansible.builtin.shell: |
+        set +e
+        "{{ watchdog_bin }}" --once
+        rc=$?
+        echo WATCHDOG_ONCE_RC=$rc
+        exit 0
+      args:
+        executable: /bin/bash
+      register: watchdog_once
+      changed_when: false
+
+    - name: Show watchdog deployment status
+      ansible.builtin.debug:
+        msg:
+          - "{{ watchdog_prereq.stdout_lines }}"
+          - "{{ watchdog_python.stdout_lines }}"
+          - "{{ watchdog_start.stdout_lines }}"
+          - "JELLYFIN_HEALTH={{ watchdog_once.stdout_lines }}"
+          - "ALERT_POLICY=20s interval, 2 consecutive failures, one critical Discord ping, recovery notice"
