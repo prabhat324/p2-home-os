@@ -1,0 +1,19 @@
+---
+- name: Reset the P2 dashboard route to its managed baseline
+  hosts: core-01
+  gather_facts: false
+  tasks:
+    - name: Restore managed Homepage route baseline
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - /usr/local/sbin/p2ops-p2-dashboard-route
+          - restore-homepage
+      register: restore
+      changed_when: true
+
+    - name: Print baseline restoration result
+      ansible.builtin.debug:
+        msg: "{{ restore.stdout_lines }}"
+
