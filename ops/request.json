@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-growth-v1-first-check-20260816-0008",
-  "operation": "osho-status",
-  "target": "compute-01"
+  "request_id": "sonarr-media-verify-20260816-0015",
+  "operation": "sonarr-diagnose",
+  "target": "core-01"
 }
