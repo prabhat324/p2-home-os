@@ -41,6 +41,23 @@
           echo "PSQUARE_CONFIG_MODE=$(stat -c %a /home/p2runner/.config/psquare-discord.env 2>/dev/null || echo missing)"
           echo "PSQUARE_INVENTORY_MODE=$(stat -c %a /home/p2runner/.config/psquare/hosts.yml 2>/dev/null || echo missing)"
         fi
+        if [ "$(hostname)" = "compute-01" ]; then
+          echo '=== JELLYFIN HEALTH ==='
+          echo "JELLYFIN_ACTIVE=$(systemctl is-active jellyfin 2>/dev/null || true)"
+          echo "JELLYFIN_ENABLED=$(systemctl is-enabled jellyfin 2>/dev/null || true)"
+          echo '--- LISTENERS ---'
+          ss -ltn 2>/dev/null | grep -E '(:8096|:8920)' || true
+          echo '--- PUBLIC API ---'
+          curl -fsS --max-time 5 http://127.0.0.1:8096/System/Info/Public 2>/dev/null || true
+          echo
+          echo '--- MEDIA MOUNT ---'
+          findmnt -T /mnt/media -o SOURCE,FSTYPE,TARGET,OPTIONS -n 2>/dev/null || true
+          timeout 5 find /mnt/media -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null | head -20 || true
+          echo '--- JELLYFIN PROCESS ---'
+          pgrep -af jellyfin 2>/dev/null || true
+          echo '--- SUDO ALLOWLIST ---'
+          sudo -n -l 2>&1 | head -100 || true
+        fi
       args:
         executable: /bin/bash
       register: host_status
