@@ -1,5 +1,5 @@
 {
-  "request_id": "compute03-postreboot-gpu-20260815-2231",
-  "operation": "gpu-status",
+  "request_id": "compute03-postreboot-osho-20260815-2232",
+  "operation": "osho-status",
   "target": "compute-03"
 }
