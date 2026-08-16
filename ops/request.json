@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-compute04-ping-20260816-0155",
-  "operation": "ping",
+  "request_id": "mavrick-compute04-deploy-20260816-0212",
+  "operation": "mavrick-deploy",
   "target": "compute-04"
 }
