@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-post-compute03-reboot-20260815-2233",
-  "operation": "dashboard-diagnose",
-  "target": "compute-02"
+  "request_id": "dashboard-service-inventory-20260815-2234",
+  "operation": "home-dashboard-inventory",
+  "target": "all"
 }
