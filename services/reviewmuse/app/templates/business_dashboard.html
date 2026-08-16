@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ business.name }} Dashboard — ReviewMuse</title>
+  <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body class="admin-body">
+<header class="admin-topbar">
+  <a class="admin-brand" href="/"><span>R</span> ReviewMuse</a>
+  <div class="topbar-actions">
+    <a href="/r/{{ business.slug }}" target="_blank" rel="noopener">View customer page ↗</a>
+    <form method="post" action="/business/logout"><button class="ghost-button" type="submit">Sign out</button></form>
+  </div>
+</header>
+
+<main class="admin-shell">
+  {% if saved %}<div class="alert success">Brand settings saved. Your customer review page has been updated.</div>{% endif %}
+  {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
+
+  <section class="dashboard-heading">
+    <div>
+      <div class="admin-kicker">BUSINESS DASHBOARD</div>
+      <h1>{{ business.name }}</h1>
+      <p>See how customers move from your ReviewMuse link to the Google handoff.</p>
+    </div>
+    <div class="share-card">
+      <span>Your customer link</span>
+      <div><code id="reviewLink">{{ request_base if request_base else '' }}/r/{{ business.slug }}</code><button onclick="copyLink()">Copy</button></div>
+    </div>
+  </section>
+
+  <section class="metric-grid">
+    <article class="metric"><span>Link opens</span><strong>{{ stats.opens }}</strong><small>Total times the ReviewMuse link was opened</small></article>
+    <article class="metric"><span>Unique visitors</span><strong>{{ stats.unique_visitors }}</strong><small>Distinct customer browsers seen</small></article>
+    <article class="metric"><span>Reviews ready</span><strong>{{ stats.review_ready }}</strong><small>Customers who reached an editable review</small></article>
+    <article class="metric featured"><span>Continued to Google</span><strong>{{ stats.continued }}</strong><small>{{ stats.conversion }}% of unique visitors</small></article>
+  </section>
+
+  <section class="panel funnel-panel">
+    <div class="panel-title"><div><div class="admin-kicker">CONVERSION FUNNEL</div><h2>Where customers make it through</h2></div><span>{{ stats.ai_drafts }} AI drafts generated</span></div>
+    <div class="funnel-row">
+      <div class="funnel-step"><b>{{ stats.unique_visitors }}</b><span>Opened link</span></div><i>→</i>
+      <div class="funnel-step"><b>{{ stats.started }}</b><span>Started writing</span></div><i>→</i>
+      <div class="funnel-step"><b>{{ stats.review_ready }}</b><span>Review ready</span></div><i>→</i>
+      <div class="funnel-step accent"><b>{{ stats.continued }}</b><span>Continued to Google</span></div>
+    </div>
+  </section>
+
+  <section class="two-col">
+    <article class="panel">
+      <div class="panel-title"><div><div class="admin-kicker">LAST 14 DAYS</div><h2>Link activity</h2></div></div>
+      <div class="bar-chart">
+        {% for day in stats.days %}
+        <div class="bar-column" title="{{ day.label }} — {{ day.opens }} opens, {{ day.handoffs }} Google handoffs">
+          <div class="bar-value">{{ day.opens }}</div>
+          <div class="bar" style="height:{{ day.height }}%"></div>
+          <small>{{ day.label }}</small>
+        </div>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="panel activity-panel">
+      <div class="panel-title"><div><div class="admin-kicker">RECENT ACTIVITY</div><h2>Latest customer actions</h2></div></div>
+      <div class="activity-list">
+        {% if stats.recent %}
+          {% for item in stats.recent %}<div><span>{{ item.label }}</span><time>{{ item.time }}</time></div>{% endfor %}
+        {% else %}
+          <p class="empty">No customer activity yet. Open the customer link to start testing the funnel.</p>
+        {% endif %}
+      </div>
+    </article>
+  </section>
+
+  <section class="panel branding-panel">
+    <div class="panel-title">
+      <div><div class="admin-kicker">CUSTOM BRANDING</div><h2>Make ReviewMuse feel like your business</h2></div>
+      <a href="/r/{{ business.slug }}" target="_blank" rel="noopener">Preview customer page ↗</a>
+    </div>
+
+    <form method="post" action="/business/{{ business.slug }}/settings" enctype="multipart/form-data" class="brand-form">
+      <div class="brand-preview" style="--preview-accent:{{ business.accent_color }}">
+        {% if business.cover_path %}<img class="preview-cover" src="{{ business.cover_path }}" alt="Business cover image">{% else %}<div class="preview-cover placeholder">Cover image</div>{% endif %}
+        <div class="preview-content">
+          {% if business.logo_path %}<img class="preview-logo" src="{{ business.logo_path }}" alt="{{ business.name }} logo">{% else %}<div class="preview-logo placeholder">{{ business.name[:1] }}</div>{% endif %}
+          <strong>{{ business.name }}</strong>
+          <span>{{ business.location }}</span>
+          <p>{{ business.headline }}</p>
+          <button type="button">Write a review</button>
+        </div>
+      </div>
+
+      <div class="settings-grid">
+        <label>Business name<input name="name" value="{{ business.name }}" maxlength="100" required></label>
+        <label>Location / branch<input name="location" value="{{ business.location }}" maxlength="120"></label>
+        <label class="wide">Customer-page headline<input name="headline" value="{{ business.headline }}" maxlength="140" placeholder="Tell us about your experience."></label>
+        <label class="wide">Welcome message<textarea name="intro" maxlength="360" rows="3">{{ business.intro }}</textarea></label>
+        <label>Brand accent color<div class="color-field"><input name="accent_color" value="{{ business.accent_color }}" pattern="#[0-9A-Fa-f]{6}"><input type="color" value="{{ business.accent_color }}" onchange="this.previousElementSibling.value=this.value"></div></label>
+        <label>Logo image <small>PNG/JPG/WebP · max 2MB</small><input name="logo" type="file" accept="image/png,image/jpeg,image/webp"></label>
+        <label>Cover image <small>PNG/JPG/WebP · max 5MB</small><input name="cover" type="file" accept="image/png,image/jpeg,image/webp"></label>
+        <label class="wide">Google review URL<input name="google_review_url" type="url" value="{{ business.google_review_url }}" required></label>
+        <label class="wide">Experience buttons <small>Comma-separated; up to 12</small><textarea name="highlight_options" rows="3">{{ business.highlight_options }}</textarea></label>
+      </div>
+      <div class="settings-note"><strong>Useful brand resources:</strong> logo, cover image, accent color, customer-facing headline, branch/location, custom experience prompts and the exact Google review destination are all stored locally on compute-04.</div>
+      <button class="admin-primary save-button" type="submit">Save & update customer page</button>
+    </form>
+  </section>
+</main>
+<script>
+const fallbackBase = window.location.origin;
+const link = document.getElementById('reviewLink');
+if (link && !link.textContent.startsWith('http')) link.textContent = fallbackBase + '/r/{{ business.slug }}';
+async function copyLink(){
+  try { await navigator.clipboard.writeText(link.textContent); }
+  catch(e){ const range=document.createRange();range.selectNode(link);window.getSelection().removeAllRanges();window.getSelection().addRange(range);document.execCommand('copy'); }
+  const button=link.nextElementSibling; const old=button.textContent; button.textContent='Copied'; setTimeout(()=>button.textContent=old,1200);
+}
+</script>
+</body>
+</html>
