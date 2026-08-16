@@ -1,8 +1,8 @@
 # Project Osho Status
 
-## Full hold requested — enforcement pending — 2026-08-16
+## Full hold enforced — 2026-08-16
 
-Project Osho has an indefinite, reversible **full hold requested** by owner decision. Enforcement is pending one-time node-administrator authorization because the `p2ops` control account is not permitted to stop or disable system services.
+Project Osho is under an indefinite, reversible **full hold** by owner decision. Node administrators stopped and disabled the Osho workloads on compute-01, compute-02, and compute-03; the shared P2 Command Center remains active by design.
 
 The hold applies only to Project Osho. The core pSquare Home OS dashboard (`dashboard.home.arpa`), monitoring, media, smart-home, storage, AI, and other shared platform services remain operational. The compute-02 container historically named `osho-dashboard` serves the shared P2 Command Center and is explicitly exempt from the hold; keeping it healthy does not resume Osho processing or publishing. Shared Ollama services must not be disabled merely because Osho is held; only Osho-triggered resident models should be unloaded when GPU capacity is needed.
 
@@ -47,4 +47,6 @@ The project remains preserved for audit and possible future study; the hold is n
 
 ## Enforcement record
 
-The first control run (`31955607723`) reached compute-01, compute-02, and compute-03 but made no changes because sudo rejected Ansible privilege escalation. The subsequent audit (`31955639960`) succeeded and confirmed active Osho services on compute-01 and compute-03. Do not mark this hold enforced until a successful control run verifies no active Osho units, containers, processes, resident Ollama models, or Osho GPU processes.
+The initial control run (`31955607723`) was blocked by the hardened sudo policy and made no changes. Node administrators subsequently stopped and disabled Osho units and containers. The complete audit confirmed no active or enabled Osho workload units. The shared dashboard was restored and its DNS/proxy path verified separately.
+
+A stale progress reporter had continued refreshing job `source:000248`, causing the Command Center to display `Working`. Control run `31958126421` stopped that reporter and moved the interrupted job to the preserved `queued` / `on_hold` state. Verification returned `PROCESSING=0` and no current job.
