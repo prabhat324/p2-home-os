@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-compute04-live-trace-20260816-0525-v2",
-  "operation": "mavrick-listen-window",
+  "request_id": "mavrick-compute04-mic-telemetry-20260816-0534",
+  "operation": "mavrick-deploy",
   "target": "compute-04"
 }
