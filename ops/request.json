@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-dns-diagnose-20260816-1234",
-  "operation": "dashboard-dns-diagnose",
-  "target": "core-01"
+  "request_id": "mavrick-amy-voice-sample-20260816-0242",
+  "operation": "mavrick-audible-tts-compute04",
+  "target": "compute-04"
 }
