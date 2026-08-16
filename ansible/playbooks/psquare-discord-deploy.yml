@@ -152,7 +152,7 @@
         for pid in $(pgrep -f '^python3 /home/p2runner/.local/bin/psquare-discord-bot.py$' 2>/dev/null || true); do
           kill "$pid" 2>/dev/null || true
         done
-        nohup "{{ psquare_bin }}" >> "{{ psquare_state }}/psquare-discord.log" 2>&1 </dev/null &
+        env -u RUNNER_TRACKING_ID nohup "{{ psquare_bin }}" >> "{{ psquare_state }}/psquare-discord.log" 2>&1 </dev/null &
         newpid=$!
         echo "$newpid" > "$pidfile"
         sleep 5
