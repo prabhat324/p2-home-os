@@ -1,5 +1,5 @@
 {
-  "request_id": "verify-compute01-back-20260816-1347",
-  "operation": "ping",
+  "request_id": "inspect-compute01-after-reconnect-20260816-1349",
+  "operation": "status",
   "target": "compute-01"
 }
