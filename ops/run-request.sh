@@ -60,6 +60,9 @@ case "${operation}" in
   osho-thermal-pause)
     [[ "${target}" == "compute_nodes" ]] || { echo "osho-thermal-pause is restricted to compute_nodes" >&2; exit 2; }
     playbook="playbooks/osho-thermal-pause.yml" ;;
+  osho-hold-audit)
+    [[ "${target}" == "osho_nodes" ]] || { echo "osho-hold-audit is restricted to osho_nodes" >&2; exit 2; }
+    playbook="playbooks/osho-hold-audit.yml" ;;
   osho-hold)
     [[ "${target}" == "osho_nodes" ]] || { echo "osho-hold is restricted to osho_nodes" >&2; exit 2; }
     playbook="playbooks/osho-hold.yml" ;;
