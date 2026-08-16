@@ -8,7 +8,7 @@
       changed_when: false
 
     - name: Check for Ollama
-      ansible.builtin.command: command -v ollama
+      ansible.builtin.shell: command -v ollama
       register: ollama_command
       changed_when: false
       failed_when: false
