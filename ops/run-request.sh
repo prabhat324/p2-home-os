@@ -156,6 +156,9 @@ case "${operation}" in
   p2-dashboard-diagnose)
     [[ "${target}" == "core-01" ]] || { echo "p2-dashboard-diagnose is restricted to core-01" >&2; exit 2; }
     playbook="playbooks/p2-dashboard-diagnose.yml" ;;
+  p2-dashboard-route-reset)
+    [[ "${target}" == "core-01" ]] || { echo "p2-dashboard-route-reset is restricted to core-01" >&2; exit 2; }
+    playbook="playbooks/p2-dashboard-route-reset.yml" ;;
   p2-dashboard-route)
     [[ "${target}" == "core-01" ]] || { echo "p2-dashboard-route is restricted to core-01" >&2; exit 2; }
     playbook="playbooks/p2-dashboard-route.yml" ;;
