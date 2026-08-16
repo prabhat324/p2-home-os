@@ -1,0 +1,93 @@
+---
+- name: Diagnose Project Osho productivity SLA on compute-01
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Measure throughput, publication age, buffer, active work and recent yield
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "NOW=$(date -Ins)"
+        echo "=== SERVICES ==="
+        systemctl is-active osho-autopilot.service 2>/dev/null || true
+        systemctl list-timers --all --no-pager 2>/dev/null | grep -Ei 'osho|buffer' || true
+        echo "=== BUFFER ==="
+        sudo -n /usr/local/sbin/p2ops-osho-buffer status 2>&1 || true
+        echo "=== ACTIVE PIPELINE ==="
+        pgrep -af 'osho_autopilot|hook_ranker_v5|retention_qa|ffmpeg|production_renderer|youtube' || true
+        echo "=== GPU COMPUTE-01 ==="
+        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw --format=csv,noheader,nounits 2>/dev/null || true
+        echo "=== SLA SNAPSHOT ==="
+        python3 - <<'PY'
+        import json, pathlib, sqlite3
+        from datetime import datetime, timezone
+        now=datetime.now(timezone.utc)
+        root=pathlib.Path('/srv/osho/youtube/receipts')
+        rows=[]
+        def parse(v):
+            if not v: return None
+            try:
+                d=datetime.fromisoformat(str(v).replace('Z','+00:00'))
+                if d.tzinfo is None: d=d.replace(tzinfo=timezone.utc)
+                return d.astimezone(timezone.utc)
+            except Exception: return None
+        if root.is_dir():
+            for p in root.glob('*.json'):
+                try: d=json.loads(p.read_text(encoding='utf-8'))
+                except Exception: continue
+                if not isinstance(d,dict): continue
+                vid=d.get('video_id') or d.get('youtube_video_id') or d.get('id')
+                status=str(d.get('status') or d.get('upload_status') or '').lower()
+                ts=parse(d.get('published_at') or d.get('uploaded_at') or d.get('created_at'))
+                if vid and ts and (not status or status in {'published','uploaded','complete','success','public'}):
+                    rows.append((ts,p,d))
+        rows.sort(key=lambda x:x[0], reverse=True)
+        print('PUBLIC_RECEIPT_COUNT='+str(len(rows)))
+        if rows:
+            ts,p,d=rows[0]
+            age=(now-ts).total_seconds()/60
+            print(f'NEWEST_PUBLIC_AGE_MIN={age:.1f}')
+            print('NEWEST_PUBLIC_RECEIPT='+json.dumps({'file':p.name,'published_at':ts.isoformat(),'video_id':d.get('video_id') or d.get('youtube_video_id') or d.get('id'),'title':d.get('title') or d.get('youtube_title')},ensure_ascii=False,sort_keys=True))
+        db=pathlib.Path('/srv/osho/library/catalog/catalog.sqlite')
+        if db.exists():
+            con=sqlite3.connect(f'file:{db}?mode=ro',uri=True)
+            con.row_factory=sqlite3.Row
+            try:
+                counts=dict(con.execute('select status,count(*) from osho_autopilot_state group by status').fetchall())
+                print('STATE_COUNTS='+json.dumps(counts,sort_keys=True))
+                recent=con.execute("select source_id,status,attempts,last_error,note,started_at,finished_at,updated_at from osho_autopilot_state order by source_number desc limit 20").fetchall()
+                for r in recent: print('RECENT_STATE='+json.dumps(dict(r),ensure_ascii=False,sort_keys=True))
+            finally: con.close()
+        PY
+        echo "=== RECENT AUTOPILOT ==="
+        journalctl -u osho-autopilot.service --since '90 minutes ago' --no-pager -o short-iso 2>/dev/null | grep -Ei 'START|candidate|approval|SAFE|queue|submit|render|complete|fail|error|upload|publish|skip|reject|retention|rank' | tail -220 || true
+      args:
+        executable: /bin/bash
+      register: sla
+      changed_when: false
+      failed_when: false
+    - name: Show compute-01 SLA diagnosis
+      ansible.builtin.debug:
+        msg: "{{ sla.stdout_lines }}"
+
+- name: Diagnose Project Osho useful work on compute-03
+  hosts: compute-03
+  gather_facts: false
+  tasks:
+    - name: Measure compute-03 useful work
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "NOW=$(date -Ins)"
+        echo "=== PROCESSES ==="
+        pgrep -af 'hook_ranker_v5|retention_qa|osho|ollama|python3' || true
+        echo "=== GPU ==="
+        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw --format=csv,noheader,nounits 2>/dev/null || true
+        echo "=== WORKER HEALTH ==="
+        curl -fsS --max-time 4 http://127.0.0.1:8800/health 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      register: c3
+      changed_when: false
+      failed_when: false
+    - name: Show compute-03 diagnosis
+      ansible.builtin.debug:
+        msg: "{{ c3.stdout_lines }}"
