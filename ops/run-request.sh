@@ -96,6 +96,9 @@ case "${operation}" in
   mavrick-model-recover)
     [[ "${target}" == "compute-04" ]] || { echo "mavrick-model-recover is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-model-recover.yml" ;;
+  mavrick-audible-tts-compute04)
+    [[ "${target}" == "compute-04" ]] || { echo "mavrick-audible-tts-compute04 is restricted to compute-04" >&2; exit 2; }
+    playbook="playbooks/mavrick-audible-tts-compute04.yml" ;;
   mavrick-internal-tone-compute04)
     [[ "${target}" == "compute-04" ]] || { echo "mavrick-internal-tone-compute04 is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-internal-tone-compute04.yml" ;;
