@@ -1,5 +1,5 @@
 {
-  "request_id": "compute04-first-ping-20260816-0045",
-  "operation": "ping",
+  "request_id": "compute04-baseline-20260816-0050",
+  "operation": "status",
   "target": "compute-04"
 }
