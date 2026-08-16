@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-low-latency-20260816-0215",
-  "operation": "mavrick-deploy",
-  "target": "compute-04"
+  "request_id": "repair-dashboard-home-arpa-route-20260816-1210",
+  "operation": "p2-dashboard-route",
+  "target": "core-01"
 }
