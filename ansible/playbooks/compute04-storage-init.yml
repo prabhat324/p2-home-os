@@ -1,0 +1,84 @@
+---
+- name: Initialize compute-04 Samsung data NVMe
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Destructively initialize verified Samsung SSD as /srv
+      ansible.builtin.shell: |
+        set -euo pipefail
+
+        mapfile -t candidates < <(lsblk -dnpo NAME,MODEL | awk 'index($0,"Samsung SSD 970 EVO Plus 1TB"){print $1}')
+        if [ "${#candidates[@]}" -ne 1 ]; then
+          echo "REFUSED: expected exactly one Samsung SSD 970 EVO Plus 1TB; found ${#candidates[@]}" >&2
+          lsblk -dnpo NAME,SIZE,MODEL >&2
+          exit 20
+        fi
+
+        target="${candidates[0]}"
+        root_source="$(findmnt -n -o SOURCE /)"
+        root_parent="/dev/$(lsblk -no PKNAME "$root_source")"
+
+        echo "TARGET=$target"
+        echo "TARGET_MODEL=$(lsblk -dn -o MODEL "$target" | xargs)"
+        echo "TARGET_SERIAL=$(lsblk -dn -o SERIAL "$target" | xargs)"
+        echo "TARGET_SIZE=$(lsblk -dn -o SIZE "$target" | xargs)"
+        echo "ROOT_SOURCE=$root_source"
+        echo "ROOT_PARENT=$root_parent"
+
+        if [ "$target" = "$root_parent" ] || [ "$target" = "$root_source" ]; then
+          echo "REFUSED: selected target is the active root disk" >&2
+          exit 21
+        fi
+
+        if lsblk -nrpo MOUNTPOINT "$target" | awk 'NF{found=1} END{exit !found}'; then
+          echo "REFUSED: target or one of its partitions is mounted" >&2
+          lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINTS "$target" >&2
+          exit 22
+        fi
+
+        size_bytes="$(lsblk -bdn -o SIZE "$target")"
+        if [ "$size_bytes" -lt 900000000000 ] || [ "$size_bytes" -gt 1100000000000 ]; then
+          echo "REFUSED: target size is outside the expected 1 TB range" >&2
+          exit 23
+        fi
+
+        sudo -n cp -a /etc/fstab "/etc/fstab.p2-before-compute04-$(date +%Y%m%d-%H%M%S)"
+        sudo -n wipefs --all "$target"
+        sudo -n parted -s "$target" mklabel gpt
+        sudo -n parted -s "$target" mkpart primary xfs 1MiB 100%
+        sudo -n partprobe "$target"
+        sudo -n udevadm settle
+
+        part="${target}p1"
+        for _ in $(seq 1 20); do
+          [ -b "$part" ] && break
+          sleep 1
+        done
+        [ -b "$part" ] || { echo "Partition did not appear: $part" >&2; exit 24; }
+
+        sudo -n mkfs.xfs -f -L P2_SRV "$part"
+        uuid="$(sudo -n blkid -s UUID -o value "$part")"
+        [ -n "$uuid" ] || { echo "Unable to read new filesystem UUID" >&2; exit 25; }
+
+        sudo -n mkdir -p /srv
+        sudo -n sed -i '\|[[:space:]]/srv[[:space:]]|d' /etc/fstab
+        echo "UUID=$uuid /srv xfs defaults,noatime 0 2" | sudo -n tee -a /etc/fstab >/dev/null
+        sudo -n mount /srv
+
+        sudo -n mkdir -p /srv/{appdata,compose,models,transcode,cache,backups,logs,scripts,downloads}
+        sudo -n chown -R p2ops:p2ops /srv
+        sudo -n docker network inspect p2-network >/dev/null 2>&1 || sudo -n docker network create p2-network >/dev/null
+
+        echo "=== RESULT ==="
+        findmnt /srv
+        lsblk -o NAME,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS,MODEL "$target"
+        df -hT /srv
+        stat -c '%U:%G %a %n' /srv /srv/compose /srv/models
+      args:
+        executable: /bin/bash
+      register: storage_init
+      changed_when: true
+
+    - name: Print compute-04 storage result
+      ansible.builtin.debug:
+        msg: "{{ storage_init.stdout_lines }}"
