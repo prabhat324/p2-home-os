@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 from collections import deque
 import io
+from difflib import SequenceMatcher
 import json
 import os
 import pathlib
@@ -445,6 +446,29 @@ def microphone_loop() -> None:
                         pass
         STOP.wait(3)
 
+def extract_wake_command(text: str) -> tuple[bool, str]:
+    """Recognize common and fuzzy Whisper renderings of Mavrick."""
+    normalized = re.sub(r"[^a-z0-9' ]+", " ", text.lower())
+    tokens = normalized.split()
+    aliases = {"mavrick", "maverick", "mavric", "maverik", "mavrik"}
+    for index, token in enumerate(tokens):
+        similarity = max(
+            SequenceMatcher(None, token, "mavrick").ratio(),
+            SequenceMatcher(None, token, "maverick").ratio(),
+        )
+        if token in aliases or similarity >= 0.72:
+            return True, " ".join(tokens[:index] + tokens[index + 1:]).strip()
+        if index + 1 < len(tokens):
+            joined = token + tokens[index + 1]
+            joined_similarity = max(
+                SequenceMatcher(None, joined, "mavrick").ratio(),
+                SequenceMatcher(None, joined, "maverick").ratio(),
+            )
+            if joined_similarity >= 0.78:
+                return True, " ".join(tokens[:index] + tokens[index + 2:]).strip()
+    return False, normalized.strip()
+
+
 def transcriber_loop() -> None:
     model = SPEECH_MODEL
     if model is None:
@@ -466,18 +490,10 @@ def transcriber_loop() -> None:
                 METRICS["stt_ms"] = round((time.monotonic() - started) * 1000)
             if len(text) >= 2:
                 global WAKE_UNTIL
-                normalized = re.sub(r"[^a-z0-9' ]+", " ", text.lower())
-                wake_match = re.search(
-                    r"\b(mavrick|maverick|mavric|maverik)\b", normalized
-                )
+                wake_detected, command = extract_wake_command(text)
                 now = time.monotonic()
-                if wake_match:
+                if wake_detected:
                     WAKE_UNTIL = now + WAKE_WINDOW_SECONDS
-                    command = (
-                        normalized[:wake_match.start()]
-                        + " "
-                        + normalized[wake_match.end():]
-                    ).strip()
                     log("wake_activated", window_seconds=WAKE_WINDOW_SECONDS)
                     if len(command) < 2:
                         LAST_RESPONSE_FILE.write_text(
@@ -502,6 +518,15 @@ def transcriber_loop() -> None:
                     log("wake_followup", window_seconds=WAKE_WINDOW_SECONDS)
                 else:
                     log("wake_ignored", reason="outside_window", characters=len(text))
+                    LAST_RESPONSE_FILE.write_text(
+                        json.dumps({
+                            "at": time.time(),
+                            "transcription": text,
+                            "reply": None,
+                            "playback": "wake_word_not_recognized",
+                        }),
+                        encoding="utf-8",
+                    )
                     INTERACTION_PENDING.clear()
                     status("waiting_for_wake_word", retention="ram_only")
                     continue
