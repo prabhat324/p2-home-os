@@ -1,5 +1,5 @@
 {
-  "request_id": "diagnose-dashboard-home-arpa-e2e-20260816-1225",
-  "operation": "p2-dashboard-diagnose",
-  "target": "core-01"
+  "request_id": "mavrick-install-hfc-voice-20260816-0230",
+  "operation": "mavrick-deploy",
+  "target": "compute-04"
 }
