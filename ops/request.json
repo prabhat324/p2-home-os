@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-compute04-response-fix-20260816-0349",
-  "operation": "mavrick-deploy",
-  "target": "compute-04"
+  "request_id": "psquare-network-overseer-20260816-1030",
+  "operation": "osho-discord-deploy",
+  "target": "compute-01"
 }
