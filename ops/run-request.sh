@@ -25,7 +25,10 @@ esac
 
 case "${operation}" in
   ping) playbook="playbooks/ping.yml" ;;
-  status) playbook="playbooks/status.yml" ;;\n  sonarr-diagnose)\n    [[ "${target}" == "core-01" ]] || { echo "sonarr-diagnose is restricted to core-01" >&2; exit 2; }\n    playbook="playbooks/sonarr-diagnose.yml" ;;
+  status) playbook="playbooks/status.yml" ;;
+  sonarr-diagnose)
+    [[ "${target}" == "core-01" ]] || { echo "sonarr-diagnose is restricted to core-01" >&2; exit 2; }
+    playbook="playbooks/sonarr-diagnose.yml" ;;
   gpu-status) playbook="playbooks/gpu-status.yml" ;;
   osho-status)
     [[ "${target}" == "compute-01" ]] || { echo "osho-status is restricted to compute-01; use compute03-worker-recover for compute-03" >&2; exit 2; }
