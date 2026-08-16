@@ -19,7 +19,7 @@
       ansible.builtin.shell: |
         set -euo pipefail
         wav=/dev/shm/mavrick-audible-tts.wav
-        runuser -u mavrick -- /opt/mavrick/venv/bin/python -m piper           -m en_US-hfc_female-medium --data-dir /var/lib/mavrick/models/piper           -f "$wav" -- "Hi Prabhat. I am right here, listening. What should we explore together?"
+        runuser -u mavrick -- /opt/mavrick/venv/bin/python -m piper           -m en_US-amy-medium --data-dir /var/lib/mavrick/models/piper           -f "$wav" -- "Hello Prabhat. This is Amy, now active as Mavrick's voice. How does this sound?"
         runuser -u mavrick -- aplay -q -D plughw:CARD=PCH,DEV=0 "$wav"
         rm -f "$wav"
         echo MAVRICK_AUDIBLE_TTS=passed
