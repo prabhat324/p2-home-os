@@ -1,0 +1,33 @@
+---
+- name: Diagnose silent physical audio route on compute-04
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Collect PCH codec and route state
+      become: true
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '=== ALSA CARDS ==='
+        cat /proc/asound/cards
+        cat /proc/asound/pcm
+        echo '=== PLAYBACK DEVICES ==='
+        aplay -l 2>&1 || true
+        aplay -L 2>&1 || true
+        echo '=== MIXER SIMPLE ==='
+        amixer -c PCH scontrols 2>&1 || true
+        amixer -c PCH scontents 2>&1 || true
+        echo '=== UCM ==='
+        alsaucm -c PCH list _verbs 2>&1 || true
+        alsaucm -c PCH set _verb HiFi 2>&1 || true
+        alsaucm -c PCH list _devices 2>&1 || true
+        alsaucm -c PCH get _enadevs 2>&1 || true
+        echo '=== CODEC ==='
+        grep -E 'Codec:|Node 0x|Pin Default|Amp-Out vals|Connection:' /proc/asound/card0/codec#0 2>/dev/null | head -240 || true
+      args:
+        executable: /bin/bash
+      register: audio
+      changed_when: false
+
+    - name: Show physical audio diagnosis
+      ansible.builtin.debug:
+        msg: "{{ audio.stdout_lines }}"
