@@ -1,6 +1,6 @@
 # Project Osho
 
-> **Project status — full hold (2026-08-16):** All Osho workloads, automatic starts, containers, resident models, and publishing are disabled while project data and documentation are preserved. See [Project Status](project-status.md).
+> **Project status — full hold requested; enforcement pending (2026-08-16):** Data and documentation are preserved. Node-admin authorization is still required to stop and disable the active workloads. See [Project Status](project-status.md).
 
 Project Osho is an automated short-form video production and publishing pipeline built on the P² Home OS compute cluster.
 
