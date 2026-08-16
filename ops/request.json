@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-growth-v1-first-check-20260816-0956",
-  "operation": "osho-status",
-  "target": "compute-01"
+  "request_id": "mavrick-compute02-retire-20260816-0239-v2",
+  "operation": "mavrick-retire-compute02",
+  "target": "compute-02"
 }
