@@ -7,14 +7,15 @@
       ansible.builtin.shell: |
         set -euo pipefail
 
-        mapfile -t candidates < <(lsblk -dnpo NAME,MODEL | awk 'index($0,"Samsung SSD 970 EVO Plus 1TB"){print $1}')
-        if [ "${#candidates[@]}" -ne 1 ]; then
-          echo "REFUSED: expected exactly one Samsung SSD 970 EVO Plus 1TB; found ${#candidates[@]}" >&2
+        candidates="$(lsblk -dnpo NAME,MODEL | awk 'index($0,"Samsung SSD 970 EVO Plus 1TB"){print $1}')"
+        candidate_count="$(printf '%s\n' "$candidates" | awk 'NF{n++} END{print n+0}')"
+        if [ "$candidate_count" -ne 1 ]; then
+          echo "REFUSED: expected exactly one Samsung SSD 970 EVO Plus 1TB; found $candidate_count" >&2
           lsblk -dnpo NAME,SIZE,MODEL >&2
           exit 20
         fi
 
-        target="${candidates[0]}"
+        target="$(printf '%s\n' "$candidates" | awk 'NF{print; exit}')"
         root_source="$(findmnt -n -o SOURCE /)"
         root_parent="/dev/$(lsblk -no PKNAME "$root_source")"
 
