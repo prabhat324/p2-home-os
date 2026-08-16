@@ -7,12 +7,38 @@
       ansible.builtin.command: sudo -n true
       changed_when: false
 
-    - name: Verify local Ollama is reachable
+    - name: Check for Ollama
+      ansible.builtin.command: command -v ollama
+      register: ollama_command
+      changed_when: false
+      failed_when: false
+
+    - name: Install Ollama when absent
+      become: true
+      ansible.builtin.shell: |
+        set -euo pipefail
+        curl -fsSL https://ollama.com/install.sh | sh
+      args:
+        executable: /bin/bash
+      when: ollama_command.rc != 0
+
+    - name: Enable and start Ollama
+      become: true
+      ansible.builtin.systemd:
+        name: ollama.service
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Wait for local Ollama
       ansible.builtin.uri:
         url: http://127.0.0.1:11434/api/version
         return_content: true
         timeout: 10
       register: ollama_version
+      retries: 12
+      delay: 5
+      until: ollama_version.status == 200
       changed_when: false
 
     - name: Install or update Mavrick from master
