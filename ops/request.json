@@ -1,5 +1,5 @@
 {
-  "request_id": "restore-shared-command-center-20260816-1214",
-  "operation": "dashboard-deploy",
-  "target": "compute-02"
+  "request_id": "activate-dashboard-home-arpa-after-restore-20260816-1218",
+  "operation": "p2-dashboard-route",
+  "target": "core-01"
 }
