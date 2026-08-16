@@ -1,5 +1,5 @@
 {
-  "request_id": "psquare-local-ai-image-workflow-20260816-1100",
-  "operation": "osho-discord-deploy",
-  "target": "compute-01"
+  "request_id": "mavrick-compute04-clean-live-trace-20260816-0607",
+  "operation": "mavrick-listen-window",
+  "target": "compute-04"
 }
