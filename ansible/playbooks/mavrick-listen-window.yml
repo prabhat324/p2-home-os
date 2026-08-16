@@ -1,0 +1,27 @@
+---
+- name: Observe privacy-safe Mavrick interaction events
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Watch interaction pipeline for 45 seconds
+      become: true
+      ansible.builtin.shell: |
+        set -euo pipefail
+        since="$(date -Ins)"
+        echo "MAVRICK_LISTEN_WINDOW_START=$since"
+        sleep 45
+        echo '=== EVENTS ==='
+        journalctl -u mavrick.service --since "$since" --no-pager           | grep -E 'MAVRICK event=(listening_started|utterance_queued|utterance_dropped|speech_model_ready|transcription_failed|question_failed|model_text_fallback|spoke|speech_failed|listen_indicator_failed|microphone_retry)' || true
+        echo '=== STATUS ==='
+        cat /run/mavrick/status.json 2>/dev/null || echo missing
+        echo
+        echo "MAVRICK_SERVICE=$(systemctl is-active mavrick.service)"
+        echo "MAVRICK_MIC=$(pgrep -af 'arecord.*C930e' | head -1 || true)"
+      args:
+        executable: /bin/bash
+      register: window
+      changed_when: false
+
+    - name: Show interaction events
+      ansible.builtin.debug:
+        msg: "{{ window.stdout_lines }}"
