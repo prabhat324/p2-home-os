@@ -1,5 +1,5 @@
 {
-  "request_id": "compute04-bootstrap-20260816-0110",
-  "operation": "compute04-bootstrap",
+  "request_id": "compute04-reboot-verify-20260816-0130",
+  "operation": "compute04-reboot-verify",
   "target": "compute-04"
 }
