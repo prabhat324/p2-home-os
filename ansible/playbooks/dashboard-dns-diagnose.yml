@@ -6,6 +6,8 @@
     - name: Inspect AdGuard DNS rewrite state safely
       ansible.builtin.shell: |
         set -o pipefail
+        echo '=== SUDO_ALLOWLIST ==='
+        sudo -n -l 2>&1 || true
         echo '=== DNS_QUERY ==='
         getent hosts dashboard.home.arpa || true
         echo '=== ADGUARD_CONTAINER ==='
