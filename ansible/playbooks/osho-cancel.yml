@@ -1,0 +1,108 @@
+---
+- name: Cancel Project Osho safely without deleting artifacts
+  hosts:
+    - compute-01
+    - compute-03
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Stop and disable Osho system services
+      ansible.builtin.shell: |
+        set -o pipefail
+        units=""
+        if [ "$(hostname)" = "compute-01" ]; then
+          units="osho-autopilot.service osho-buffer-fill.timer osho-analytics-collector.timer osho-analytics-dashboard-reporter.service osho-dashboard-heartbeat.service osho-dashboard-reporter.service osho-status-sync.service"
+        else
+          units="osho-dashboard-heartbeat.service"
+        fi
+        for unit in $units; do
+          systemctl disable --now "$unit" 2>/dev/null || systemctl stop "$unit" 2>/dev/null || true
+        done
+        if [ "$(hostname)" = "compute-01" ]; then
+          systemctl mask osho-autopilot.service osho-buffer-fill.timer >/dev/null 2>&1 || true
+        fi
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Stop remaining known Osho user processes
+      ansible.builtin.shell: |
+        for pattern in           '/srv/compose/osho-worker/osho_autopilot.py'           '/home/p2ops/.local/bin/osho-discord-notifier.py'           '/home/p2ops/.local/bin/osho-dashboard-progress-reporter.py'           'hook_ranker_v5.py'           'retention_qa_v4.py'; do
+          pkill -TERM -f "$pattern" 2>/dev/null || true
+        done
+        sleep 3
+      args:
+        executable: /bin/bash
+      changed_when: true
+      failed_when: false
+
+    - name: Disable public auto-upload and cancel active job records on compute-01
+      ansible.builtin.shell: |
+        set -euo pipefail
+        now="$(date -Ins)"
+        envfile=/srv/compose/osho-worker/.env
+        if [ -f "$envfile" ]; then
+          cp -a "$envfile" "$envfile.cancelled-$(date +%Y%m%d-%H%M%S).bak"
+          if grep -q '^OSHO_YOUTUBE_AUTO_UPLOAD=' "$envfile"; then
+            sed -i 's/^OSHO_YOUTUBE_AUTO_UPLOAD=.*/OSHO_YOUTUBE_AUTO_UPLOAD=false/' "$envfile"
+          else
+            printf '\nOSHO_YOUTUBE_AUTO_UPLOAD=false\n' >> "$envfile"
+          fi
+        fi
+        python3 - "$now" <<'PY'
+        import json,pathlib,shutil,sys
+        now=sys.argv[1]
+        root=pathlib.Path('/srv/osho/work')
+        terminal={'complete','completed','failed','cancelled','canceled','published','done','skipped'}
+        changed=[]
+        for p in root.glob('*/job.json') if root.exists() else []:
+            try:d=json.loads(p.read_text())
+            except Exception:continue
+            status=str(d.get('status') or d.get('stage') or '').lower()
+            if status and status not in terminal:
+                backup=p.with_name('job.pre-cancellation.json')
+                if not backup.exists():shutil.copy2(p,backup)
+                d['status']='cancelled'
+                d['stage']='cancelled'
+                d['cancelled_at']=now
+                d['cancellation_reason']='Project cancelled by owner; artifacts preserved'
+                p.write_text(json.dumps(d,indent=2,ensure_ascii=False)+'\n')
+                changed.append(p.parent.name)
+        print('CANCELLED_JOBS='+str(len(changed)))
+        for x in changed:print('CANCELLED_JOB='+x)
+        PY
+      args:
+        executable: /bin/bash
+      register: cancel_state
+      changed_when: true
+      when: inventory_hostname == 'compute-01'
+
+    - name: Verify Project Osho cancellation state
+      become: false
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "HOST=$(hostname)"
+        echo '=== OSHO UNITS ==='
+        systemctl list-units --type=service --all --no-pager | grep -Ei 'osho|youtube|publish' || true
+        systemctl list-units --type=timer --all --no-pager | grep -Ei 'osho|youtube|publish' || true
+        echo '=== AUTOPILOT ENABLEMENT ==='
+        systemctl is-enabled osho-autopilot.service 2>&1 || true
+        systemctl is-active osho-autopilot.service 2>&1 || true
+        echo '=== OSHO PROCESSES ==='
+        ps -eo pid,user,comm,args | grep -Ei 'osho_autopilot|hook_ranker|retention_qa|osho-dashboard|osho-discord' | grep -vE 'grep|ansible' || true
+        if [ -f /srv/compose/osho-worker/.env ]; then
+          grep '^OSHO_YOUTUBE_AUTO_UPLOAD=' /srv/compose/osho-worker/.env || true
+        fi
+        echo '=== PRESERVED ROOTS ==='
+        for p in /srv/osho /srv/compose/osho-worker /srv/osho/renders /srv/osho/youtube/receipts; do
+          [ -e "$p" ] && stat -c '%F|%U:%G|%a|%n' "$p" || true
+        done
+      args:
+        executable: /bin/bash
+      register: verify
+      changed_when: false
+      failed_when: false
+
+    - name: Print cancellation verification
+      ansible.builtin.debug:
+        msg: "{{ verify.stdout_lines }}"
