@@ -1,6 +1,6 @@
 ---
 - name: Check whether Project Mavrick is live and ready
-  hosts: compute-02
+  hosts: compute-04
   gather_facts: false
   tasks:
     - name: Inspect Mavrick readiness
@@ -11,7 +11,7 @@
         echo "MAVRICK_CAMERA=$(readlink -f /dev/v4l/by-id/*C930e*video-index0 2>/dev/null || echo missing)"
         echo "MAVRICK_MIC_PROCESS=$(pgrep -af 'arecord.*C930e' | head -1 || true)"
         echo -n "MAVRICK_MODEL="
-        curl -fsS --max-time 10 http://127.0.0.1:11434/api/tags 2>/dev/null           | jq -r 'if [.models[]? | select(.name == "qwen3-vl:4b" or .model == "qwen3-vl:4b")] | length > 0 then "ready" else "missing" end'
+        curl -fsS --max-time 10 http://127.0.0.1:11434/api/tags 2>/dev/null           | jq -r 'if [.models[]? | select(.name == "qwen3-vl:2b" or .model == "qwen3-vl:2b")] | length > 0 then "ready" else "missing" end'
         echo -n "MAVRICK_RUNTIME_STATUS="
         cat /run/mavrick/status.json 2>/dev/null || echo missing
         echo
