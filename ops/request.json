@@ -1,5 +1,5 @@
 {
-  "request_id": "reconcile-osho-dashboard-hold-20260816-1322",
-  "operation": "osho-hold-dashboard-state",
-  "target": "compute-01"
+  "request_id": "mavrick-hybrid-wake-mode-20260816-0305",
+  "operation": "mavrick-deploy",
+  "target": "compute-04"
 }
