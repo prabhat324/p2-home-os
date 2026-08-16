@@ -1,0 +1,69 @@
+---
+- name: Benchmark compute-04 performance
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Install benchmark utilities
+      become: true
+      ansible.builtin.apt:
+        name:
+          - sysbench
+          - fio
+          - stress-ng
+        state: present
+        update_cache: true
+
+    - name: Run controlled compute-04 benchmarks
+      ansible.builtin.shell: |
+        set -euo pipefail
+        work=/srv/cache/p2-benchmark
+        mkdir -p "$work"
+        cleanup() { rm -rf "$work"; }
+        trap cleanup EXIT
+
+        echo '=== SYSTEM ==='
+        hostname
+        lscpu | grep -E 'Model name|Socket|Core|Thread|CPU\(s\)|CPU max MHz|CPU min MHz' || true
+        free -h
+        echo '=== BASELINE GPU ==='
+        nvidia-smi --query-gpu=name,driver_version,memory.total,temperature.gpu,power.draw,power.limit,utilization.gpu --format=csv,noheader
+        echo '=== BASELINE THERMALS ==='
+        sensors 2>/dev/null || true
+
+        echo '=== CPU SINGLE THREAD ==='
+        sysbench cpu --threads=1 --time=20 --cpu-max-prime=20000 run | grep -E 'events per second|total time|95th percentile'
+        echo '=== CPU ALL THREADS ==='
+        sysbench cpu --threads="$(nproc)" --time=30 --cpu-max-prime=20000 run | grep -E 'events per second|total time|95th percentile'
+
+        echo '=== MEMORY READ ==='
+        sysbench memory --threads="$(nproc)" --time=15 --memory-block-size=1M --memory-total-size=100T --memory-oper=read run | grep -E 'transferred|total time'
+        echo '=== MEMORY WRITE ==='
+        sysbench memory --threads="$(nproc)" --time=15 --memory-block-size=1M --memory-total-size=100T --memory-oper=write run | grep -E 'transferred|total time'
+
+        echo '=== DISK SEQUENTIAL WRITE ==='
+        fio --name=seqwrite --filename="$work/test.bin" --size=2G --rw=write --bs=1M --direct=1 --ioengine=libaio --iodepth=16 --runtime=20 --time_based --group_reporting | grep -E 'WRITE:|write: IOPS'
+        echo '=== DISK SEQUENTIAL READ ==='
+        fio --name=seqread --filename="$work/test.bin" --size=2G --rw=read --bs=1M --direct=1 --ioengine=libaio --iodepth=16 --runtime=20 --time_based --group_reporting | grep -E 'READ:|read: IOPS'
+        echo '=== DISK RANDOM 4K MIXED ==='
+        fio --name=randmix --filename="$work/test.bin" --size=2G --rw=randrw --rwmixread=70 --bs=4k --direct=1 --ioengine=libaio --iodepth=32 --numjobs=2 --runtime=30 --time_based --group_reporting | grep -E 'READ:|WRITE:|read: IOPS|write: IOPS'
+
+        echo '=== NVIDIA NVENC 4K60 ==='
+        start="$(date +%s)"
+        ffmpeg -hide_banner -loglevel info -benchmark -f lavfi -i testsrc2=size=3840x2160:rate=60 -t 20 -c:v h264_nvenc -preset p4 -b:v 25M -f null - 2>&1 | grep -E 'frame=|bench:'
+        end="$(date +%s)"
+        echo "NVENC_WALL_SECONDS=$((end-start))"
+
+        echo '=== POST TEST GPU ==='
+        nvidia-smi --query-gpu=name,temperature.gpu,power.draw,power.limit,utilization.gpu,utilization.memory,memory.used --format=csv,noheader
+        echo '=== POST TEST THERMALS ==='
+        sensors 2>/dev/null || true
+        echo '=== STORAGE FREE ==='
+        df -hT /srv
+      args:
+        executable: /bin/bash
+      register: benchmark
+      changed_when: false
+
+    - name: Print compute-04 benchmark results
+      ansible.builtin.debug:
+        msg: "{{ benchmark.stdout_lines }}"
