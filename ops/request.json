@@ -1,5 +1,5 @@
 {
-  "request_id": "psquare-network-overseer-20260816-1037-v2",
-  "operation": "osho-discord-deploy",
-  "target": "compute-01"
+  "request_id": "mavrick-compute04-speaker-diagnose-20260816-0405",
+  "operation": "mavrick-speaker-diagnose-compute04",
+  "target": "compute-04"
 }
