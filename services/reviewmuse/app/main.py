@@ -4,7 +4,6 @@ import hashlib
 import hmac
 import os
 import re
-import secrets
 import sqlite3
 import time
 import uuid
@@ -35,7 +34,7 @@ HEX_COLOR = re.compile(r'^#[0-9a-fA-F]{6}$')
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title='ReviewMuse', version='0.3.0')
+app = FastAPI(title='ReviewMuse', version='0.3.1')
 app.mount('/static', StaticFiles(directory=BASE_DIR / 'static'), name='static')
 app.mount('/uploads', StaticFiles(directory=UPLOAD_DIR), name='uploads')
 env = Environment(loader=FileSystemLoader(BASE_DIR / 'templates'), autoescape=select_autoescape(['html']))
@@ -215,7 +214,10 @@ def analytics(slug: str) -> dict[str, Any]:
         day_ts = int(now.timestamp()) - offset * 86400
         key = datetime.fromtimestamp(day_ts, timezone.utc).strftime('%Y-%m-%d')
         label = datetime.fromtimestamp(day_ts, timezone.utc).strftime('%b %d')
-        day_events = [e for e in events if datetime.fromtimestamp(e['ts'], timezone.utc).strftime('%Y-%m-%d') == key]
+        day_events = [
+            e for e in events
+            if datetime.fromtimestamp(e['ts'], timezone.utc).strftime('%Y-%m-%d') == key
+        ]
         opens_day = sum(1 for e in day_events if e['event'] == 'opened')
         handoffs_day = sum(1 for e in day_events if e['event'] == 'google_handoff')
         max_count = max(max_count, opens_day)
@@ -234,14 +236,13 @@ def analytics(slug: str) -> dict[str, Any]:
         'google_handoff': 'Continued to Google',
         'copied_again': 'Copied review again',
     }
-    recent = []
-    for e in events[:20]:
-        recent.append(
-            {
-                'label': labels.get(e['event'], e['event'].replace('_', ' ').title()),
-                'time': datetime.fromtimestamp(e['ts'], timezone.utc).strftime('%b %d, %H:%M UTC'),
-            }
-        )
+    recent = [
+        {
+            'label': labels.get(e['event'], e['event'].replace('_', ' ').title()),
+            'time': datetime.fromtimestamp(e['ts'], timezone.utc).strftime('%b %d, %H:%M UTC'),
+        }
+        for e in events[:20]
+    ]
 
     return {
         'opens': opens,
@@ -310,13 +311,19 @@ def review_flow(slug: str, request: Request) -> HTMLResponse:
     log_event(slug, 'opened', visitor)
     response = render('review.html', slug=slug, business=business)
     if request.cookies.get(VISITOR_COOKIE) != visitor:
-        response.set_cookie(VISITOR_COOKIE, visitor, max_age=365 * 86400, httponly=True, samesite='lax')
+        response.set_cookie(
+            VISITOR_COOKIE,
+            visitor,
+            max_age=365 * 86400,
+            httponly=True,
+            samesite='lax',
+        )
     return response
 
 
 @app.get('/health')
 def health() -> dict[str, Any]:
-    return {'status': 'healthy', 'service': 'ReviewMuse', 'version': '0.3.0', 'model': MODEL}
+    return {'status': 'healthy', 'service': 'ReviewMuse', 'version': '0.3.1', 'model': MODEL}
 
 
 @app.post('/api/event')
@@ -377,21 +384,29 @@ Rules:
 
 
 @app.get('/business/login', response_class=HTMLResponse)
-def business_login(request: Request, slug: str = 'demo') -> HTMLResponse | RedirectResponse:
+def business_login(request: Request, slug: str = 'demo'):
     if session_slug(request) == slug and get_business(slug):
         return RedirectResponse(f'/business/{slug}', status_code=303)
     return render('business_login.html', slug=slug, error='')
 
 
 @app.post('/business/login', response_class=HTMLResponse)
-def business_login_submit(
-    slug: str = Form(...), password: str = Form(...)
-) -> HTMLResponse | RedirectResponse:
+def business_login_submit(slug: str = Form(...), password: str = Form(...)):
     business = get_business(slug)
     if not business or not hmac.compare_digest(password, ADMIN_PASSWORD):
-        return render('business_login.html', slug=slug, error='That business link or password is not correct.')
+        return render(
+            'business_login.html',
+            slug=slug,
+            error='That business link or password is not correct.',
+        )
     response = RedirectResponse(f'/business/{slug}', status_code=303)
-    response.set_cookie(SESSION_COOKIE, make_session(slug), max_age=12 * 60 * 60, httponly=True, samesite='lax')
+    response.set_cookie(
+        SESSION_COOKIE,
+        make_session(slug),
+        max_age=12 * 60 * 60,
+        httponly=True,
+        samesite='lax',
+    )
     return response
 
 
@@ -403,14 +418,20 @@ def business_logout() -> RedirectResponse:
 
 
 @app.get('/business/{slug}', response_class=HTMLResponse)
-def business_dashboard(slug: str, request: Request, saved: int = 0) -> HTMLResponse | RedirectResponse:
+def business_dashboard(slug: str, request: Request, saved: int = 0):
     denied = require_business(request, slug)
     if denied:
         return denied
     business = get_business(slug)
     if not business:
         return RedirectResponse('/business/login', status_code=303)
-    return render('business_dashboard.html', business=business, stats=analytics(slug), saved=bool(saved))
+    return render(
+        'business_dashboard.html',
+        business=business,
+        stats=analytics(slug),
+        saved=bool(saved),
+        request_base=str(request.base_url).rstrip('/'),
+    )
 
 
 @app.post('/business/{slug}/settings', response_class=HTMLResponse)
@@ -426,7 +447,7 @@ async def business_settings(
     highlight_options: str = Form(''),
     logo: UploadFile | None = File(default=None),
     cover: UploadFile | None = File(default=None),
-) -> HTMLResponse | RedirectResponse:
+):
     denied = require_business(request, slug)
     if denied:
         return denied
@@ -445,7 +466,14 @@ async def business_settings(
         logo_path = await save_image(slug, 'logo', logo, 2 * 1024 * 1024) or business['logo_path']
         cover_path = await save_image(slug, 'cover', cover, 5 * 1024 * 1024) or business['cover_path']
     except ValueError as exc:
-        return render('business_dashboard.html', business=business, stats=analytics(slug), saved=False, error=str(exc))
+        return render(
+            'business_dashboard.html',
+            business=business,
+            stats=analytics(slug),
+            saved=False,
+            error=str(exc),
+            request_base=str(request.base_url).rstrip('/'),
+        )
 
     highlights = [clean_text(x, 40) for x in highlight_options.split(',') if clean_text(x, 40)]
     if not highlights:
