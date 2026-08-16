@@ -10,6 +10,9 @@
         echo '=== STATUS ==='
         cat /run/mavrick/status.json 2>/dev/null || echo missing
         echo
+        echo '=== LAST RESPONSE (EPHEMERAL) ==='
+        cat /run/mavrick/last-response.json 2>/dev/null || echo missing
+        echo
         echo '=== EVENTS ==='
         journalctl -u mavrick.service --since '-10 minutes' --no-pager           | grep 'MAVRICK event=' || true
         echo '=== PROCESS ==='
