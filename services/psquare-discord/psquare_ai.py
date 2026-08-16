@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
 """Local AI + safe image operations for the pSquare Discord overseer.
 
-All AI inference is sent to compute-01's Ollama service on the LAN. Image edits
-are deterministic FFmpeg jobs executed through the existing p2-home-os Ansible
-transport. User text is never executed as shell code.
+AI inference goes to compute-01 Ollama. Deterministic image transforms use
+FFmpeg. Subject/background replacement uses a dedicated local segmentation
+worker on compute-01. User text is never executed as shell code.
 """
 from __future__ import annotations
 
 import base64
 import json
 import mimetypes
-import os
 import pathlib
 import re
 import shutil
 import subprocess
-import time
 import urllib.parse
 import urllib.request
 import uuid
@@ -27,12 +25,15 @@ MAX_IMAGE_BYTES = 15 * 1024 * 1024
 SUPPORTED_IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 STATE_DIR = pathlib.Path.home() / ".local" / "state" / "psquare-jobs"
 INVENTORY = pathlib.Path.home() / ".config" / "psquare" / "hosts.yml"
+REMOTE_BG_PY = "/home/p2ops/.local/share/psquare-image/venv/bin/python"
+REMOTE_BG_WORKER = "/home/p2ops/.local/bin/psquare-background.py"
 
 SYSTEM_PROMPT = (
     "You are pSquare, the local assistant for the P2 Home OS network. "
     "Answer clearly and concisely. You are running locally through Ollama on compute-01. "
-    "Do not claim live internet access or current web knowledge. If a question requires "
-    "fresh internet data, say that the local model does not have live web access."
+    "Do not claim that image editing requires web access. If asked to edit an attached image, "
+    "the Discord controller handles supported edits separately. For general questions, do not "
+    "claim live internet access or current web knowledge."
 )
 
 
@@ -53,10 +54,7 @@ def _ollama_chat(model: str, prompt: str, image_b64: str | None = None, timeout:
         "model": model,
         "stream": False,
         "keep_alive": "2m",
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            user,
-        ],
+        "messages": [{"role": "system", "content": SYSTEM_PROMPT}, user],
         "options": {"temperature": 0.25, "num_ctx": 4096},
     }
     try:
@@ -103,7 +101,7 @@ def download_image(attachment: dict) -> tuple[pathlib.Path | None, str | None]:
     job.mkdir(mode=0o700)
     path = job / ("input" + SUPPORTED_IMAGE_TYPES[ctype])
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "pSquare-Home-OS/1.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "pSquare-Home-OS/1.2"})
         with urllib.request.urlopen(req, timeout=30) as r, path.open("wb") as out:
             total = 0
             while True:
@@ -142,6 +140,17 @@ def _run(args: list[str], timeout: int = 90) -> tuple[int, str]:
 
 def _ansible(module: str, module_args: str, timeout: int = 90) -> tuple[int, str]:
     return _run(["ansible", "compute-01", "-i", str(INVENTORY), "-m", module, "-a", module_args], timeout=timeout)
+
+
+def _background_request(prompt: str) -> str | None:
+    text = prompt.lower()
+    if not any(k in text for k in ("background", "backdrop", "remove background", "replace background")):
+        return None
+    if any(k in text for k in ("white background", "white backdrop", "background white")):
+        return "white"
+    if any(k in text for k in ("black background", "black backdrop", "matte black", "matt black", "background black")):
+        return "black"
+    return None
 
 
 def _edit_plan(prompt: str) -> tuple[list[str], str, list[str]]:
@@ -196,12 +205,16 @@ def image_edit(attachment: dict, prompt: str) -> tuple[str, pathlib.Path | None]
     source, error = download_image(attachment)
     if error or source is None:
         return error or "I could not stage the image.", None
+
+    background = _background_request(prompt)
     filters, out_ext, notes = _edit_plan(prompt)
-    if not filters and not notes and "convert" not in prompt.lower() and out_ext == ".jpg":
+    if background:
+        out_ext = ".png"
+    elif not filters and not notes and "convert" not in prompt.lower() and out_ext == ".jpg":
         shutil.rmtree(source.parent, ignore_errors=True)
         return (
-            "I can currently do safe basic edits: resize, square/9:16 crop, rotate, grayscale, "
-            "brighten, increase contrast, light blur, and JPEG/PNG conversion. Tell me which edit you want.",
+            "I can do resize/crop/rotate/grayscale/brightness/contrast/blur/format conversion, "
+            "plus solid black or white background replacement for a person/photo subject.",
             None,
         )
 
@@ -210,19 +223,28 @@ def image_edit(attachment: dict, prompt: str) -> tuple[str, pathlib.Path | None]
     remote_out = f"/tmp/psquare-{token}-edited{out_ext}"
     local_out = source.parent / ("edited" + out_ext)
     try:
-        rc, output = _ansible("copy", f"src={source} dest={remote_in} mode=0600", timeout=90)
+        rc, _ = _ansible("copy", f"src={source} dest={remote_in} mode=0600", timeout=90)
         if rc != 0:
             return "I could not stage the image on compute-01.", None
-        vf = ",".join(filters)
-        codec = "-q:v 2" if out_ext == ".jpg" else ""
-        if vf:
-            command = f"ffmpeg -y -hide_banner -loglevel error -i {remote_in} -vf '{vf}' -frames:v 1 {codec} {remote_out}"
+
+        if background:
+            command = f"{REMOTE_BG_PY} {REMOTE_BG_WORKER} {remote_in} {remote_out} {background}"
+            rc, output = _ansible("shell", command, timeout=240)
+            if rc != 0:
+                return "compute-01 could not separate the subject from the background for that image.", None
+            notes.insert(0, f"background replaced with solid {background}")
         else:
-            command = f"ffmpeg -y -hide_banner -loglevel error -i {remote_in} -frames:v 1 {codec} {remote_out}"
-        rc, output = _ansible("shell", command, timeout=120)
-        if rc != 0:
-            return "compute-01 could not complete that image edit.", None
-        rc, output = _ansible("fetch", f"src={remote_out} dest={local_out} flat=yes", timeout=90)
+            vf = ",".join(filters)
+            codec = "-q:v 2" if out_ext == ".jpg" else ""
+            if vf:
+                command = f"ffmpeg -y -hide_banner -loglevel error -i {remote_in} -vf '{vf}' -frames:v 1 {codec} {remote_out}"
+            else:
+                command = f"ffmpeg -y -hide_banner -loglevel error -i {remote_in} -frames:v 1 {codec} {remote_out}"
+            rc, _ = _ansible("shell", command, timeout=120)
+            if rc != 0:
+                return "compute-01 could not complete that image edit.", None
+
+        rc, _ = _ansible("fetch", f"src={remote_out} dest={local_out} flat=yes", timeout=90)
         if rc != 0 or not local_out.exists():
             return "The edit finished, but I could not retrieve the output from compute-01.", None
         summary = ", ".join(notes) if notes else f"converted to {out_ext.lstrip('.').upper()}"
@@ -251,4 +273,5 @@ def looks_like_edit(prompt: str) -> bool:
         "shorts size", "rotate", "grayscale", "grey scale", "gray scale", "black and white",
         "black & white", "b&w", "brighter", "brighten", "contrast", "blur", "soften",
         "convert to png", "convert to jpg", "convert to jpeg", "as png", "as jpg", "as jpeg",
+        "background", "backdrop", "remove background", "replace background", "matte black", "matt black",
     ))
