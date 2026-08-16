@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-compute04-clean-live-trace-20260816-0607",
-  "operation": "mavrick-listen-window",
+  "request_id": "mavrick-compute04-endpoint-fix-20260816-0620",
+  "operation": "mavrick-deploy",
   "target": "compute-04"
 }
