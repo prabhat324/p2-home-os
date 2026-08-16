@@ -36,17 +36,28 @@ python3 -m venv /opt/mavrick/venv
 /opt/mavrick/venv/bin/pip install --upgrade pip wheel
 /opt/mavrick/venv/bin/pip install -r /opt/mavrick/requirements.txt
 
-VOICE_BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/hfc_female/medium"
-curl -fL "$VOICE_BASE/en_US-hfc_female-medium.onnx" \
-  -o /var/lib/mavrick/models/piper/en_US-hfc_female-medium.onnx
-curl -fL "$VOICE_BASE/en_US-hfc_female-medium.onnx.json" \
-  -o /var/lib/mavrick/models/piper/en_US-hfc_female-medium.onnx.json
+VOICE_DIR="/var/lib/mavrick/models/piper"
+VOICE_BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium"
+curl -fL "$VOICE_BASE/en_US-amy-medium.onnx" \
+  -o "$VOICE_DIR/en_US-amy-medium.onnx.part"
+curl -fL "$VOICE_BASE/en_US-amy-medium.onnx.json" \
+  -o "$VOICE_DIR/en_US-amy-medium.onnx.json.part"
+test -s "$VOICE_DIR/en_US-amy-medium.onnx.part"
+test -s "$VOICE_DIR/en_US-amy-medium.onnx.json.part"
+
+# User-selected single-voice policy: remove prior Piper models only after Amy downloads.
+find "$VOICE_DIR" -maxdepth 1 -type f \
+  \( -name '*.onnx' -o -name '*.onnx.json' \) -delete
+mv "$VOICE_DIR/en_US-amy-medium.onnx.part" \
+  "$VOICE_DIR/en_US-amy-medium.onnx"
+mv "$VOICE_DIR/en_US-amy-medium.onnx.json.part" \
+  "$VOICE_DIR/en_US-amy-medium.onnx.json"
 chown mavrick:mavrick \
-  /var/lib/mavrick/models/piper/en_US-hfc_female-medium.onnx \
-  /var/lib/mavrick/models/piper/en_US-hfc_female-medium.onnx.json
+  "$VOICE_DIR/en_US-amy-medium.onnx" \
+  "$VOICE_DIR/en_US-amy-medium.onnx.json"
 chmod 0600 \
-  /var/lib/mavrick/models/piper/en_US-hfc_female-medium.onnx \
-  /var/lib/mavrick/models/piper/en_US-hfc_female-medium.onnx.json
+  "$VOICE_DIR/en_US-amy-medium.onnx" \
+  "$VOICE_DIR/en_US-amy-medium.onnx.json"
 runuser -u mavrick -- /opt/mavrick/venv/bin/python - <<'PY'
 from faster_whisper import WhisperModel
 WhisperModel("tiny.en", device="cpu", compute_type="int8", download_root="/var/lib/mavrick/models/whisper")
