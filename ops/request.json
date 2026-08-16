@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-compute04-listen-indicator-20260816-0330",
-  "operation": "mavrick-deploy",
+  "request_id": "mavrick-compute04-runtime-diagnose-20260816-0342",
+  "operation": "mavrick-runtime-diagnose",
   "target": "compute-04"
 }
