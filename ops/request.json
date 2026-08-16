@@ -1,5 +1,5 @@
 {
-  "request_id": "diag-core01-status-20260816-1346",
-  "operation": "status",
-  "target": "core-01"
+  "request_id": "verify-compute01-back-20260816-1347",
+  "operation": "ping",
+  "target": "compute-01"
 }
