@@ -3,7 +3,8 @@
 
 AI inference goes to compute-01 Ollama. Deterministic image transforms use
 FFmpeg. Subject/background replacement uses a dedicated local segmentation
-worker on compute-01. User text is never executed as shell code.
+worker on compute-01. Natural scene/composition edits use the isolated local
+generative image worker on compute-01. User text is never executed as shell code.
 """
 from __future__ import annotations
 
@@ -27,6 +28,8 @@ STATE_DIR = pathlib.Path.home() / ".local" / "state" / "psquare-jobs"
 INVENTORY = pathlib.Path.home() / ".config" / "psquare" / "hosts.yml"
 REMOTE_BG_PY = "/home/p2ops/.local/share/psquare-image/venv/bin/python"
 REMOTE_BG_WORKER = "/home/p2ops/.local/bin/psquare-background.py"
+REMOTE_GEN_PY = "/home/p2ops/.local/share/psquare-generative/venv/bin/python"
+REMOTE_GEN_WORKER = "/home/p2ops/.local/bin/psquare-generative.py"
 
 SYSTEM_PROMPT = (
     "You are pSquare, the local assistant for the P2 Home OS network. "
@@ -101,7 +104,7 @@ def download_image(attachment: dict) -> tuple[pathlib.Path | None, str | None]:
     job.mkdir(mode=0o700)
     path = job / ("input" + SUPPORTED_IMAGE_TYPES[ctype])
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "pSquare-Home-OS/1.2"})
+        req = urllib.request.Request(url, headers={"User-Agent": "pSquare-Home-OS/1.3"})
         with urllib.request.urlopen(req, timeout=30) as r, path.open("wb") as out:
             total = 0
             while True:
@@ -153,6 +156,26 @@ def _background_request(prompt: str) -> str | None:
     return None
 
 
+def looks_like_generative(prompt: str) -> bool:
+    text = " ".join(prompt.lower().split())
+    scene_terms = (
+        "full body", "full-body", "sitting", "standing", "walking", "running", "drinking", "sipping",
+        "cafe", "coffee shop", "restaurant", "beach", "city", "studio", "office", "hotel", "street",
+        "sunset", "night", "cinematic", "cyberpunk", "watercolor", "painting", "anime", "vintage",
+        "outfit", "clothes", "dress", "suit", "jacket", "hairstyle", "hair color", "lighting",
+        "sky", "weather", "futuristic", "luxury", "dramatic", "fantasy", "scene", "environment",
+    )
+    action_patterns = (
+        "make this person", "make her", "make him", "make them", "make this look",
+        "turn this person", "turn her", "turn him", "turn them", "turn this into",
+        "put this person", "put her", "put him", "put them", "place this person", "place her", "place him", "place them",
+        "change the outfit", "change her outfit", "change his outfit", "change their outfit",
+        "change the background", "replace the background", "change the scene", "change the lighting",
+        "add a", "add an", "remove the object", "remove that object", "create a",
+    )
+    return any(k in text for k in action_patterns) or any(k in text for k in scene_terms)
+
+
 def _edit_plan(prompt: str) -> tuple[list[str], str, list[str]]:
     text = prompt.lower()
     filters: list[str] = []
@@ -201,6 +224,37 @@ def _edit_plan(prompt: str) -> tuple[list[str], str, list[str]]:
     return filters, ext, notes
 
 
+def _generative_edit(source: pathlib.Path, prompt: str) -> tuple[str, pathlib.Path | None]:
+    token = uuid.uuid4().hex
+    remote_in = f"/tmp/psquare-gen-{token}{source.suffix}"
+    remote_out = f"/tmp/psquare-gen-{token}-edited.png"
+    remote_prompt = f"/tmp/psquare-gen-{token}.txt"
+    local_out = source.parent / "edited.png"
+    local_prompt = source.parent / "prompt.txt"
+    local_prompt.write_text(prompt.strip()[:700], encoding="utf-8")
+    try:
+        rc, _ = _ansible("copy", f"src={source} dest={remote_in} mode=0600", timeout=90)
+        if rc != 0:
+            return "I could not stage the image on compute-01.", None
+        rc, _ = _ansible("copy", f"src={local_prompt} dest={remote_prompt} mode=0600", timeout=90)
+        if rc != 0:
+            return "I could not stage the edit instruction on compute-01.", None
+        command = f"{REMOTE_GEN_PY} {REMOTE_GEN_WORKER} {remote_in} {remote_out} {remote_prompt}"
+        rc, output = _ansible("shell", command, timeout=600)
+        if rc != 0:
+            return "compute-01 could not complete that generative image edit.", None
+        rc, _ = _ansible("fetch", f"src={remote_out} dest={local_out} flat=yes", timeout=90)
+        if rc != 0 or not local_out.exists():
+            return "The generative edit finished, but I could not retrieve the output from compute-01.", None
+        return "✨ Done on **compute-01** — generative photo edit completed.", local_out
+    finally:
+        _ansible("shell", f"rm -f {remote_in} {remote_out} {remote_prompt}", timeout=30)
+        try:
+            local_prompt.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 def image_edit(attachment: dict, prompt: str) -> tuple[str, pathlib.Path | None]:
     source, error = download_image(attachment)
     if error or source is None:
@@ -208,13 +262,23 @@ def image_edit(attachment: dict, prompt: str) -> tuple[str, pathlib.Path | None]
 
     background = _background_request(prompt)
     filters, out_ext, notes = _edit_plan(prompt)
+
+    # Exact black/white background requests stay deterministic and identity-preserving.
     if background:
         out_ext = ".png"
+    elif looks_like_generative(prompt):
+        try:
+            return _generative_edit(source, prompt)
+        finally:
+            try:
+                source.unlink(missing_ok=True)
+            except Exception:
+                pass
     elif not filters and not notes and "convert" not in prompt.lower() and out_ext == ".jpg":
         shutil.rmtree(source.parent, ignore_errors=True)
         return (
-            "I can do resize/crop/rotate/grayscale/brightness/contrast/blur/format conversion, "
-            "plus solid black or white background replacement for a person/photo subject.",
+            "I can do deterministic edits such as resize/crop/rotate/grayscale/brightness/contrast/blur/format conversion, "
+            "solid black or white background replacement, and generative scene/style edits.",
             None,
         )
 
@@ -229,7 +293,7 @@ def image_edit(attachment: dict, prompt: str) -> tuple[str, pathlib.Path | None]
 
         if background:
             command = f"{REMOTE_BG_PY} {REMOTE_BG_WORKER} {remote_in} {remote_out} {background}"
-            rc, output = _ansible("shell", command, timeout=240)
+            rc, _ = _ansible("shell", command, timeout=240)
             if rc != 0:
                 return "compute-01 could not separate the subject from the background for that image.", None
             notes.insert(0, f"background replaced with solid {background}")
@@ -268,7 +332,7 @@ def cleanup_job_file(path: pathlib.Path | None) -> None:
 
 def looks_like_edit(prompt: str) -> bool:
     text = prompt.lower()
-    return any(k in text for k in (
+    return looks_like_generative(prompt) or any(k in text for k in (
         "edit", "resize", "crop", "square", "9:16", "portrait", "story size", "reel size",
         "shorts size", "rotate", "grayscale", "grey scale", "gray scale", "black and white",
         "black & white", "b&w", "brighter", "brighten", "contrast", "blur", "soften",
