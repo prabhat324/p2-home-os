@@ -1,0 +1,134 @@
+---
+- name: Put Project Osho on a reversible full hold
+  hosts: osho_nodes
+  gather_facts: false
+  become: true
+  vars:
+    hold_root: /var/lib/p2-home-os/holds
+    hold_file: /var/lib/p2-home-os/holds/project-osho.json
+  tasks:
+    - name: Create hold-state directory
+      ansible.builtin.file:
+        path: "{{ hold_root }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Disable public upload before stopping workloads
+      ansible.builtin.shell: |
+        set -euo pipefail
+        envfile=/srv/compose/osho-worker/.env
+        if [ -f "$envfile" ]; then
+          if [ ! -f "$envfile.pre-full-hold" ]; then
+            cp -a "$envfile" "$envfile.pre-full-hold"
+          fi
+          if grep -q '^OSHO_YOUTUBE_AUTO_UPLOAD=' "$envfile"; then
+            sed -i 's/^OSHO_YOUTUBE_AUTO_UPLOAD=.*/OSHO_YOUTUBE_AUTO_UPLOAD=false/' "$envfile"
+          else
+            printf '\nOSHO_YOUTUBE_AUTO_UPLOAD=false\n' >> "$envfile"
+          fi
+        fi
+      args:
+        executable: /bin/bash
+      when: inventory_hostname == 'compute-01'
+      changed_when: true
+
+    - name: Stop, disable and mask every system Osho unit
+      ansible.builtin.shell: |
+        set -o pipefail
+        mapfile -t units < <(systemctl list-unit-files --no-legend --no-pager 2>/dev/null | awk 'tolower($1) ~ /osho/ {print $1}')
+        for unit in "${units[@]}"; do
+          systemctl disable --now "$unit" 2>/dev/null || systemctl stop "$unit" 2>/dev/null || true
+          systemctl mask "$unit" >/dev/null 2>&1 || true
+        done
+        printf '%s\n' "${units[@]}" > "{{ hold_root }}/project-osho-system-units-{{ inventory_hostname }}.txt"
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Stop and disable Osho containers without removing them
+      ansible.builtin.shell: |
+        set -o pipefail
+        docker ps -a --format '{% raw %}{{.ID}}|{{.Names}}|{{.Image}}{% endraw %}' 2>/dev/null |
+          awk -F'|' 'tolower($2 " " $3) ~ /osho/ {print $1}' |
+          while read -r cid; do
+            [ -n "$cid" ] || continue
+            docker update --restart=no "$cid" >/dev/null 2>&1 || true
+            docker stop --time 30 "$cid" >/dev/null 2>&1 || true
+          done
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Stop remaining Osho processes
+      ansible.builtin.shell: |
+        for pattern in \
+          '[o]sho_autopilot.py' \
+          '[h]ook_ranker_v5.py' \
+          '[r]etention_qa_v4.py' \
+          '[u]vicorn.*osho' \
+          '[o]sho-dashboard' \
+          '[o]sho-discord'; do
+          pkill -TERM -f "$pattern" 2>/dev/null || true
+        done
+        sleep 3
+      args:
+        executable: /bin/bash
+      changed_when: true
+      failed_when: false
+
+    - name: Unload resident Ollama models to release GPU memory
+      ansible.builtin.shell: |
+        set -o pipefail
+        if command -v ollama >/dev/null 2>&1; then
+          ollama ps 2>/dev/null | awk 'NR > 1 {print $1}' | while read -r model; do
+            [ -n "$model" ] && ollama stop "$model" >/dev/null 2>&1 || true
+          done
+        fi
+      args:
+        executable: /bin/bash
+      changed_when: true
+      when: inventory_hostname in groups['gpu_nodes']
+
+    - name: Record the durable hold marker
+      ansible.builtin.copy:
+        dest: "{{ hold_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          {
+            "project": "Project Osho",
+            "state": "full_hold",
+            "host": "{{ inventory_hostname }}",
+            "requested_at": "2026-08-16T00:00:00-04:00",
+            "policy": "No Osho services, timers, containers, publishing, worker processes, or resident models may consume resources. Data and documentation are preserved."
+          }
+
+    - name: Verify hold and GPU release
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "HOST=$(hostname)"
+        echo '=== ACTIVE OSHO UNITS ==='
+        systemctl list-units --all --no-legend --no-pager | awk 'tolower($0) ~ /osho/ && $3 == "active" {print}' || true
+        echo '=== ACTIVE OSHO CONTAINERS ==='
+        docker ps --format '{% raw %}{{.Names}}|{{.Image}}|{{.Status}}{% endraw %}' 2>/dev/null | awk 'tolower($0) ~ /osho/ {print}' || true
+        echo '=== ACTIVE OSHO PROCESSES ==='
+        ps -eo pid,user,comm,args | grep -Ei 'osho|hook_ranker|retention_qa' | grep -vE 'grep|ansible' || true
+        echo '=== RESIDENT OLLAMA MODELS ==='
+        command -v ollama >/dev/null 2>&1 && ollama ps 2>/dev/null || true
+        echo '=== GPU COMPUTE PROCESSES ==='
+        command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader 2>/dev/null || true
+        echo '=== HOLD MARKER ==='
+        cat "{{ hold_file }}"
+      args:
+        executable: /bin/bash
+      register: hold_verify
+      changed_when: false
+      failed_when: false
+
+    - name: Print hold verification
+      ansible.builtin.debug:
+        msg: "{{ hold_verify.stdout_lines }}"
+
