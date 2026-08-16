@@ -1,5 +1,5 @@
 {
-  "request_id": "reviewmuse-v1-compute04-20260816-1039-verify",
+  "request_id": "reviewmuse-v1-compute04-20260816-1041-ai-smoke",
   "operation": "reviewmuse-deploy",
   "target": "compute-04"
 }
