@@ -44,6 +44,38 @@
             fi
           done
         ' 2>&1 || true
+        echo '=== SONARR API ==='
+        python3 - <<'PY'
+        import json, urllib.request, urllib.error, xml.etree.ElementTree as ET
+        cfg='/opt/docker/compose/sonarr/config/config.xml'
+        try:
+            root=ET.parse(cfg).getroot()
+            key=(root.findtext('ApiKey') or '').strip()
+            port=(root.findtext('Port') or '8989').strip()
+            urlbase=(root.findtext('UrlBase') or '').strip().strip('/')
+            base='http://127.0.0.1:'+port+('/'+urlbase if urlbase else '')
+            if not key:
+                raise RuntimeError('API key missing')
+            for endpoint in ('system/status','health','rootfolder'):
+                req=urllib.request.Request(base+'/api/v3/'+endpoint,headers={'X-Api-Key':key})
+                try:
+                    with urllib.request.urlopen(req,timeout=8) as r:
+                        data=json.load(r)
+                    if endpoint=='system/status':
+                        keep={k:data.get(k) for k in ('appName','version','isLinux','isDocker','startupPath','appData','authentication')}
+                        print('SYSTEM='+json.dumps(keep,sort_keys=True))
+                    elif endpoint=='health':
+                        print('HEALTH='+json.dumps(data,sort_keys=True))
+                    else:
+                        safe=[]
+                        for x in data:
+                            safe.append({k:x.get(k) for k in ('id','path','accessible','freeSpace')})
+                        print('ROOTFOLDERS='+json.dumps(safe,sort_keys=True))
+                except Exception as e:
+                    print(endpoint.upper().replace('/','_')+'_ERROR='+str(e))
+        except Exception as e:
+            print('SONARR_API_SETUP_ERROR='+str(e))
+        PY
         echo '=== COMPOSE FILE ==='
         sed -n '1,220p' /opt/docker/compose/sonarr/docker-compose.yml 2>&1 || true
         echo '=== RECENT SONARR LOGS ==='
