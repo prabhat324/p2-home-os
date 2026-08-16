@@ -9,6 +9,7 @@ import json
 import os
 import pathlib
 import queue
+import re
 import resource
 import signal
 import subprocess
@@ -164,16 +165,37 @@ def ollama(messages: list[dict], image: bytes | None = None) -> dict:
         "model": VISION_MODEL,
         "messages": [{"role": "system", "content": SYSTEM_PROMPT}, *messages[:-1], user],
         "stream": False,
+        "think": False,
         "format": SCHEMA,
         "options": {"temperature": 0.65, "num_ctx": 4096, "num_predict": 120},
         "keep_alive": "10m",
     }
     response = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=180)
     response.raise_for_status()
-    text = response.json()["message"]["content"]
+    message = response.json().get("message", {})
+    text = str(message.get("content") or "").strip()
     with STATE_LOCK:
         METRICS["vision_ms"] = round((time.monotonic() - started) * 1000)
-    return json.loads(text)
+    cleaned = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except json.JSONDecodeError:
+                pass
+        reply = " ".join(cleaned.split())
+        if not reply:
+            raise RuntimeError("empty model response")
+        log("model_text_fallback", characters=len(reply))
+        return {
+            "person_present": image is not None,
+            "observation": "",
+            "reply": reply[:300],
+            "speak": True,
+        }
 
 def speak(text: str) -> None:
     started = time.monotonic()
