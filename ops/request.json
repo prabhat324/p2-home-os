@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-amy-only-voice-20260816-0240",
-  "operation": "mavrick-deploy",
-  "target": "compute-04"
+  "request_id": "dashboard-dns-diagnose-20260816-1234",
+  "operation": "dashboard-dns-diagnose",
+  "target": "core-01"
 }
