@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-read-retry-response-20260816-0207",
-  "operation": "mavrick-events",
-  "target": "compute-04"
+  "request_id": "restore-home-dashboard-after-osho-hold-20260816-1200",
+  "operation": "home-dashboard-deploy",
+  "target": "core-01"
 }
