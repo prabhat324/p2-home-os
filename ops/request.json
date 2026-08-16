@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-compute04-internal-tone-20260816-0413",
-  "operation": "mavrick-internal-tone-compute04",
-  "target": "compute-04"
+  "request_id": "psquare-postcleanup-verify-20260816-1042",
+  "operation": "status",
+  "target": "core-01"
 }
