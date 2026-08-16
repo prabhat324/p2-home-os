@@ -126,6 +126,9 @@ case "${operation}" in
   mavrick-c930e-gain)
     [[ "${target}" == "compute-04" ]] || { echo "mavrick-c930e-gain is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-c930e-gain.yml" ;;
+  mavrick-events)
+    [[ "${target}" == "compute-04" ]] || { echo "mavrick-events is restricted to compute-04" >&2; exit 2; }
+    playbook="playbooks/mavrick-events.yml" ;;
   mavrick-listen-window)
     [[ "${target}" == "compute-04" ]] || { echo "mavrick-listen-window is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/mavrick-listen-window.yml" ;;
