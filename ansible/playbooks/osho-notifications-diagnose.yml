@@ -11,17 +11,6 @@
         systemctl show osho-autopilot.service -p ActiveState -p SubState --no-pager 2>/dev/null || true
         echo "=== DISCORD PROCESSES ==="
         pgrep -af 'osho-discord-notifier|osho-discord-bot' || true
-        echo "=== DISCORD BOT PID ==="
-        pidfile=/home/p2ops/.local/state/osho-discord-bot.pid
-        if [ -s "$pidfile" ]; then
-          pid=$(cat "$pidfile")
-          echo "PID=$pid"
-          if kill -0 "$pid" 2>/dev/null; then echo "BOT_PROCESS=running"; else echo "BOT_PROCESS=dead"; fi
-        else
-          echo "BOT_PROCESS=no-pidfile"
-        fi
-        echo "=== DISCORD BOT CONFIG SAFETY ==="
-        stat -c 'CONFIG_MODE=%a CONFIG_OWNER=%U:%G' /home/p2ops/.config/osho-discord-bot.env 2>/dev/null || true
         echo "=== DISCORD API PROBE ==="
         python3 - <<'PY'
         import json, pathlib, urllib.request
@@ -41,20 +30,23 @@
         msgs=get('/channels/'+cid+'/messages?limit=10')
         print('BOT_AUTH=yes')
         print('BOT_NAME='+str(me.get('username','')))
-        print('CHANNEL_ID='+cid)
         print('CHANNEL_NAME='+str(ch.get('name','')))
-        print('CHANNEL_TYPE='+str(ch.get('type','')))
         print('READ_MESSAGES=yes COUNT='+str(len(msgs) if isinstance(msgs,list) else 0))
+        human=0; human_empty=0
         for m in (msgs if isinstance(msgs,list) else []):
-            content=' '.join(str(m.get('content') or '').split())
-            if content.lower().startswith('!osho') or str((m.get('author') or {}).get('id',''))==str(me.get('id','')):
-                print('RECENT id='+str(m.get('id',''))+' author='+str((m.get('author') or {}).get('username',''))+' bot='+str((m.get('author') or {}).get('bot',False))+' content='+content[:180])
+            a=m.get('author') or {}
+            isbot=bool(a.get('bot',False))
+            content=str(m.get('content') or '')
+            if not isbot:
+                human += 1
+                if not content: human_empty += 1
+            print('MSG id='+str(m.get('id',''))+' author='+str(a.get('username',''))+' bot='+str(isbot).lower()+' content_len='+str(len(content)))
+        print('HUMAN_MESSAGES='+str(human))
+        print('HUMAN_EMPTY_CONTENT='+str(human_empty))
         state=pathlib.Path('/home/p2ops/.local/state/osho-discord-bot-state.json')
         if state.exists():
             try: print('CURSOR_LAST_MESSAGE_ID='+str(json.loads(state.read_text()).get('last_message_id','')))
             except Exception as e: print('CURSOR_PARSE_ERROR='+type(e).__name__)
-        else:
-            print('CURSOR_STATE=missing')
         PY
         echo "=== DISCORD BOT LOG ==="
         tail -n 80 /home/p2ops/.local/state/osho-discord-bot.log 2>/dev/null || true
