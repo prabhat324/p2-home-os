@@ -1,0 +1,25 @@
+---
+- name: Read recent Mavrick pipeline events
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Collect recent operational events
+      become: true
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '=== STATUS ==='
+        cat /run/mavrick/status.json 2>/dev/null || echo missing
+        echo
+        echo '=== EVENTS ==='
+        journalctl -u mavrick.service --since '-10 minutes' --no-pager           | grep 'MAVRICK event=' || true
+        echo '=== PROCESS ==='
+        systemctl is-active mavrick.service
+        pgrep -af 'arecord.*C930e' | head -1 || true
+      args:
+        executable: /bin/bash
+      register: events
+      changed_when: false
+
+    - name: Show recent pipeline
+      ansible.builtin.debug:
+        msg: "{{ events.stdout_lines }}"
