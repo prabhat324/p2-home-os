@@ -4,11 +4,11 @@
 
 Project Osho has an indefinite, reversible **full hold requested** by owner decision. Enforcement is pending one-time node-administrator authorization because the `p2ops` control account is not permitted to stop or disable system services.
 
-The hold applies only to Project Osho. The core pSquare Home OS dashboard (`dashboard.home.arpa` / `homepage`), monitoring, media, smart-home, storage, AI, and other shared platform services remain operational. Shared Ollama services must not be disabled merely because Osho is held; only Osho-triggered resident models should be unloaded when GPU capacity is needed.
+The hold applies only to Project Osho. The core pSquare Home OS dashboard (`dashboard.home.arpa`), monitoring, media, smart-home, storage, AI, and other shared platform services remain operational. The compute-02 container historically named `osho-dashboard` serves the shared P2 Command Center and is explicitly exempt from the hold; keeping it healthy does not resume Osho processing or publishing. Shared Ollama services must not be disabled merely because Osho is held; only Osho-triggered resident models should be unloaded when GPU capacity is needed.
 
 The hold policy is:
 
-- no Osho processing, ranking, QA, rendering, analytics, dashboard/controller, notification, or publishing workload may run;
+- no Osho processing, ranking, QA, rendering, project analytics collectors, notification, or publishing workload may run; the shared P2 Command Center dashboard is exempt;
 - no Osho systemd service or timer may start automatically;
 - Osho containers are stopped and their restart policies are disabled;
 - resident Ollama models are unloaded from Osho GPU nodes;
