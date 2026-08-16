@@ -1,5 +1,5 @@
 {
-  "request_id": "compute04-samsung-format-20260816-0310",
-  "operation": "compute04-storage-init",
+  "request_id": "compute04-benchmark-20260816-0330",
+  "operation": "compute04-benchmark",
   "target": "compute-04"
 }
