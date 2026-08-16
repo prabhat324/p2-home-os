@@ -1,5 +1,5 @@
 {
-  "request_id": "home-dashboard-post-osho-hold-audit-20260816-1152",
-  "operation": "home-dashboard-inventory",
-  "target": "all"
+  "request_id": "mavrick-read-retry-response-20260816-0207",
+  "operation": "mavrick-events",
+  "target": "compute-04"
 }
