@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-full-hold-final-audit-20260816-1143",
-  "operation": "osho-hold-audit",
-  "target": "osho_nodes"
+  "request_id": "mavrick-offline-whisper-trace-20260816-0146",
+  "operation": "mavrick-deploy",
+  "target": "compute-04"
 }
