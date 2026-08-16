@@ -1,0 +1,96 @@
+---
+- name: Deploy Project Osho two-way Discord bot bridge
+  hosts: compute-01
+  gather_facts: false
+  vars:
+    discord_bot_token: "{{ lookup('env', 'DISCORD_BOT_TOKEN') }}"
+    discord_channel_id: "{{ lookup('env', 'DISCORD_CHANNEL_ID') }}"
+    discord_allowed_user_id: "{{ lookup('env', 'DISCORD_ALLOWED_USER_ID') }}"
+    bot_bin: /home/p2ops/.local/bin/osho-discord-bot.py
+    bot_config: /home/p2ops/.config/osho-discord-bot.env
+    state_dir: /home/p2ops/.local/state
+  tasks:
+    - name: Validate Discord bot credentials
+      ansible.builtin.assert:
+        that:
+          - discord_bot_token | length > 40
+          - discord_channel_id is match('^[0-9]{10,25}$')
+          - discord_allowed_user_id | length == 0 or discord_allowed_user_id is match('^[0-9]{10,25}$')
+        fail_msg: DISCORD_BOT_TOKEN / DISCORD_CHANNEL_ID are missing or invalid
+      no_log: true
+
+    - name: Create bot directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: p2ops
+        group: p2ops
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "/home/p2ops/.local/bin", mode: "0755" }
+        - { path: "/home/p2ops/.local/state", mode: "0700" }
+        - { path: "/home/p2ops/.config", mode: "0700" }
+
+    - name: Install two-way bot bridge
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../services/osho-notifier/osho_discord_bot.py"
+        dest: "{{ bot_bin }}"
+        owner: p2ops
+        group: p2ops
+        mode: "0755"
+
+    - name: Install bot credentials
+      ansible.builtin.copy:
+        content: |
+          DISCORD_BOT_TOKEN={{ discord_bot_token }}
+          DISCORD_CHANNEL_ID={{ discord_channel_id }}
+          DISCORD_ALLOWED_USER_ID={{ discord_allowed_user_id }}
+        dest: "{{ bot_config }}"
+        owner: p2ops
+        group: p2ops
+        mode: "0600"
+      no_log: true
+
+    - name: Validate bot Python syntax
+      ansible.builtin.command:
+        argv: [python3, -m, py_compile, "{{ bot_bin }}"]
+      changed_when: false
+
+    - name: Keep two-way bot running after reboot
+      ansible.builtin.cron:
+        name: Project Osho two-way Discord bot
+        special_time: reboot
+        user: p2ops
+        job: "/usr/bin/nohup {{ bot_bin }} >> {{ state_dir }}/osho-discord-bot.log 2>&1 &"
+
+    - name: Restart bot process
+      ansible.builtin.shell: |
+        set -eu
+        pidfile="{{ state_dir }}/osho-discord-bot.pid"
+        if [ -s "$pidfile" ]; then
+          oldpid="$(cat "$pidfile")"
+          if kill -0 "$oldpid" 2>/dev/null; then
+            kill "$oldpid"
+            for n in 1 2 3 4 5; do
+              kill -0 "$oldpid" 2>/dev/null || break
+              sleep 1
+            done
+          fi
+        fi
+        nohup "{{ bot_bin }}" >> "{{ state_dir }}/osho-discord-bot.log" 2>&1 </dev/null &
+        newpid=$!
+        echo "$newpid" > "$pidfile"
+        sleep 4
+        kill -0 "$newpid"
+        echo "DISCORD_BOT_STATUS=running"
+        echo "DISCORD_BOT_PID=$newpid"
+        echo "CONFIG_MODE=$(stat -c %a "{{ bot_config }}")"
+        tail -n 8 "{{ state_dir }}/osho-discord-bot.log" 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      register: bot_start
+      changed_when: true
+
+    - name: Show bot deployment status
+      ansible.builtin.debug:
+        msg: "{{ bot_start.stdout_lines }}"
