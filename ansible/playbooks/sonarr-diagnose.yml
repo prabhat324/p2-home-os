@@ -12,6 +12,11 @@
         echo '=== MEDIA MOUNT ==='
         findmnt -T '/mnt/media/TV Shows' -o TARGET,SOURCE,FSTYPE,OPTIONS 2>&1 || true
         stat -c '%U:%G %u:%g %a %n' /mnt/media '/mnt/media/TV Shows' /mnt/media/Downloads 2>&1 || true
+        echo '=== DOCKER ACCESS PATH ==='
+        getent group docker 2>&1 || true
+        stat -c '%U:%G %u:%g %a %n' /var/run/docker.sock /opt/docker/compose/sonarr /opt/docker/compose/sonarr/docker-compose.yml 2>&1 || true
+        test -w /opt/docker/compose/sonarr/docker-compose.yml && echo COMPOSE_WRITABLE=yes || echo COMPOSE_WRITABLE=no
+        sg docker -c 'docker ps --filter name=sonarr' 2>&1 || true
         echo '=== SUDO ACCESS ==='
         sudo -n -l 2>&1 || true
         echo '=== SONARR CONTAINER ==='
