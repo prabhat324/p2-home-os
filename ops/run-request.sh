@@ -36,6 +36,9 @@ case "${operation}" in
   osho-status)
     [[ "${target}" == "compute-01" ]] || { echo "osho-status is restricted to compute-01; use compute03-worker-recover for compute-03" >&2; exit 2; }
     playbook="playbooks/osho-status.yml" ;;
+  osho-growth-diagnose)
+    [[ "${target}" == "compute-01" ]] || { echo "osho-growth-diagnose is restricted to compute-01" >&2; exit 2; }
+    playbook="playbooks/osho-growth-diagnose.yml" ;;
   compute03-worker-recover)
     [[ "${target}" == "compute-03" ]] || { echo "compute03-worker-recover is restricted to compute-03" >&2; exit 2; }
     playbook="playbooks/compute03-worker-recover.yml" ;;
