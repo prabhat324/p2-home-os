@@ -127,14 +127,17 @@
               if "background" in text or "backdrop" in text:
                   return True
               phrases = (
-                  "make it look", "make this look", "turn this into", "turn it into",
-                  "change the lighting", "change lighting", "change the weather",
-                  "change the sky", "change the outfit", "change clothes", "change clothing",
-                  "replace the", "remove the", "add a ", "add an ", "put this in",
-                  "put me in", "put the person in", "transform", "restyle",
-                  "cinematic", "watercolor", "oil painting", "pencil sketch", "anime",
-                  "cartoon", "cyberpunk", "vintage", "sunset", "night scene",
-                  "generative edit", "generatively edit",
+                  "make it look", "make this look", "make this person", "make her", "make him", "make them",
+                  "turn this into", "turn it into", "turn this person", "turn her", "turn him", "turn them",
+                  "put this in", "put me in", "put the person in", "put this person", "put her", "put him", "put them",
+                  "place this person", "place her", "place him", "place them",
+                  "change the lighting", "change lighting", "change the weather", "change the sky",
+                  "change the outfit", "change clothes", "change clothing", "change the scene",
+                  "replace the", "remove the", "add a ", "add an ", "transform", "restyle",
+                  "full body", "full-body", "sitting", "standing", "walking", "drinking", "sipping",
+                  "cafe", "coffee shop", "restaurant", "beach", "city", "studio", "office", "hotel", "street",
+                  "cinematic", "watercolor", "oil painting", "pencil sketch", "anime", "cartoon", "cyberpunk",
+                  "vintage", "sunset", "night scene", "generative edit", "generatively edit",
               )
               return any(p in text for p in phrases)
 
@@ -188,8 +191,12 @@
         import psquare_ai
         assert psquare_ai.looks_like_edit('make this look cinematic')
         assert psquare_ai.looks_like_edit('change the background to a city at night')
+        failed_prompt = 'make this person into a full body shot where this person is sitting in a starbuck cafe and sipping on caramel latte'
+        assert psquare_ai.looks_like_edit(failed_prompt)
+        assert psquare_ai._psquare_is_generative(failed_prompt)
         assert psquare_ai._background_request('make the background matte black') == 'black'
         print('PSQUARE_GENERATIVE_ROUTER=ready')
+        print('FAILED_PROMPT_ROUTE=generative')
         PY
       args:
         executable: /bin/bash
