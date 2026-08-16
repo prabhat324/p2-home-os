@@ -3,8 +3,8 @@ set -euo pipefail
 
 [[ ${EUID} -eq 0 ]] || { echo "Run this installer as root." >&2; exit 1; }
 case "$(hostname -s)" in
-  compute-02) ;;
-  *) echo "Project Mavrick installer is restricted to compute-02." >&2; exit 2 ;;
+  compute-04) ;;
+  *) echo "Project Mavrick installer is restricted to compute-04." >&2; exit 2 ;;
 esac
 
 BASE_URL="https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/mavrick"
