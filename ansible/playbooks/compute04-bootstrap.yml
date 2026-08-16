@@ -1,0 +1,65 @@
+---
+- name: Bootstrap compute-04 safe compute foundation
+  hosts: compute-04
+  gather_facts: true
+  tasks:
+    - name: Verify automation sudo
+      ansible.builtin.command: sudo -n true
+      changed_when: false
+
+    - name: Install repository bootstrap prerequisites
+      become: true
+      ansible.builtin.apt:
+        name:
+          - git
+          - curl
+          - ca-certificates
+          - ffmpeg
+        state: present
+        update_cache: true
+
+    - name: Check out p2-home-os control branch
+      ansible.builtin.git:
+        repo: https://github.com/prabhat324/p2-home-os.git
+        dest: /home/p2ops/projects/p2-home-os
+        version: ops-control
+        force: true
+
+    - name: Run safe compute bootstrap modules
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cd /home/p2ops/projects/p2-home-os/bootstrap/compute
+        bash modules/20-baseline-packages.sh
+        bash modules/40-docker.sh
+        bash modules/50-nvidia.sh
+        bash modules/60-security.sh
+        bash modules/70-power-management.sh
+      args:
+        executable: /bin/bash
+      register: bootstrap_result
+      changed_when: true
+
+    - name: Collect post-bootstrap readiness
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "HOST=$(hostname)"
+        echo "OS=$(grep PRETTY_NAME /etc/os-release | cut -d= -f2-)"
+        echo "DOCKER=$(docker --version 2>&1 || true)"
+        echo "COMPOSE=$(docker compose version 2>&1 || true)"
+        echo "FFMPEG=$(ffmpeg -version 2>/dev/null | head -1 || true)"
+        echo '=== GPU ==='
+        nvidia-smi 2>&1 || true
+        echo '=== PCI NVIDIA ==='
+        lspci -nn | grep -i nvidia || true
+        echo '=== DISKS ==='
+        lsblk -o NAME,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS,MODEL
+        echo '=== REBOOT REQUIRED ==='
+        test -f /var/run/reboot-required && cat /var/run/reboot-required || echo no
+      args:
+        executable: /bin/bash
+      register: readiness
+      changed_when: false
+
+    - name: Print compute-04 readiness
+      ansible.builtin.debug:
+        msg: "{{ readiness.stdout_lines }}"
