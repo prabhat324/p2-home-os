@@ -1,0 +1,183 @@
+---
+- name: Retire legacy interactive Osho bot from compute-01
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Remove legacy interactive bot reboot job
+      ansible.builtin.cron:
+        name: Project Osho two-way Discord bot
+        user: p2ops
+        state: absent
+
+    - name: Stop legacy interactive bot without touching Osho notifier
+      ansible.builtin.shell: |
+        set -eu
+        pidfile=/home/p2ops/.local/state/osho-discord-bot.pid
+        if [ -s "$pidfile" ]; then
+          pid="$(cat "$pidfile")"
+          if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid"
+          fi
+          rm -f "$pidfile"
+        fi
+        pkill -f '/home/p2ops/.local/bin/osho-discord-bot.py' 2>/dev/null || true
+        echo LEGACY_INTERACTIVE_BOT=stopped
+        echo OSHO_NOTIFIER_COUNT="$(pgrep -fc '/home/p2ops/.local/bin/osho-discord-notifier.py' || true)"
+      args:
+        executable: /bin/bash
+      register: legacy_stop
+      changed_when: true
+
+- name: Deploy Project pSquare network overseer on core-01
+  hosts: core-01
+  gather_facts: false
+  vars:
+    discord_bot_token: "{{ lookup('env', 'DISCORD_BOT_TOKEN') }}"
+    discord_channel_id: "{{ lookup('env', 'DISCORD_CHANNEL_ID') }}"
+    discord_allowed_user_id: "{{ lookup('env', 'DISCORD_ALLOWED_USER_ID') }}"
+    discord_webhook_url: "{{ lookup('env', 'DISCORD_WEBHOOK_URL') }}"
+    psquare_home: /home/p2runner
+    psquare_bin: /home/p2runner/.local/bin/psquare-discord-bot.py
+    psquare_config: /home/p2runner/.config/psquare-discord.env
+    psquare_inventory_dir: /home/p2runner/.config/psquare
+    psquare_inventory: /home/p2runner/.config/psquare/hosts.yml
+    psquare_state: /home/p2runner/.local/state
+  tasks:
+    - name: Use explicitly configured Discord channel when present
+      ansible.builtin.set_fact:
+        effective_discord_channel_id: "{{ discord_channel_id }}"
+      when: discord_channel_id | length > 0
+      no_log: true
+
+    - name: Resolve Discord channel from existing webhook when needed
+      ansible.builtin.uri:
+        url: "{{ discord_webhook_url }}"
+        method: GET
+        return_content: true
+        status_code: 200
+      register: discord_webhook_info
+      when: discord_channel_id | length == 0
+      no_log: true
+
+    - name: Use webhook channel ID
+      ansible.builtin.set_fact:
+        effective_discord_channel_id: "{{ discord_webhook_info.json.channel_id }}"
+      when: discord_channel_id | length == 0
+      no_log: true
+
+    - name: Validate pSquare Discord credentials
+      ansible.builtin.assert:
+        that:
+          - discord_bot_token | length > 40
+          - effective_discord_channel_id is match('^[0-9]{10,25}$')
+          - discord_allowed_user_id | length == 0 or discord_allowed_user_id is match('^[0-9]{10,25}$')
+        fail_msg: pSquare Discord token/channel configuration is invalid
+      no_log: true
+
+    - name: Create pSquare directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: p2runner
+        group: p2runner
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "/home/p2runner/.local/bin", mode: "0755" }
+        - { path: "/home/p2runner/.local/state", mode: "0700" }
+        - { path: "/home/p2runner/.config", mode: "0700" }
+        - { path: "/home/p2runner/.config/psquare", mode: "0700" }
+
+    - name: Install pSquare network overseer
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../services/psquare-discord/psquare_discord_bot.py"
+        dest: "{{ psquare_bin }}"
+        owner: p2runner
+        group: p2runner
+        mode: "0755"
+
+    - name: Install managed inventory snapshot for pSquare
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../inventory/hosts.yml"
+        dest: "{{ psquare_inventory }}"
+        owner: p2runner
+        group: p2runner
+        mode: "0600"
+
+    - name: Install pSquare Discord credentials
+      ansible.builtin.copy:
+        content: |
+          DISCORD_BOT_TOKEN={{ discord_bot_token }}
+          DISCORD_CHANNEL_ID={{ effective_discord_channel_id }}
+          DISCORD_ALLOWED_USER_ID={{ discord_allowed_user_id }}
+        dest: "{{ psquare_config }}"
+        owner: p2runner
+        group: p2runner
+        mode: "0600"
+      no_log: true
+
+    - name: Validate pSquare Python and Ansible runtime
+      ansible.builtin.shell: |
+        set -eu
+        python3 -m py_compile "{{ psquare_bin }}"
+        command -v ansible
+        test -r /home/p2runner/.ssh/id_ed25519_p2homeos
+        echo RUNTIME_VALID=yes
+      args:
+        executable: /bin/bash
+      register: runtime_check
+      changed_when: false
+
+    - name: Keep pSquare running after reboot
+      ansible.builtin.cron:
+        name: Project pSquare Discord overseer
+        special_time: reboot
+        user: p2runner
+        job: "/usr/bin/nohup {{ psquare_bin }} >> {{ psquare_state }}/psquare-discord.log 2>&1 &"
+
+    - name: Restart pSquare overseer
+      ansible.builtin.shell: |
+        set -eu
+        pidfile="{{ psquare_state }}/psquare-discord.pid"
+        if [ -s "$pidfile" ]; then
+          oldpid="$(cat "$pidfile")"
+          if kill -0 "$oldpid" 2>/dev/null; then
+            kill "$oldpid"
+            for n in 1 2 3 4 5; do
+              kill -0 "$oldpid" 2>/dev/null || break
+              sleep 1
+            done
+          fi
+        fi
+        pkill -f '/home/p2runner/.local/bin/psquare-discord-bot.py' 2>/dev/null || true
+        nohup "{{ psquare_bin }}" >> "{{ psquare_state }}/psquare-discord.log" 2>&1 </dev/null &
+        newpid=$!
+        echo "$newpid" > "$pidfile"
+        sleep 5
+        kill -0 "$newpid"
+        echo PSQUARE_STATUS=running
+        echo PSQUARE_PID=$newpid
+        echo CONFIG_MODE="$(stat -c %a "{{ psquare_config }}")"
+        echo INVENTORY_MODE="$(stat -c %a "{{ psquare_inventory }}")"
+        tail -n 12 "{{ psquare_state }}/psquare-discord.log" 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      register: psquare_start
+      changed_when: true
+
+    - name: Verify pSquare can reach managed nodes read-only
+      ansible.builtin.shell: |
+        set -o pipefail
+        ansible all -i "{{ psquare_inventory }}" -m ping -o 2>&1 | sed -E 's/(SUCCESS|UNREACHABLE|FAILED).*/\1/'
+      args:
+        executable: /bin/bash
+      register: psquare_ping
+      changed_when: false
+      failed_when: false
+
+    - name: Show pSquare deployment status
+      ansible.builtin.debug:
+        msg:
+          - "{{ psquare_start.stdout_lines }}"
+          - "MANAGED_NODE_PROBE={{ psquare_ping.stdout_lines }}"
+          - "LEGACY_OSHO_INTERACTIVE_BOT=retired"
+          - "OSHO_WEBHOOK_NOTIFIER=preserved"
