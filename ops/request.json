@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-growth-first-check-20260816-0856",
-  "operation": "osho-status",
+  "request_id": "osho-growth-path-diagnose-20260816-0930",
+  "operation": "osho-ranker-diagnose",
   "target": "compute-01"
 }
