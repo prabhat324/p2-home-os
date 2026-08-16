@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-install-hfc-voice-20260816-0230",
-  "operation": "mavrick-deploy",
+  "request_id": "mavrick-hfc-voice-sample-20260816-0232",
+  "operation": "mavrick-audible-tts-compute04",
   "target": "compute-04"
 }
