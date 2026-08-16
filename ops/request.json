@@ -1,5 +1,5 @@
 {
-  "request_id": "mavrick-post-restart-trace-20260816-0139",
-  "operation": "mavrick-events",
+  "request_id": "mavrick-end-to-end-diagnose-20260816-0142",
+  "operation": "mavrick-runtime-diagnose",
   "target": "compute-04"
 }
