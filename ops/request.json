@@ -1,5 +1,5 @@
 {
-  "request_id": "osho-first-growth-v1-check-20260816-2207",
-  "operation": "osho-status",
+  "request_id": "osho-productivity-sla-20260816-2228",
+  "operation": "osho-growth-diagnose",
   "target": "compute-01"
 }
