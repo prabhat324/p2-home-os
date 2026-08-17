@@ -27,7 +27,12 @@
 
     - name: Stop remaining known Osho user processes
       ansible.builtin.shell: |
-        for pattern in           '/srv/compose/osho-worker/osho_autopilot.py'           '/home/p2ops/.local/bin/osho-discord-notifier.py'           '/home/p2ops/.local/bin/osho-dashboard-progress-reporter.py'           'hook_ranker_v5.py'           'retention_qa_v4.py'; do
+        for pattern in \
+          '/srv/compose/osho-worker/osho_autopilot.py' \
+          '/home/p2ops/.local/bin/osho-discord-notifier.py' \
+          '/home/p2ops/.local/bin/osho-dashboard-progress-reporter.py' \
+          'hook_ranker_v5.py' \
+          'retention_qa_v4.py'; do
           pkill -TERM -f "$pattern" 2>/dev/null || true
         done
         sleep 3
@@ -35,6 +40,19 @@
         executable: /bin/bash
       changed_when: true
       failed_when: false
+
+    - name: Remove Project Osho Discord notifier autostart
+      ansible.builtin.cron:
+        name: Project Osho Discord notifier
+        user: p2ops
+        state: absent
+      when: inventory_hostname == 'compute-01'
+
+    - name: Remove Project Osho Discord webhook configuration
+      ansible.builtin.file:
+        path: /home/p2ops/.config/osho-discord.env
+        state: absent
+      when: inventory_hostname == 'compute-01'
 
     - name: Disable public auto-upload and cancel active job records on compute-01
       ansible.builtin.shell: |
@@ -93,6 +111,9 @@
         if [ -f /srv/compose/osho-worker/.env ]; then
           grep '^OSHO_YOUTUBE_AUTO_UPLOAD=' /srv/compose/osho-worker/.env || true
         fi
+        echo '=== OSHO DISCORD NOTIFIER ==='
+        crontab -u p2ops -l 2>/dev/null | grep -F 'Project Osho Discord notifier' || echo 'notifier_cron=absent'
+        [ -f /home/p2ops/.config/osho-discord.env ] && echo 'notifier_config=present' || echo 'notifier_config=absent'
         echo '=== PRESERVED ROOTS ==='
         for p in /srv/osho /srv/compose/osho-worker /srv/osho/renders /srv/osho/youtube/receipts; do
           [ -e "$p" ] && stat -c '%F|%U:%G|%a|%n' "$p" || true
