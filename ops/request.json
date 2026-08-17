@@ -1,5 +1,5 @@
 {
-  "request_id": "disable-osho-discord-alerts-20260817-0813",
-  "operation": "osho-cancel",
-  "target": "osho_nodes"
+  "request_id": "retire-osho-discord-alerts-20260817-0815",
+  "operation": "osho-discord-deploy",
+  "target": "compute-01"
 }
