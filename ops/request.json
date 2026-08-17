@@ -1,5 +1,5 @@
 {
-  "request_id": "first-growth-video-check-20260816-2307",
-  "operation": "osho-publish-audit",
+  "request_id": "first-growth-video-check-20260816-2354",
+  "operation": "osho-status",
   "target": "compute-01"
 }
