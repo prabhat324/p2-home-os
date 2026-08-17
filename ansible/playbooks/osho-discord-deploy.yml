@@ -5,15 +5,16 @@
   become: false
   vars:
     notifier_bin: /home/p2ops/.local/bin/osho-discord-notifier.py
+    notifier_pattern: /home/p2ops/.local/bin/[o]sho-discord-notifier.py
     notifier_config: /home/p2ops/.config/osho-discord.env
     notifier_state: /home/p2ops/.local/state
   tasks:
     - name: Stop legacy Project Osho notifier process
       ansible.builtin.shell: |
         set -eu
-        pkill -TERM -f '{{ notifier_bin }}' 2>/dev/null || true
+        pkill -TERM -f '{{ notifier_pattern }}' 2>/dev/null || true
         sleep 1
-        pgrep -af '{{ notifier_bin }}' >/dev/null 2>&1 && pkill -KILL -f '{{ notifier_bin }}' 2>/dev/null || true
+        pgrep -af '{{ notifier_pattern }}' >/dev/null 2>&1 && pkill -KILL -f '{{ notifier_pattern }}' 2>/dev/null || true
       args:
         executable: /bin/bash
       changed_when: true
@@ -37,7 +38,7 @@
     - name: Verify Project Osho Discord alerts are disabled
       ansible.builtin.shell: |
         set -u
-        if pgrep -af '{{ notifier_bin }}' >/dev/null 2>&1; then
+        if pgrep -af '{{ notifier_pattern }}' >/dev/null 2>&1; then
           echo 'notifier_process=present'
           exit 1
         else
