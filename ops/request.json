@@ -1,5 +1,5 @@
 {
-  "request_id": "first-growth-video-check-20260817-0753",
-  "operation": "osho-publisher-diagnose",
-  "target": "compute-01"
+  "request_id": "disable-osho-discord-alerts-20260817-0813",
+  "operation": "osho-cancel",
+  "target": "osho_nodes"
 }
