@@ -1,5 +1,5 @@
 {
-  "request_id": "verify-osho-discord-alerts-off-20260817-0816",
-  "operation": "osho-discord-deploy",
-  "target": "compute-01"
+  "request_id": "diagnose-p2-dashboard-20260817-0830",
+  "operation": "p2-dashboard-diagnose",
+  "target": "core-01"
 }
