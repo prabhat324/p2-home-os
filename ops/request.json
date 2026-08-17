@@ -1,5 +1,5 @@
 {
-  "request_id": "first-growth-video-live-state-20260817-0611",
-  "operation": "osho-status",
+  "request_id": "first-growth-video-check-20260817-0706",
+  "operation": "osho-publisher-diagnose",
   "target": "compute-01"
 }
