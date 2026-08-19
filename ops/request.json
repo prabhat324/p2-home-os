@@ -1,5 +1,5 @@
 {
-  "request_id": "reviewmuse-v2-db-hardening-20260819-0151",
-  "operation": "reviewmuse-v2-db-hardening",
-  "target": "compute-03"
+  "request_id": "storage01-dashboard-deploy-0212",
+  "operation": "dashboard-deploy",
+  "target": "compute-02"
 }
