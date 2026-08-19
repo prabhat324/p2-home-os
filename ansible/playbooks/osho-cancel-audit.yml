@@ -11,6 +11,11 @@
         echo "HOST=$(hostname)"
         echo '=== SUDO ALLOWLIST ==='
         sudo -n -l 2>&1 || true
+        echo '=== STORAGE PERMISSIONS ==='
+        id || true
+        stat -c 'PATH=%n OWNER=%U GROUP=%G MODE=%a' /srv /srv/compose 2>/dev/null || true
+        if [[ -w /srv ]]; then echo 'SRV_WRITABLE=yes'; else echo 'SRV_WRITABLE=no'; fi
+        if [[ -w /srv/compose ]]; then echo 'SRV_COMPOSE_WRITABLE=yes'; else echo 'SRV_COMPOSE_WRITABLE=no'; fi
         echo '=== UNIT FILES ==='
         systemctl list-unit-files --no-pager | grep -Ei 'osho|youtube|publish' || true
         echo '=== ACTIVE UNITS ==='
