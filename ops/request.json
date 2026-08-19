@@ -1,5 +1,5 @@
 {
-  "request_id": "compute03-reviewmuse-prep-inventory-20260819-0037",
-  "operation": "status",
-  "target": "compute-03"
+  "request_id": "compute03-host-inventory-20260819-0039",
+  "operation": "home-dashboard-inventory",
+  "target": "all"
 }
