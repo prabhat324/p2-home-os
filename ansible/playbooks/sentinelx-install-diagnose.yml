@@ -1,0 +1,58 @@
+---
+- name: Diagnose SentinelX installer on compute-03
+  hosts: compute-03
+  gather_facts: false
+  tasks:
+    - name: Run SentinelX install diagnostics
+      ansible.builtin.shell: |
+        set -euo pipefail
+        echo "HOST=$(hostname -s)"
+        echo "USER=$(id -un)"
+        echo "=== CONNECTIVITY ==="
+        getent ahosts get.sentinelx.app | head -n 5 || true
+        curl -I -L --max-time 15 https://get.sentinelx.app 2>&1 | sed -n '1,20p' || true
+        echo "=== BODY ==="
+        tmp=$(mktemp)
+        if curl -fL --max-time 20 -o "$tmp" https://get.sentinelx.app; then
+          echo "DOWNLOAD=ok"
+          echo "BYTES=$(wc -c < "$tmp")"
+          echo "FIRST_LINE=$(head -n 1 "$tmp")"
+          sha256sum "$tmp" | sed 's/^/SHA256=/'
+        else
+          echo "DOWNLOAD=failed"
+        fi
+        rm -f "$tmp"
+        echo "=== INSTALLED STATE ==="
+        if systemctl list-unit-files --no-pager | grep -q '^sentinelx-cloud-core.service'; then
+          echo "SERVICE_UNIT=present"
+          echo "SERVICE_ACTIVE=$(systemctl is-active sentinelx-cloud-core.service 2>/dev/null || true)"
+          echo "SERVICE_ENABLED=$(systemctl is-enabled sentinelx-cloud-core.service 2>/dev/null || true)"
+        else
+          echo "SERVICE_UNIT=absent"
+        fi
+        if [[ -d /opt/sentinelx-cloud-core ]]; then
+          echo "INSTALL_DIR=present"
+        else
+          echo "INSTALL_DIR=absent"
+        fi
+        if [[ -f /etc/sentinelx/host_id ]]; then
+          echo "HOST_ID_FILE=present"
+          echo "HOST_ID=$(cat /etc/sentinelx/host_id)"
+        else
+          echo "HOST_ID_FILE=absent"
+        fi
+        if [[ -f /etc/sentinelx/identity.json ]]; then
+          echo "IDENTITY=present"
+        else
+          echo "IDENTITY=absent"
+        fi
+        echo "=== RECENT SERVICE LOG ==="
+        journalctl -u sentinelx-cloud-core.service -n 30 --no-pager 2>/dev/null | sed -E 's/(token|authorization|bearer)[=: ]+[^ ]+/\1=[REDACTED]/Ig' || true
+      args:
+        executable: /bin/bash
+      register: diag
+      changed_when: false
+
+    - name: Show SentinelX diagnostics
+      ansible.builtin.debug:
+        msg: "{{ diag.stdout_lines }}"
