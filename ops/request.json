@@ -1,5 +1,5 @@
 {
-  "request_id": "compute04-monitoring-refresh-20260819-0124",
-  "operation": "compute-monitoring-bootstrap",
-  "target": "compute-04"
+  "request_id": "dashboard-redeploy-compute04-fix-20260819-0125",
+  "operation": "dashboard-deploy",
+  "target": "compute-02"
 }
