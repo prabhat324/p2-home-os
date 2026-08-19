@@ -4,6 +4,7 @@
   gather_facts: false
   vars:
     desired_ip_map:
+      compute-01: 192.168.0.31
       compute-02: 192.168.0.88
       compute-03: 192.168.0.158
       compute-04: 192.168.0.177
@@ -12,7 +13,7 @@
       ansible.builtin.assert:
         that:
           - inventory_hostname in desired_ip_map
-        fail_msg: "network-static-fix is restricted to compute-02, compute-03, and compute-04"
+        fail_msg: "network-static-fix is restricted to compute-01, compute-02, compute-03, and compute-04"
 
     - name: Check for obsolete compute-04 installer netplan
       become: true
