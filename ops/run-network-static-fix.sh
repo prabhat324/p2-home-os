@@ -13,7 +13,8 @@ target="$(jq -er '.target' "$REQUEST_FILE")"
 case "$target" in
   compute-02) current_ip="192.168.0.84" ;;
   compute-03) current_ip="192.168.0.157" ;;
-  *) echo "network-static-fix is restricted to compute-02 or compute-03" >&2; exit 2 ;;
+  compute-04) current_ip="192.168.0.176" ;;
+  *) echo "network-static-fix is restricted to compute-02, compute-03, or compute-04" >&2; exit 2 ;;
 esac
 
 echo "P2_HOME_OS_REQUEST=$request_id"
@@ -30,4 +31,8 @@ ssh-keyscan -H "$current_ip" >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
 sort -u "$HOME/.ssh/known_hosts" -o "$HOME/.ssh/known_hosts"
 
 cd "$ROOT_DIR/ansible"
-exec ansible-playbook playbooks/network-static-fix.yml --limit "$target"
+# Override ansible_host for the repair connection only. The inventory remains pinned to the
+# documented production address, so future runs use the restored fixed address after repair.
+exec ansible-playbook playbooks/network-static-fix.yml \
+  --limit "$target" \
+  -e "ansible_host=$current_ip"
