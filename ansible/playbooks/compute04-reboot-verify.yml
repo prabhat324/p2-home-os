@@ -2,6 +2,8 @@
 - name: Reboot and verify compute-04 foundation
   hosts: compute-04
   gather_facts: false
+  vars:
+    expected_ip: 192.168.0.177
   tasks:
     - name: Reboot compute-04
       become: true
@@ -11,11 +13,31 @@
         post_reboot_delay: 15
         test_command: hostname
 
-    - name: Verify Docker, NVIDIA, FFmpeg, and disks
+    - name: Verify compute-04 returned on fixed production IP
+      ansible.builtin.shell: |
+        set -euo pipefail
+        ip -4 -o addr show scope global
+        ip -4 -o addr show scope global | grep -F "{{ expected_ip }}/24"
+      args:
+        executable: /bin/bash
+      register: network_verify
+      changed_when: false
+
+    - name: Verify netplan still validates after reboot
+      become: true
+      ansible.builtin.command: netplan generate
+      changed_when: false
+
+    - name: Verify Docker, NVIDIA, FFmpeg, disks, and network
       ansible.builtin.shell: |
         set -o pipefail
         echo "HOST=$(hostname)"
         echo "UPTIME=$(uptime -p)"
+        echo '=== NETWORK ==='
+        ip -4 -br addr
+        ip -4 route
+        echo '=== NETPLAN FILES ==='
+        ls -la /etc/netplan
         echo "DOCKER=$(systemctl is-active docker 2>&1)"
         echo "FFMPEG=$(ffmpeg -version 2>/dev/null | head -1)"
         echo '=== NVIDIA ==='
