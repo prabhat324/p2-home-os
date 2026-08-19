@@ -51,4 +51,9 @@ jobs:
           DISCORD_ALLOWED_USER_ID: ${{ secrets.DISCORD_ALLOWED_USER_ID }}
         run: |
           set -euo pipefail
-          bash ops/run-request.sh ops/request.json
+          operation="$(jq -er '.operation' ops/request.json)"
+          if [[ "$operation" == "network-static-fix" ]]; then
+            bash ops/run-network-static-fix.sh ops/request.json
+          else
+            bash ops/run-request.sh ops/request.json
+          fi
