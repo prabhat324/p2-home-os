@@ -1,0 +1,86 @@
+---
+- name: Verify staged ReviewMuse V1 source and build it locally on compute-03
+  hosts: compute-03
+  gather_facts: false
+  tasks:
+    - name: Inspect staged source metadata without exposing application source
+      ansible.builtin.shell: |
+        set -euo pipefail
+        root=/srv/reviewmuse/migration/v1-source
+        test -f "$root/app/main.py"
+        test -f "$root/compose.yml"
+        test -f "$root/Dockerfile"
+        echo "ROOT=$root"
+        echo "SIZE=$(du -sh "$root" | awk '{print $1}')"
+        python3 - "$root/app/main.py" <<'PY'
+        import ast, re, sys
+        p=sys.argv[1]
+        text=open(p, encoding='utf-8').read()
+        tree=ast.parse(text)
+        imports=[]
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Import):
+                imports.extend(a.name for a in n.names)
+            elif isinstance(n, ast.ImportFrom) and n.module:
+                imports.append(n.module)
+        print('USES_SQLITE=' + ('yes' if any(x=='sqlite3' for x in imports) else 'no'))
+        env=set(re.findall(r'(?:os\.getenv|os\.environ\.get)\(\s*[\'\"]([A-Z][A-Z0-9_]*)', text))
+        print('ENV_KEYS=' + ','.join(sorted(env)))
+        routes=[]
+        for n in ast.walk(tree):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for d in n.decorator_list:
+                    if isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) and isinstance(d.func.value, ast.Name) and d.func.value.id=='app':
+                        method=d.func.attr.upper()
+                        if method in {'GET','POST','PUT','PATCH','DELETE'} and d.args and isinstance(d.args[0], ast.Constant) and isinstance(d.args[0].value, str):
+                            routes.append(method+' '+d.args[0].value)
+        print('ROUTES=' + ' | '.join(sorted(set(routes))))
+        PY
+        echo "COMPOSE_SUMMARY_BEGIN"
+        grep -E '^[[:space:]]*(container_name:|build:|image:|network_mode:|ports:|volumes:|-[[:space:]]+[0-9]+:[0-9]+|-[[:space:]]+\./|-[[:space:]]+/)' "$root/compose.yml" 2>/dev/null | sed -E 's/[[:space:]]+/ /g' | head -n 80 || true
+        echo "COMPOSE_ENV_KEYS=$(grep -E '^[[:space:]]*-[[:space:]]*[A-Z][A-Z0-9_]*=' "$root/compose.yml" 2>/dev/null | sed -E 's/.*-[[:space:]]*([A-Z][A-Z0-9_]*)=.*/\1/' | sort -u | paste -sd, -)"
+        echo "COMPOSE_SUMMARY_END"
+        echo "DOCKERFILE_BASE=$(grep -E '^FROM[[:space:]]+' "$root/Dockerfile" | head -1 | tr -s ' ')"
+        echo "REQUIREMENTS=$(sed -E 's/[<>=!~].*$//' "$root/requirements.txt" 2>/dev/null | sed '/^[[:space:]]*$/d' | paste -sd, -)"
+        db="$root/data/reviewmuse.db"
+        if [[ -f "$db" ]]; then
+          python3 - "$db" <<'PY'
+        import sqlite3, sys
+        p=sys.argv[1]
+        con=sqlite3.connect(f'file:{p}?mode=ro', uri=True)
+        print('SQLITE_QUICK_CHECK='+str(con.execute('pragma quick_check').fetchone()[0]))
+        for table in ('businesses','events'):
+            try:
+                print('ROWS_'+table.upper()+'='+str(con.execute('select count(*) from '+table).fetchone()[0]))
+            except Exception:
+                pass
+        con.close()
+        PY
+        fi
+      args:
+        executable: /bin/bash
+      register: metadata
+      changed_when: false
+
+    - name: Show staged source metadata
+      ansible.builtin.debug:
+        msg: "{{ metadata.stdout_lines }}"
+
+    - name: Build staged ReviewMuse image with rootless Podman
+      ansible.builtin.shell: |
+        set -euo pipefail
+        root=/srv/reviewmuse/migration/v1-source
+        podman build --pull=missing -t localhost/reviewmuse-v1-staged:0.3.1 "$root" >/tmp/reviewmuse-build.log 2>&1 || {
+          tail -n 100 /tmp/reviewmuse-build.log
+          exit 1
+        }
+        rm -f /tmp/reviewmuse-build.log
+        echo "IMAGE=$(podman image inspect localhost/reviewmuse-v1-staged:0.3.1 --format '{{ "{{.RepoTags}}" }}|{{ "{{.Size}}" }}')"
+      args:
+        executable: /bin/bash
+      register: build_result
+      changed_when: true
+
+    - name: Show local image build result
+      ansible.builtin.debug:
+        msg: "{{ build_result.stdout_lines }}"
