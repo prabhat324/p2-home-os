@@ -91,6 +91,10 @@ case "${operation}" in
     [[ "${target}" == "core-01" ]] || { echo "psquare-node-watchdog-deploy is restricted to core-01" >&2; exit 2; }
     playbook="playbooks/psquare-node-watchdog-deploy.yml"
     ;;
+  compute04-power-event-diagnose)
+    [[ "${target}" == "compute-04" ]] || { echo "compute04-power-event-diagnose is restricted to compute-04" >&2; exit 2; }
+    playbook="playbooks/compute04-power-event-diagnose.yml"
+    ;;
   *)
     exec bash "${ROOT_DIR}/ops/run-request.sh" "${REQUEST_FILE}"
     ;;
