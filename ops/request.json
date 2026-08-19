@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-redeploy-compute04-frontend-20260819-0126",
-  "operation": "dashboard-deploy",
-  "target": "compute-02"
+  "request_id": "compute04-ping-177-20260819-0127",
+  "operation": "ping",
+  "target": "compute-04"
 }
