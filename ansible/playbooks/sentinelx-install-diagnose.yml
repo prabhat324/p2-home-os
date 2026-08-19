@@ -11,17 +11,32 @@
         echo "=== CONNECTIVITY ==="
         getent ahosts get.sentinelx.app | head -n 5 || true
         curl -I -L --max-time 15 https://get.sentinelx.app 2>&1 | sed -n '1,20p' || true
-        echo "=== BODY ==="
+        echo "=== DISPATCHER ==="
         tmp=$(mktemp)
-        if curl -fL --max-time 20 -o "$tmp" https://get.sentinelx.app; then
-          echo "DOWNLOAD=ok"
-          echo "BYTES=$(wc -c < "$tmp")"
-          echo "FIRST_LINE=$(head -n 1 "$tmp")"
-          sha256sum "$tmp" | sed 's/^/SHA256=/'
+        if curl -fsSL --max-time 20 -o "$tmp" https://get.sentinelx.app; then
+          echo "DISPATCH_DOWNLOAD=ok"
+          echo "DISPATCH_BYTES=$(wc -c < "$tmp")"
+          echo "DISPATCH_FIRST_LINE=$(head -n 1 "$tmp")"
+          echo "DISPATCH_SYNTAX=$(bash -n "$tmp" >/dev/null 2>&1 && echo ok || echo failed)"
         else
-          echo "DOWNLOAD=failed"
+          echo "DISPATCH_DOWNLOAD=failed"
         fi
         rm -f "$tmp"
+        echo "=== DIRECT INSTALLER ==="
+        tmp=$(mktemp)
+        if curl -fsSL --max-time 20 -o "$tmp" https://get.sentinelx.app/install.sh; then
+          echo "INSTALL_DOWNLOAD=ok"
+          echo "INSTALL_BYTES=$(wc -c < "$tmp")"
+          echo "INSTALL_FIRST_LINE=$(head -n 1 "$tmp")"
+          echo "INSTALL_SYNTAX=$(bash -n "$tmp" >/dev/null 2>&1 && echo ok || echo failed)"
+        else
+          echo "INSTALL_DOWNLOAD=failed"
+        fi
+        rm -f "$tmp"
+        echo "=== PYTHON ==="
+        python3 --version 2>&1 || true
+        python3 -m pip --version 2>&1 || true
+        python3 -c 'import venv; print("VENV=ok")' 2>&1 || true
         echo "=== INSTALLED STATE ==="
         if systemctl list-unit-files --no-pager | grep -q '^sentinelx-cloud-core.service'; then
           echo "SERVICE_UNIT=present"
@@ -30,24 +45,9 @@
         else
           echo "SERVICE_UNIT=absent"
         fi
-        if [[ -d /opt/sentinelx-cloud-core ]]; then
-          echo "INSTALL_DIR=present"
-        else
-          echo "INSTALL_DIR=absent"
-        fi
-        if [[ -f /etc/sentinelx/host_id ]]; then
-          echo "HOST_ID_FILE=present"
-          echo "HOST_ID=$(cat /etc/sentinelx/host_id)"
-        else
-          echo "HOST_ID_FILE=absent"
-        fi
-        if [[ -f /etc/sentinelx/identity.json ]]; then
-          echo "IDENTITY=present"
-        else
-          echo "IDENTITY=absent"
-        fi
-        echo "=== RECENT SERVICE LOG ==="
-        journalctl -u sentinelx-cloud-core.service -n 30 --no-pager 2>/dev/null | sed -E 's/(token|authorization|bearer)[=: ]+[^ ]+/\1=[REDACTED]/Ig' || true
+        [[ -d /opt/sentinelx-cloud-core ]] && echo "INSTALL_DIR=present" || echo "INSTALL_DIR=absent"
+        [[ -f /etc/sentinelx/host_id ]] && echo "HOST_ID_FILE=present" || echo "HOST_ID_FILE=absent"
+        [[ -f /etc/sentinelx/identity.json ]] && echo "IDENTITY=present" || echo "IDENTITY=absent"
       args:
         executable: /bin/bash
       register: diag
