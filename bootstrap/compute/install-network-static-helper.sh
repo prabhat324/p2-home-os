@@ -3,8 +3,8 @@ set -euo pipefail
 
 HOST="$(hostname -s)"
 case "$HOST" in
-  compute-02|compute-03|compute-04) ;;
-  *) echo "This installer is restricted to compute-02/compute-03/compute-04; current host: $HOST" >&2; exit 2 ;;
+  compute-01|compute-02|compute-03|compute-04) ;;
+  *) echo "This installer is restricted to compute-01/compute-02/compute-03/compute-04; current host: $HOST" >&2; exit 2 ;;
 esac
 
 if [[ ${EUID} -eq 0 ]]; then
@@ -30,6 +30,7 @@ cat > "$TMP/sudoers" <<'EOF'
 # P2 Home OS - narrowly scoped persistent LAN address management.
 p2ops ALL=(root) NOPASSWD: /usr/local/sbin/p2ops-network-static status
 p2ops ALL=(root) NOPASSWD: /usr/local/sbin/p2ops-network-static apply
+p2ops ALL=(root) NOPASSWD: /usr/local/sbin/p2ops-network-static reboot
 EOF
 
 sudo visudo -cf "$TMP/sudoers"
@@ -39,4 +40,4 @@ sudo visudo -cf "$SUDOERS_DST"
 sudo -u p2ops sudo -n "$HELPER_DST" status
 
 echo "Scoped persistent network helper installed for $HOST."
-echo "p2ops can only inspect/apply the documented IP for this host; no general sudo was granted."
+echo "p2ops can only inspect/apply the documented IP and perform a validated reboot; no general sudo was granted."
