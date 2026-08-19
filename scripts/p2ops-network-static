@@ -5,19 +5,37 @@ ACTION="${1:-status}"
 HOST="$(hostname -s)"
 
 case "$HOST" in
-  compute-02) DESIRED_CIDR="192.168.0.88/24" ;;
-  compute-03) DESIRED_CIDR="192.168.0.158/24" ;;
+  compute-02)
+    DESIRED_CIDR="192.168.0.88/24"
+    CURRENT_HINT="192.168.0.84"
+    ;;
+  compute-03)
+    DESIRED_CIDR="192.168.0.158/24"
+    CURRENT_HINT="192.168.0.157"
+    ;;
   *) echo "Unsupported host: $HOST" >&2; exit 2 ;;
 esac
 DESIRED_IP="${DESIRED_CIDR%/*}"
 
-IFACE="$(ip -4 route show default | awk 'NR==1 {for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')"
-GATEWAY="$(ip -4 route show default | awk 'NR==1 {for(i=1;i<=NF;i++) if($i=="via") {print $(i+1); exit}}')"
+# Prefer the interface that owns the user-confirmed drifted address. This avoids
+# accidentally configuring Wi-Fi when the wired production interface is present.
+IFACE="$(ip -4 -o addr show scope global | awk -v ip="$CURRENT_HINT" '$4 ~ ("^" ip "/") {print $2; exit}')"
+if [[ -z "$IFACE" ]]; then
+  IFACE="$(ip -4 -o addr show scope global | awk -v ip="$DESIRED_IP" '$4 ~ ("^" ip "/") {print $2; exit}')"
+fi
+if [[ -z "$IFACE" ]]; then
+  IFACE="$(ip -4 route show default | awk 'NR==1 {for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')"
+fi
+
+GATEWAY="$(ip -4 route show default dev "$IFACE" | awk 'NR==1 {for(i=1;i<=NF;i++) if($i=="via") {print $(i+1); exit}}')"
+if [[ -z "$GATEWAY" ]]; then
+  GATEWAY="$(ip -4 route show default | awk 'NR==1 {for(i=1;i<=NF;i++) if($i=="via") {print $(i+1); exit}}')"
+fi
 CURRENT_CIDR="$(ip -4 -o addr show dev "$IFACE" scope global | awk 'NR==1 {print $4}')"
 CURRENT_IP="${CURRENT_CIDR%/*}"
 
 if [[ -z "$IFACE" || -z "$GATEWAY" ]]; then
-  echo "Could not determine active default interface/gateway" >&2
+  echo "Could not determine active interface/gateway" >&2
   exit 3
 fi
 
