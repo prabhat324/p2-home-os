@@ -1,5 +1,5 @@
 {
-  "request_id": "reviewmuse-prod-finalize-20260819-0121",
-  "operation": "reviewmuse-prod-harden",
-  "target": "compute-03"
+  "request_id": "compute01-static-reboot-verify-20260819-0122",
+  "operation": "compute01-network-reboot-verify",
+  "target": "compute-01"
 }
