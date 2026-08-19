@@ -1,5 +1,5 @@
 {
-  "request_id": "reviewmuse-v1-private-canary-20260819-0057",
-  "operation": "reviewmuse-v1-deploy",
-  "target": "compute-03"
+  "request_id": "infrastructure-persistence-audit-20260819-0107",
+  "operation": "infrastructure-persistence-audit",
+  "target": "all"
 }
