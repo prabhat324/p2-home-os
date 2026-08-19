@@ -1,5 +1,5 @@
 {
-  "request_id": "p2-dashboard-verify-compute04-20260819-0133",
-  "operation": "p2-dashboard-diagnose",
-  "target": "core-01"
+  "request_id": "sentinelx-install-diagnose-20260819-0134",
+  "operation": "sentinelx-install-diagnose",
+  "target": "compute-03"
 }
