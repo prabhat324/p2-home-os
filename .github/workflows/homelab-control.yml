@@ -79,7 +79,7 @@ jobs:
           if [[ "$operation" == "network-static-fix" ]]; then
             bash ops/run-network-static-fix.sh ops/request.json
           else
-            bash ops/run-request.sh ops/request.json
+            bash ops/run-request-v2.sh ops/request.json
           fi
 
       - name: Publish control request status
