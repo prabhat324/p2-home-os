@@ -1,5 +1,5 @@
 {
-  "request_id": "compute03-host-inventory-20260819-0039",
-  "operation": "home-dashboard-inventory",
-  "target": "all"
+  "request_id": "compute04-monitoring-bootstrap-20260819-0040",
+  "operation": "compute-monitoring-bootstrap",
+  "target": "compute-04"
 }
