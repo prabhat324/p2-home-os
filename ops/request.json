@@ -1,5 +1,5 @@
 {
-  "request_id": "reviewmuse-v2-refresh-20260819-0217",
-  "operation": "reviewmuse-v2-refresh",
-  "target": "compute-03"
+  "request_id": "compute04-sleep-alert-core-status-20260819-0748",
+  "operation": "status",
+  "target": "core-01"
 }
