@@ -19,6 +19,10 @@ if [[ ! "${request_id}" =~ ^[A-Za-z0-9._-]{1,80}$ ]]; then
 fi
 
 case "${operation}" in
+  infrastructure-persistence-audit)
+    [[ "${target}" == "all" ]] || { echo "infrastructure-persistence-audit is restricted to all" >&2; exit 2; }
+    playbook="playbooks/infrastructure-persistence-audit.yml"
+    ;;
   reviewmuse-readiness)
     [[ "${target}" == "compute-03" ]] || { echo "reviewmuse-readiness is restricted to compute-03" >&2; exit 2; }
     playbook="playbooks/reviewmuse-readiness.yml"
