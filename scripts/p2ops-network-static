@@ -5,6 +5,10 @@ ACTION="${1:-status}"
 HOST="$(hostname -s)"
 
 case "$HOST" in
+  compute-01)
+    DESIRED_CIDR="192.168.0.31/24"
+    CURRENT_HINT="192.168.0.31"
+    ;;
   compute-02)
     DESIRED_CIDR="192.168.0.88/24"
     CURRENT_HINT="192.168.0.84"
@@ -21,8 +25,6 @@ case "$HOST" in
 esac
 DESIRED_IP="${DESIRED_CIDR%/*}"
 
-# Prefer the interface that owns the user-confirmed drifted address. This avoids
-# accidentally configuring Wi-Fi when the wired production interface is present.
 IFACE="$(ip -4 -o addr show scope global | awk -v ip="$CURRENT_HINT" '$4 ~ ("^" ip "/") {print $2; exit}')"
 if [[ -z "$IFACE" ]]; then
   IFACE="$(ip -4 -o addr show scope global | awk -v ip="$DESIRED_IP" '$4 ~ ("^" ip "/") {print $2; exit}')"
@@ -64,6 +66,12 @@ show_status() {
   fi
 }
 
+validate_persistent_config() {
+  if command -v netplan >/dev/null 2>&1; then
+    netplan generate
+  fi
+}
+
 case "$ACTION" in
   status)
     show_status
@@ -95,6 +103,7 @@ case "$ACTION" in
     SECTION="ethernets"
     if [[ -d "/sys/class/net/$IFACE/wireless" ]]; then SECTION="wifis"; fi
     DNS_YAML="$(sed 's/,/, /g' <<<"$DNS_CSV")"
+    cp -a /etc/netplan "/root/netplan-backup-p2-static-$(date +%Y%m%d-%H%M%S)"
     cat > /etc/netplan/99-psquare-static.yaml <<EOF
 network:
   version: 2
@@ -114,8 +123,16 @@ EOF
     echo "Persisted static IPv4 in /etc/netplan/99-psquare-static.yaml"
     netplan apply
     ;;
+  reboot)
+    show_status
+    [[ "$CURRENT_IP" == "$DESIRED_IP" ]] || { echo "Refusing reboot: current IP is not desired production IP" >&2; exit 6; }
+    validate_persistent_config
+    echo "Persistent network configuration validates; rebooting $HOST"
+    sync
+    systemctl reboot
+    ;;
   *)
-    echo "Usage: $0 {status|apply}" >&2
+    echo "Usage: $0 {status|apply|reboot}" >&2
     exit 2
     ;;
 esac
