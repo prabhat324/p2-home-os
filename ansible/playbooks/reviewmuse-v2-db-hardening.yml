@@ -1,0 +1,45 @@
+---
+- name: Harden ReviewMuse V2 database object ownership and runtime grants
+  hosts: compute-03
+  gather_facts: false
+  tasks:
+    - name: Move schema object ownership away from runtime role and grant DML only
+      ansible.builtin.shell: |
+        set -euo pipefail
+        source /srv/reviewmuse/secrets/postgres.env
+        podman exec -e PGPASSWORD="$POSTGRES_PASSWORD" reviewmuse-postgres \
+          psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+        REASSIGN OWNED BY reviewmuse_app TO CURRENT_USER;
+        REVOKE ALL ON SCHEMA public FROM reviewmuse_app;
+        GRANT USAGE ON SCHEMA public TO reviewmuse_app;
+        GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO reviewmuse_app;
+        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO reviewmuse_app;
+        SQL
+        echo DB_RUNTIME_HARDEN=ok
+      args:
+        executable: /bin/bash
+      no_log: true
+      changed_when: true
+
+    - name: Verify runtime permissions without exposing secrets
+      ansible.builtin.shell: |
+        set -euo pipefail
+        source /srv/reviewmuse/secrets/postgres.env
+        podman exec -e PGPASSWORD="$POSTGRES_PASSWORD" reviewmuse-postgres \
+          psql -At -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+        SELECT 'schema_create=' || has_schema_privilege('reviewmuse_app','public','CREATE');
+        SELECT 'schema_usage=' || has_schema_privilege('reviewmuse_app','public','USAGE');
+        SELECT 'business_select=' || has_table_privilege('reviewmuse_app','businesses','SELECT');
+        SELECT 'business_insert=' || has_table_privilege('reviewmuse_app','businesses','INSERT');
+        SELECT 'business_truncate=' || has_table_privilege('reviewmuse_app','businesses','TRUNCATE');
+        SELECT 'business_owner=' || (tableowner='reviewmuse_app') FROM pg_tables WHERE schemaname='public' AND tablename='businesses';
+        SQL
+      args:
+        executable: /bin/bash
+      register: perms
+      no_log: true
+      changed_when: false
+
+    - name: Show safe runtime permission summary
+      ansible.builtin.debug:
+        msg: "{{ perms.stdout_lines }}"
