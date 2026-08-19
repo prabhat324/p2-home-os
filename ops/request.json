@@ -1,5 +1,5 @@
 {
-  "request_id": "compute03-detailed-inventory-20260819-0045",
-  "operation": "home-dashboard-inventory",
-  "target": "all"
+  "request_id": "compute03-osho-pre-repurpose-audit-20260819-0046",
+  "operation": "osho-cancel-audit",
+  "target": "osho_nodes"
 }
