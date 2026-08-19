@@ -12,12 +12,9 @@
 
   tasks:
     - name: Ensure watchdog directories exist
-      become: true
       ansible.builtin.file:
         path: "{{ item.path }}"
         state: directory
-        owner: p2runner
-        group: p2runner
         mode: "{{ item.mode }}"
       loop:
         - { path: "/home/p2runner/.local/bin", mode: "0755" }
@@ -36,34 +33,28 @@
         fail_msg: Existing pSquare Discord configuration is missing or not mode 0600
 
     - name: Install node watchdog
-      become: true
       ansible.builtin.copy:
         src: "{{ watchdog_src }}"
         dest: "{{ watchdog_bin }}"
-        owner: p2runner
-        group: p2runner
         mode: "0755"
 
     - name: Validate watchdog Python and current node probes
       ansible.builtin.shell: |
         set -eu
         python3 -m py_compile "{{ watchdog_bin }}"
-        runuser -u p2runner -- "{{ watchdog_bin }}" --once
+        "{{ watchdog_bin }}" --once
       args:
         executable: /bin/bash
       register: watchdog_probe
       changed_when: false
 
     - name: Keep node watchdog running after core-01 reboot
-      become: true
       ansible.builtin.cron:
         name: pSquare node availability watchdog
         special_time: reboot
-        user: p2runner
         job: "/usr/bin/nohup {{ watchdog_bin }} >> {{ watchdog_log }} 2>&1 &"
 
     - name: Restart pSquare node watchdog
-      become: true
       ansible.builtin.shell: |
         set -eu
         pidfile="{{ watchdog_pidfile }}"
@@ -80,19 +71,18 @@
         for pid in $(pgrep -f '^python3 /home/p2runner/.local/bin/psquare-node-watchdog.py$' 2>/dev/null || true); do
           kill "$pid" 2>/dev/null || true
         done
-        env -u RUNNER_TRACKING_ID runuser -u p2runner -- nohup "{{ watchdog_bin }}" >> "{{ watchdog_log }}" 2>&1 </dev/null &
+        env -u RUNNER_TRACKING_ID nohup "{{ watchdog_bin }}" >> "{{ watchdog_log }}" 2>&1 </dev/null &
         newpid=$!
         echo "$newpid" > "$pidfile"
-        chown p2runner:p2runner "$pidfile"
         chmod 600 "$pidfile"
         sleep 3
         kill -0 "$newpid"
         echo WATCHDOG_STATUS=running
         echo WATCHDOG_PID=$newpid
         echo '=== CURRENT PROBE ==='
-        runuser -u p2runner -- "{{ watchdog_bin }}" --once
+        "{{ watchdog_bin }}" --once
         echo '=== CRON ==='
-        crontab -l -u p2runner | grep 'psquare-node-watchdog.py'
+        crontab -l | grep 'psquare-node-watchdog.py'
       args:
         executable: /bin/bash
       register: watchdog_start
