@@ -1,5 +1,5 @@
 {
-  "request_id": "sentinelx-install-diagnose-20260819-0136",
-  "operation": "sentinelx-install-diagnose",
-  "target": "compute-03"
+  "request_id": "dashboard-add-storage01-20260819-0145",
+  "operation": "dashboard-deploy",
+  "target": "compute-02"
 }
