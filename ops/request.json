@@ -1,5 +1,5 @@
 {
-  "request_id": "compute04-ping-177-20260819-0127",
-  "operation": "ping",
+  "request_id": "compute04-monitoring-177-20260819-0129",
+  "operation": "compute-monitoring-bootstrap",
   "target": "compute-04"
 }
