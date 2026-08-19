@@ -6,12 +6,37 @@
     desired_ip_map:
       compute-02: 192.168.0.88
       compute-03: 192.168.0.158
+      compute-04: 192.168.0.177
   tasks:
     - name: Refuse unsupported host
       ansible.builtin.assert:
         that:
           - inventory_hostname in desired_ip_map
-        fail_msg: "network-static-fix is restricted to compute-02 and compute-03"
+        fail_msg: "network-static-fix is restricted to compute-02, compute-03, and compute-04"
+
+    - name: Install current scoped helper on compute-04
+      become: true
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../scripts/p2ops-network-static"
+        dest: /usr/local/sbin/p2ops-network-static
+        owner: root
+        group: root
+        mode: "0755"
+      when: inventory_hostname == 'compute-04'
+
+    - name: Install scoped sudo rule on compute-04
+      become: true
+      ansible.builtin.copy:
+        content: |
+          # P2 Home OS - narrowly scoped persistent LAN address management.
+          p2ops ALL=(root) NOPASSWD: /usr/local/sbin/p2ops-network-static status
+          p2ops ALL=(root) NOPASSWD: /usr/local/sbin/p2ops-network-static apply
+        dest: /etc/sudoers.d/p2ops-network-static
+        owner: root
+        group: root
+        mode: "0440"
+        validate: /usr/sbin/visudo -cf %s
+      when: inventory_hostname == 'compute-04'
 
     - name: Verify scoped helper is installed
       ansible.builtin.command: sudo -n /usr/local/sbin/p2ops-network-static status
