@@ -1,0 +1,248 @@
+---
+- name: Deploy ReviewMuse V1 as a private canary on compute-03
+  hosts: compute-03
+  gather_facts: false
+  vars:
+    rm_root: /srv/reviewmuse
+    staged: /srv/reviewmuse/migration/v1-source
+    app_root: /srv/reviewmuse/app/v1
+    legacy_data: /srv/reviewmuse/data/legacy-sqlite
+    image: localhost/reviewmuse-v1-staged:0.3.1
+  tasks:
+    - name: Verify staged image and source
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test -f "{{ staged }}/app/main.py"
+        test -f "{{ staged }}/data/reviewmuse.db"
+        podman image exists "{{ image }}"
+        echo 'STAGED_READY=yes'
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Create V1 application and data directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: '/srv/reviewmuse/app/v1', mode: '0750' }
+        - { path: '/srv/reviewmuse/data/legacy-sqlite', mode: '0750' }
+        - { path: '/srv/reviewmuse/backups/legacy-sqlite', mode: '0750' }
+
+    - name: Install private V1 source snapshot
+      ansible.builtin.shell: |
+        set -euo pipefail
+        src="{{ staged }}"
+        dst="{{ app_root }}"
+        tmp="${dst}.new.$$"
+        rm -rf "$tmp"
+        mkdir -p "$tmp"
+        cp -a "$src/app" "$src/Dockerfile" "$src/requirements.txt" "$src/README.md" "$tmp/"
+        rm -rf "$dst"
+        mv "$tmp" "$dst"
+        echo "APP_SNAPSHOT=$(du -sh "$dst" | awk '{print $1}')"
+      args:
+        executable: /bin/bash
+      register: app_snapshot
+      changed_when: true
+
+    - name: Install consistent legacy SQLite database snapshot if production copy is absent
+      ansible.builtin.shell: |
+        set -euo pipefail
+        src="{{ staged }}/data/reviewmuse.db"
+        dst="{{ legacy_data }}/reviewmuse.db"
+        if [[ -f "$dst" ]]; then
+          echo 'SQLITE_INSTALL=preserved-existing'
+        else
+          install -m 0640 "$src" "$dst"
+          echo 'SQLITE_INSTALL=created'
+        fi
+        python3 - "$dst" <<'PY'
+        import sqlite3, sys
+        p=sys.argv[1]
+        con=sqlite3.connect(f'file:{p}?mode=ro', uri=True)
+        print('SQLITE_QUICK_CHECK='+str(con.execute('pragma quick_check').fetchone()[0]))
+        for t in ('businesses','events'):
+            try: print('ROWS_'+t.upper()+'='+str(con.execute('select count(*) from '+t).fetchone()[0]))
+            except Exception: pass
+        con.close()
+        PY
+      args:
+        executable: /bin/bash
+      register: sqlite_install
+      changed_when: "'created' in sqlite_install.stdout"
+
+    - name: Generate V1 runtime secrets locally if absent
+      ansible.builtin.shell: |
+        set -euo pipefail
+        envfile="{{ rm_root }}/secrets/v1.env"
+        if [[ -s "$envfile" ]]; then
+          chmod 0600 "$envfile"
+          echo 'V1_ENV=preserved'
+          exit 0
+        fi
+        umask 077
+        admin="$(python3 - <<'PY'
+        import secrets
+        print(secrets.token_urlsafe(24))
+        PY
+        )"
+        session="$(python3 - <<'PY'
+        import secrets
+        print(secrets.token_urlsafe(48))
+        PY
+        )"
+        cat > "$envfile" <<EOF
+        REVIEWMUSE_ADMIN_PASSWORD=${admin}
+        REVIEWMUSE_SESSION_SECRET=${session}
+        REVIEWMUSE_MODEL=qwen3:4b-instruct
+        REVIEWMUSE_OLLAMA_URL=http://192.168.0.158:11434
+        EOF
+        chmod 0600 "$envfile"
+        echo 'V1_ENV=created'
+      args:
+        executable: /bin/bash
+      register: v1_secret
+      changed_when: "'created' in v1_secret.stdout"
+      no_log: true
+
+    - name: Write V1 rootless lifecycle wrapper
+      ansible.builtin.copy:
+        dest: /srv/reviewmuse/scripts/v1-service.sh
+        mode: '0750'
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          export PATH=/usr/local/bin:/usr/bin:/bin
+          name=reviewmuse-v1
+          image=localhost/reviewmuse-v1-staged:0.3.1
+          envfile=/srv/reviewmuse/secrets/v1.env
+          data=/srv/reviewmuse/data/legacy-sqlite
+          case "${1:-}" in
+            start)
+              podman rm -f "$name" >/dev/null 2>&1 || true
+              exec podman run --name "$name" \
+                --network host \
+                --env-file "$envfile" \
+                -v "$data:/data:Z" \
+                "$image" \
+                uvicorn app.main:app --host 127.0.0.1 --port 8794
+              ;;
+            stop)
+              podman stop -t 20 "$name" >/dev/null 2>&1 || true
+              podman rm -f "$name" >/dev/null 2>&1 || true
+              ;;
+            *)
+              echo "usage: $0 start|stop" >&2
+              exit 2
+              ;;
+          esac
+
+    - name: Install V1 rootless user service
+      ansible.builtin.copy:
+        dest: /home/p2ops/.config/systemd/user/reviewmuse-v1.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=ReviewMuse V1 private canary
+          Wants=network-online.target
+          After=network-online.target reviewmuse-postgres.service
+
+          [Service]
+          Type=simple
+          ExecStart=/srv/reviewmuse/scripts/v1-service.sh start
+          ExecStop=/srv/reviewmuse/scripts/v1-service.sh stop
+          Restart=on-failure
+          RestartSec=5
+          TimeoutStopSec=45
+
+          [Install]
+          WantedBy=default.target
+
+    - name: Enable and start V1 private canary
+      ansible.builtin.shell: |
+        set -euo pipefail
+        uid="$(id -u)"
+        export XDG_RUNTIME_DIR="/run/user/${uid}"
+        export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+        systemctl --user daemon-reload
+        systemctl --user enable reviewmuse-v1.service >/dev/null
+        systemctl --user restart reviewmuse-v1.service
+        for i in $(seq 1 45); do
+          if curl -fsS --max-time 3 http://127.0.0.1:8794/health >/tmp/reviewmuse-v1-health.$$ 2>/dev/null; then
+            break
+          fi
+          sleep 1
+        done
+        test -s /tmp/reviewmuse-v1-health.$$
+        printf 'HEALTH='
+        tr '\n' ' ' </tmp/reviewmuse-v1-health.$$ | head -c 500
+        echo
+        rm -f /tmp/reviewmuse-v1-health.$$
+        echo "SYSTEMD_ACTIVE=$(systemctl --user is-active reviewmuse-v1.service)"
+        echo "SYSTEMD_ENABLED=$(systemctl --user is-enabled reviewmuse-v1.service)"
+        echo "LISTEN=$(ss -lnt | awk '$4 ~ /127\.0\.0\.1:8794$/ {print $4; exit}')"
+        echo "CONTAINER=$(podman ps --filter name=reviewmuse-v1 --format '{{ "{{.Names}}" }}|{{ "{{.Status}}" }}|{{ "{{.Image}}" }}')"
+      args:
+        executable: /bin/bash
+      register: canary_start
+      changed_when: true
+
+    - name: Verify canary is not LAN exposed
+      ansible.builtin.shell: |
+        set -euo pipefail
+        if ss -lnt | awk '{print $4}' | grep -Eq '(^|:)0\.0\.0\.0:8794$|\[::\]:8794$|192\.168\.0\.158:8794$'; then
+          echo 'PRIVATE_BIND=failed'
+          exit 1
+        fi
+        curl -fsS --max-time 3 http://127.0.0.1:8794/health >/dev/null
+        echo 'PRIVATE_BIND=ok'
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Install legacy SQLite backup script
+      ansible.builtin.copy:
+        dest: /srv/reviewmuse/scripts/backup-legacy-sqlite.sh
+        mode: '0750'
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          src=/srv/reviewmuse/data/legacy-sqlite/reviewmuse.db
+          outdir=/srv/reviewmuse/backups/legacy-sqlite
+          test -f "$src"
+          stamp="$(date +%Y%m%d-%H%M%S)"
+          tmp="$outdir/reviewmuse-${stamp}.db.tmp"
+          out="$outdir/reviewmuse-${stamp}.db"
+          umask 077
+          python3 - "$src" "$tmp" <<'PY'
+          import sqlite3,sys
+          src=sqlite3.connect(sys.argv[1], timeout=10)
+          dst=sqlite3.connect(sys.argv[2])
+          src.backup(dst)
+          assert dst.execute('pragma quick_check').fetchone()[0]=='ok'
+          dst.close(); src.close()
+          PY
+          mv "$tmp" "$out"
+          find "$outdir" -type f -name 'reviewmuse-*.db' -mtime +14 -delete
+          echo "$out"
+
+    - name: Schedule daily legacy SQLite backup
+      ansible.builtin.shell: |
+        set -euo pipefail
+        current="$(crontab -l 2>/dev/null || true)"
+        filtered="$(printf '%s\n' "$current" | grep -v '/srv/reviewmuse/scripts/backup-legacy-sqlite.sh' || true)"
+        { printf '%s\n' "$filtered"; echo '23 3 * * * /srv/reviewmuse/scripts/backup-legacy-sqlite.sh >>/srv/reviewmuse/logs/legacy-sqlite-backup.log 2>&1'; } \
+          | sed '/^[[:space:]]*$/d' | crontab -
+        crontab -l | grep '/srv/reviewmuse/scripts/backup-legacy-sqlite.sh'
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Show V1 private canary summary
+      ansible.builtin.debug:
+        msg:
+          - "{{ app_snapshot.stdout_lines }}"
+          - "{{ sqlite_install.stdout_lines }}"
+          - "{{ canary_start.stdout_lines }}"
