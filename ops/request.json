@@ -1,5 +1,5 @@
 {
-  "request_id": "compute04-network-static-fix-20260819-0030",
+  "request_id": "managed-compute-network-static-fix-20260819-0030",
   "operation": "network-static-fix",
-  "target": "compute-04"
+  "target": "compute_nodes"
 }
