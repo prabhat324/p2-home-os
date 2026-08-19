@@ -1,0 +1,42 @@
+---
+- name: Restore documented persistent LAN address
+  hosts: all
+  gather_facts: false
+  vars:
+    desired_ip_map:
+      compute-02: 192.168.0.88
+      compute-03: 192.168.0.158
+  tasks:
+    - name: Refuse unsupported host
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname in desired_ip_map
+        fail_msg: "network-static-fix is restricted to compute-02 and compute-03"
+
+    - name: Verify scoped helper is installed
+      ansible.builtin.command: sudo -n /usr/local/sbin/p2ops-network-static status
+      register: network_status
+      changed_when: false
+
+    - name: Print pre-change network status
+      ansible.builtin.debug:
+        var: network_status.stdout_lines
+
+    - name: Apply persistent network address in detached process
+      ansible.builtin.shell: >-
+        nohup sudo -n /usr/local/sbin/p2ops-network-static apply
+        >/tmp/p2-network-static-apply.log 2>&1 </dev/null &
+      changed_when: true
+
+    - name: Wait for SSH on documented production address
+      ansible.builtin.wait_for:
+        host: "{{ desired_ip_map[inventory_hostname] }}"
+        port: 22
+        state: started
+        delay: 4
+        timeout: 90
+      delegate_to: localhost
+
+    - name: Confirm restored production address
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} is reachable on {{ desired_ip_map[inventory_hostname] }}:22"
