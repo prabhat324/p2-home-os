@@ -1,5 +1,5 @@
 {
-  "request_id": "diagnose-dashboard-backend-20260817-0831",
-  "operation": "dashboard-diagnose",
-  "target": "compute-02"
+  "request_id": "psquare-health-20260818-2244",
+  "operation": "ping",
+  "target": "all"
 }
