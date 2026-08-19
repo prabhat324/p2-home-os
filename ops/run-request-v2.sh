@@ -57,7 +57,7 @@ case "${operation}" in
     ;;
   reviewmuse-prod-harden)
     [[ "${target}" == "compute-03" ]] || { echo "reviewmuse-prod-harden is restricted to compute-03" >&2; exit 2; }
-    playbook="playbooks/reviewmuse-prod-harden.yml"
+    playbook="playbooks/reviewmuse-prod-harden-v2.yml"
     ;;
   *)
     exec bash "${ROOT_DIR}/ops/run-request.sh" "${REQUEST_FILE}"
