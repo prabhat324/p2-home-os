@@ -1,5 +1,5 @@
 {
-  "request_id": "p2-dashboard-compute04-verify-20260819-0043",
-  "operation": "p2-dashboard-diagnose",
-  "target": "core-01"
+  "request_id": "compute03-status-linked-20260819-0044",
+  "operation": "status",
+  "target": "compute-03"
 }
