@@ -1,5 +1,5 @@
 {
-  "request_id": "compute04-live-ping-20260819-0811",
-  "operation": "ping",
+  "request_id": "compute04-power-event-diagnose-20260819-0812",
+  "operation": "compute04-power-event-diagnose",
   "target": "compute-04"
 }
