@@ -12,9 +12,9 @@ target="$(jq -er '.target' "$REQUEST_FILE")"
 [[ "$operation" == "network-static-fix" ]] || { echo "Invalid operation for network dispatcher" >&2; exit 2; }
 
 case "$target" in
-  compute-02|compute-03|compute-04) targets=("$target") ;;
-  compute_nodes) targets=(compute-02 compute-03 compute-04) ;;
-  *) echo "network-static-fix is restricted to compute-02, compute-03, compute-04, or compute_nodes" >&2; exit 2 ;;
+  compute-01|compute-02|compute-03|compute-04) targets=("$target") ;;
+  compute_nodes) targets=(compute-01 compute-02 compute-03 compute-04) ;;
+  *) echo "network-static-fix is restricted to compute-01, compute-02, compute-03, compute-04, or compute_nodes" >&2; exit 2 ;;
 esac
 
 echo "P2_HOME_OS_REQUEST=$request_id"
@@ -28,6 +28,7 @@ SSH_KEY="$HOME/.ssh/id_ed25519_p2homeos"
 
 candidate_ips() {
   case "$1" in
+    compute-01) echo "192.168.0.31" ;;
     compute-02) echo "192.168.0.88 192.168.0.84" ;;
     compute-03) echo "192.168.0.158 192.168.0.157" ;;
     compute-04) echo "192.168.0.177 192.168.0.176" ;;
