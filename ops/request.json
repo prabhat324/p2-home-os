@@ -1,5 +1,5 @@
 {
-  "request_id": "infrastructure-persistence-audit-20260819-0107",
-  "operation": "infrastructure-persistence-audit",
-  "target": "all"
+  "request_id": "reviewmuse-prod-harden-20260819-0110",
+  "operation": "reviewmuse-prod-harden",
+  "target": "compute-03"
 }
