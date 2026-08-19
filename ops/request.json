@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-diagnose-20260819-0027",
-  "operation": "dashboard-diagnose",
-  "target": "compute-02"
+  "request_id": "p2-dashboard-diagnose-20260819-0028",
+  "operation": "p2-dashboard-diagnose",
+  "target": "core-01"
 }
