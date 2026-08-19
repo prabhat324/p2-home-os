@@ -1,5 +1,5 @@
 {
-  "request_id": "reviewmuse-source-audit-20260819-0053",
-  "operation": "reviewmuse-source-audit",
-  "target": "compute-04"
+  "request_id": "reviewmuse-bootstrap-20260819-0054",
+  "operation": "reviewmuse-bootstrap",
+  "target": "compute-03"
 }
