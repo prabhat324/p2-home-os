@@ -1,5 +1,5 @@
 {
-  "request_id": "compute04-monitoring-refresh-20260819-0112",
-  "operation": "compute-monitoring-bootstrap",
-  "target": "compute-04"
+  "request_id": "reviewmuse-prod-harden-20260819-0117",
+  "operation": "reviewmuse-prod-harden",
+  "target": "compute-03"
 }
