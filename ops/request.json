@@ -1,5 +1,5 @@
 {
-  "request_id": "compute01-static-ip-apply-20260819-0120",
-  "operation": "network-static-fix",
-  "target": "compute-01"
+  "request_id": "reviewmuse-prod-finalize-20260819-0121",
+  "operation": "reviewmuse-prod-harden",
+  "target": "compute-03"
 }
