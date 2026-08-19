@@ -1,5 +1,5 @@
 {
-  "request_id": "post-network-static-verify-20260819-0026",
-  "operation": "ping",
-  "target": "all"
+  "request_id": "dashboard-diagnose-20260819-0027",
+  "operation": "dashboard-diagnose",
+  "target": "compute-02"
 }
