@@ -87,6 +87,10 @@ case "${operation}" in
     [[ "${target}" == "compute-03" ]] || { echo "reviewmuse-v2-refresh is restricted to compute-03" >&2; exit 2; }
     playbook="playbooks/reviewmuse-v2-refresh.yml"
     ;;
+  psquare-node-watchdog-deploy)
+    [[ "${target}" == "core-01" ]] || { echo "psquare-node-watchdog-deploy is restricted to core-01" >&2; exit 2; }
+    playbook="playbooks/psquare-node-watchdog-deploy.yml"
+    ;;
   *)
     exec bash "${ROOT_DIR}/ops/run-request.sh" "${REQUEST_FILE}"
     ;;
