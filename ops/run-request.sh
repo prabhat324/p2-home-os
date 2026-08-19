@@ -169,7 +169,10 @@ case "${operation}" in
     [[ "${target}" == "core-01" ]] || { echo "p2-dashboard-route is restricted to core-01" >&2; exit 2; }
     playbook="playbooks/p2-dashboard-route.yml" ;;
   compute-monitoring-bootstrap)
-    [[ "${target}" == "compute-03" ]] || { echo "compute-monitoring-bootstrap is restricted to compute-03" >&2; exit 2; }
+    case "${target}" in
+      compute-03|compute-04) ;;
+      *) echo "compute-monitoring-bootstrap is restricted to compute-03 or compute-04" >&2; exit 2 ;;
+    esac
     playbook="playbooks/compute-monitoring-bootstrap.yml" ;;
   dashboard-diagnose)
     [[ "${target}" == "compute-02" ]] || { echo "dashboard-diagnose is restricted to compute-02" >&2; exit 2; }
