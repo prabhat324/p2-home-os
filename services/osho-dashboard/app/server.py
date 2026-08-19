@@ -32,7 +32,7 @@ GLANCES_NODES = {
     "compute-01": "192.168.0.31",
     "compute-02": "192.168.0.88",
     "compute-03": "192.168.0.158",
-    "compute-04": "192.168.0.176",
+    "compute-04": "192.168.0.177",
 }
 GLANCES_PLUGINS = {"cpu", "mem", "fs", "uptime", "sensors"}
 
@@ -98,7 +98,7 @@ OSHO_PROGRESS_PANEL = """
   const clamp = n => Math.max(0, Math.min(100, Number(n) || 0));
   const cleanStage = value => String(value || 'Processing')
     .replaceAll('_', ' ')
-    .replace(/\b\w/g, c => c.toUpperCase());
+    .replace(/\\b\\w/g, c => c.toUpperCase());
   const relative = value => {
     if (!value) return '—';
     const t = new Date(value).getTime();
