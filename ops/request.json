@@ -1,5 +1,5 @@
 {
-  "request_id": "compute01-static-reboot-verify-20260819-0122",
-  "operation": "compute01-network-reboot-verify",
-  "target": "compute-01"
+  "request_id": "compute04-monitoring-refresh-20260819-0124",
+  "operation": "compute-monitoring-bootstrap",
+  "target": "compute-04"
 }
