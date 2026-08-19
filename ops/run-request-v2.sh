@@ -67,6 +67,10 @@ case "${operation}" in
     [[ "${target}" == "compute-03" ]] || { echo "sentinelx-install-diagnose is restricted to compute-03" >&2; exit 2; }
     playbook="playbooks/sentinelx-install-diagnose.yml"
     ;;
+  reviewmuse-v2-deploy)
+    [[ "${target}" == "compute-03" ]] || { echo "reviewmuse-v2-deploy is restricted to compute-03" >&2; exit 2; }
+    playbook="playbooks/reviewmuse-v2-deploy.yml"
+    ;;
   *)
     exec bash "${ROOT_DIR}/ops/run-request.sh" "${REQUEST_FILE}"
     ;;
