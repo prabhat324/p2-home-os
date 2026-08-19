@@ -1,5 +1,5 @@
 {
-  "request_id": "reviewmuse-db-role-diagnose-20260819-0119",
-  "operation": "reviewmuse-db-role-diagnose",
-  "target": "compute-03"
+  "request_id": "compute01-static-ip-apply-20260819-0120",
+  "operation": "network-static-fix",
+  "target": "compute-01"
 }
