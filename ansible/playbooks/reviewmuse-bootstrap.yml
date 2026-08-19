@@ -1,0 +1,245 @@
+---
+- name: Bootstrap ReviewMuse production foundation on compute-03
+  hosts: compute-03
+  gather_facts: false
+  vars:
+    reviewmuse_root: /srv/reviewmuse
+    p2ops_home: /home/p2ops
+  tasks:
+    - name: Verify bootstrap prerequisites
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test -d "{{ reviewmuse_root }}"
+        test -w "{{ reviewmuse_root }}"
+        command -v podman >/dev/null
+        command -v podman-compose >/dev/null
+        command -v newuidmap >/dev/null
+        command -v newgidmap >/dev/null
+        [[ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" == "yes" ]]
+        podman info >/dev/null
+        echo 'PREREQUISITES=ok'
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Create portable ReviewMuse directory tree
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: '/srv/reviewmuse/app', mode: '0750' }
+        - { path: '/srv/reviewmuse/compose', mode: '0750' }
+        - { path: '/srv/reviewmuse/config', mode: '0750' }
+        - { path: '/srv/reviewmuse/secrets', mode: '0700' }
+        - { path: '/srv/reviewmuse/data', mode: '0750' }
+        - { path: '/srv/reviewmuse/data/postgres', mode: '0750' }
+        - { path: '/srv/reviewmuse/data/uploads', mode: '0750' }
+        - { path: '/srv/reviewmuse/data/ai', mode: '0750' }
+        - { path: '/srv/reviewmuse/backups', mode: '0750' }
+        - { path: '/srv/reviewmuse/backups/postgres', mode: '0750' }
+        - { path: '/srv/reviewmuse/backups/uploads', mode: '0750' }
+        - { path: '/srv/reviewmuse/backups/config', mode: '0750' }
+        - { path: '/srv/reviewmuse/logs', mode: '0750' }
+        - { path: '/srv/reviewmuse/scripts', mode: '0750' }
+        - { path: '/srv/reviewmuse/migration', mode: '0750' }
+        - { path: '/home/p2ops/.config/systemd/user', mode: '0750' }
+
+    - name: Generate PostgreSQL credentials locally if absent
+      ansible.builtin.shell: |
+        set -euo pipefail
+        envfile="{{ reviewmuse_root }}/secrets/postgres.env"
+        if [[ -s "$envfile" ]]; then
+          chmod 0600 "$envfile"
+          echo 'POSTGRES_ENV=preserved'
+          exit 0
+        fi
+        umask 077
+        password="$(python3 - <<'PY'
+        import secrets
+        print(secrets.token_urlsafe(48))
+        PY
+        )"
+        cat > "$envfile" <<EOF
+        POSTGRES_DB=reviewmuse
+        POSTGRES_USER=reviewmuse
+        POSTGRES_PASSWORD=${password}
+        EOF
+        chmod 0600 "$envfile"
+        echo 'POSTGRES_ENV=created'
+      args:
+        executable: /bin/bash
+      register: postgres_secret
+      changed_when: "'created' in postgres_secret.stdout"
+      no_log: true
+
+    - name: Write rootless PostgreSQL compose definition
+      ansible.builtin.copy:
+        dest: /srv/reviewmuse/compose/postgres-compose.yml
+        mode: '0640'
+        content: |
+          services:
+            postgres:
+              image: docker.io/library/postgres:17-alpine
+              container_name: reviewmuse-postgres
+              env_file:
+                - /srv/reviewmuse/secrets/postgres.env
+              volumes:
+                - /srv/reviewmuse/data/postgres:/var/lib/postgresql/data:U
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+                interval: 10s
+                timeout: 5s
+                retries: 10
+                start_period: 10s
+              networks:
+                - reviewmuse
+          networks:
+            reviewmuse:
+              name: reviewmuse
+
+    - name: Write PostgreSQL lifecycle wrapper
+      ansible.builtin.copy:
+        dest: /srv/reviewmuse/scripts/postgres-service.sh
+        mode: '0750'
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          export PATH=/usr/local/bin:/usr/bin:/bin
+          compose=/srv/reviewmuse/compose/postgres-compose.yml
+          cd /srv/reviewmuse/compose
+          case "${1:-}" in
+            start)
+              exec podman-compose -f "$compose" up -d postgres
+              ;;
+            stop)
+              exec podman-compose -f "$compose" stop postgres
+              ;;
+            *)
+              echo "usage: $0 start|stop" >&2
+              exit 2
+              ;;
+          esac
+
+    - name: Install ReviewMuse PostgreSQL user service
+      ansible.builtin.copy:
+        dest: /home/p2ops/.config/systemd/user/reviewmuse-postgres.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=ReviewMuse PostgreSQL (rootless Podman)
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStart=/srv/reviewmuse/scripts/postgres-service.sh start
+          ExecStop=/srv/reviewmuse/scripts/postgres-service.sh stop
+          TimeoutStartSec=360
+          TimeoutStopSec=90
+
+          [Install]
+          WantedBy=default.target
+
+    - name: Enable and start rootless PostgreSQL service
+      ansible.builtin.shell: |
+        set -euo pipefail
+        uid="$(id -u)"
+        export XDG_RUNTIME_DIR="/run/user/${uid}"
+        export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+        systemctl --user daemon-reload
+        systemctl --user enable reviewmuse-postgres.service >/dev/null
+        systemctl --user restart reviewmuse-postgres.service
+        echo "SERVICE_ACTIVE=$(systemctl --user is-active reviewmuse-postgres.service)"
+        echo "SERVICE_ENABLED=$(systemctl --user is-enabled reviewmuse-postgres.service)"
+      args:
+        executable: /bin/bash
+      register: postgres_systemd
+      changed_when: true
+
+    - name: Wait for PostgreSQL to become healthy
+      ansible.builtin.shell: |
+        set -euo pipefail
+        for i in $(seq 1 60); do
+          if podman exec reviewmuse-postgres sh -lc 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null 2>&1; then
+            echo 'POSTGRES_HEALTH=ok'
+            exit 0
+          fi
+          sleep 2
+        done
+        podman logs --tail=80 reviewmuse-postgres 2>&1 || true
+        exit 1
+      args:
+        executable: /bin/bash
+      register: postgres_health
+      changed_when: false
+
+    - name: Install PostgreSQL backup script
+      ansible.builtin.copy:
+        dest: /srv/reviewmuse/scripts/backup-postgres.sh
+        mode: '0750'
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          root=/srv/reviewmuse
+          stamp="$(date +%Y%m%d-%H%M%S)"
+          out="$root/backups/postgres/reviewmuse-${stamp}.dump"
+          tmp="${out}.tmp"
+          umask 077
+          podman exec reviewmuse-postgres sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$tmp"
+          test -s "$tmp"
+          mv "$tmp" "$out"
+          find "$root/backups/postgres" -type f -name 'reviewmuse-*.dump' -mtime +14 -delete
+          printf '%s\n' "$out"
+
+    - name: Schedule daily PostgreSQL backup
+      ansible.builtin.shell: |
+        set -euo pipefail
+        current="$(crontab -l 2>/dev/null || true)"
+        filtered="$(printf '%s\n' "$current" | grep -v '/srv/reviewmuse/scripts/backup-postgres.sh' || true)"
+        {
+          printf '%s\n' "$filtered"
+          echo '17 3 * * * /srv/reviewmuse/scripts/backup-postgres.sh >>/srv/reviewmuse/logs/postgres-backup.log 2>&1'
+        } | sed '/^[[:space:]]*$/d' | crontab -
+        crontab -l | grep '/srv/reviewmuse/scripts/backup-postgres.sh'
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Write local operations marker
+      ansible.builtin.copy:
+        dest: /srv/reviewmuse/config/production-foundation.txt
+        mode: '0640'
+        content: |
+          ReviewMuse production foundation
+          Host: compute-03
+          Persistent root: /srv/reviewmuse
+          Containers: rootless Podman
+          Database: PostgreSQL 17
+          AI: host Ollama on compute-03
+          Public exposure: not enabled by this bootstrap
+          Application source: intentionally not stored in p2-home-os
+
+    - name: Print bootstrap summary without secrets
+      ansible.builtin.shell: |
+        set -euo pipefail
+        echo "HOST=$(hostname -s)"
+        echo "ROOT=$(stat -c '%U:%G %a %n' /srv/reviewmuse)"
+        echo "POSTGRES_CONTAINER=$(podman ps --filter name=reviewmuse-postgres --format '{{ "{{.Names}}" }}|{{ "{{.Status}}" }}|{{ "{{.Image}}" }}')"
+        podman exec reviewmuse-postgres sh -lc 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' | sed 's/^/POSTGRES=/'
+        uid="$(id -u)"
+        export XDG_RUNTIME_DIR="/run/user/${uid}"
+        export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+        echo "SYSTEMD_ACTIVE=$(systemctl --user is-active reviewmuse-postgres.service 2>/dev/null || true)"
+        echo "SYSTEMD_ENABLED=$(systemctl --user is-enabled reviewmuse-postgres.service 2>/dev/null || true)"
+        echo "BACKUP_CRON=$(crontab -l 2>/dev/null | grep '/srv/reviewmuse/scripts/backup-postgres.sh' || true)"
+        echo "DISK=$(df -h /srv | tail -1 | tr -s ' ')"
+      args:
+        executable: /bin/bash
+      register: bootstrap_summary
+      changed_when: false
+
+    - name: Show bootstrap summary
+      ansible.builtin.debug:
+        msg: "{{ bootstrap_summary.stdout_lines }}"
