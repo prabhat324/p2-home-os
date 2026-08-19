@@ -18,6 +18,10 @@
         fi
         echo '=== BACKEND ==='
         curl -sS -o /dev/null -w 'BACKEND_HTTP=%{http_code}\n' --max-time 5 http://192.168.0.88:8787/ || true
+        echo '=== COMPUTE04_GLANCES_PROXY ==='
+        curl -sS -o /dev/null -w 'COMPUTE04_CPU_HTTP=%{http_code}\n' --max-time 6 http://192.168.0.88:8787/api/glances/compute-04/api/4/cpu || true
+        curl -sS -o /dev/null -w 'COMPUTE04_MEM_HTTP=%{http_code}\n' --max-time 6 http://192.168.0.88:8787/api/glances/compute-04/api/4/mem || true
+        curl -sS -o /dev/null -w 'COMPUTE04_FS_HTTP=%{http_code}\n' --max-time 6 http://192.168.0.88:8787/api/glances/compute-04/api/4/fs || true
         echo '=== CADDY_HOST_HEADER ==='
         curl -sS -o /dev/null -w 'CADDY_HTTP=%{http_code}\n' --max-time 5 -H 'Host: dashboard.home.arpa' http://127.0.0.1/ || true
         echo '=== NAMED_URL ==='
@@ -38,4 +42,3 @@
     - name: Print dashboard diagnosis
       ansible.builtin.debug:
         msg: "{{ diagnose.stdout_lines }}"
-
