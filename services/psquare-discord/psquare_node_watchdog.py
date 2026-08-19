@@ -108,7 +108,7 @@ def probe_all() -> dict[str, bool]:
 
 def probe_compute04_power() -> dict:
     """Return compute-04 power state; never raises when the host is unavailable."""
-    remote = r'''for p in /sys/class/power_supply/*; do
+    remote = '''for p in /sys/class/power_supply/*; do
   [ -d "$p" ] || continue
   n="$(basename "$p")"
   t="$(cat "$p/type" 2>/dev/null || true)"
@@ -116,7 +116,8 @@ def probe_compute04_power() -> dict:
   s="$(cat "$p/status" 2>/dev/null || true)"
   c="$(cat "$p/capacity" 2>/dev/null || true)"
   printf '%s|%s|%s|%s|%s\n' "$n" "$t" "$o" "$s" "$c"
-done'''
+done
+'''
     cmd = [
         "ssh",
         "-i", str(COMPUTE04_SSH_KEY),
@@ -124,10 +125,10 @@ done'''
         "-o", "ConnectTimeout=5",
         "-o", "ConnectionAttempts=1",
         f"{COMPUTE04_SSH_USER}@{NODES['compute-04']['ip']}",
-        "bash", "-lc", remote,
+        "bash", "-s",
     ]
     try:
-        proc = subprocess.run(cmd, text=True, capture_output=True, timeout=12, check=False)
+        proc = subprocess.run(cmd, input=remote, text=True, capture_output=True, timeout=12, check=False)
     except Exception as exc:
         return {"available": False, "error": type(exc).__name__}
     if proc.returncode != 0:
