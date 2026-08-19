@@ -1,0 +1,138 @@
+---
+- name: Rebuild and restart private ReviewMuse V2 from local source
+  hosts: compute-03
+  gather_facts: false
+  vars:
+    root: /srv/reviewmuse
+    app_root: /srv/reviewmuse/app/v2
+    image: localhost/reviewmuse-v2:0.5.0
+  tasks:
+    - name: Verify private V2 source
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test -f "{{ app_root }}/Dockerfile"
+        test -f "{{ app_root }}/requirements.txt"
+        test -f "{{ app_root }}/app/main.py"
+        test -f "{{ app_root }}/app/templates/landing.html"
+        PYTHONPYCACHEPREFIX=/tmp/reviewmuse-pyc python3 -m py_compile "{{ app_root }}/app/main.py"
+        echo SOURCE=ok
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Build ReviewMuse V2 image from local private source
+      ansible.builtin.shell: |
+        set -euo pipefail
+        podman build --pull=missing -t "{{ image }}" "{{ app_root }}"
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Write hardened V2 lifecycle wrapper
+      ansible.builtin.copy:
+        dest: /srv/reviewmuse/scripts/v2-service.sh
+        mode: '0750'
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          export PATH=/usr/local/bin:/usr/bin:/bin
+          name=reviewmuse-v2
+          image=localhost/reviewmuse-v2:0.5.0
+          case "${1:-}" in
+            start)
+              podman rm -f "$name" >/dev/null 2>&1 || true
+              exec podman run --name "$name" \
+                --network reviewmuse \
+                --env-file /srv/reviewmuse/secrets/database-url.env \
+                --env-file /srv/reviewmuse/secrets/app-runtime.env \
+                --read-only \
+                --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+                --security-opt=no-new-privileges \
+                --cap-drop=all \
+                -v /srv/reviewmuse/data/uploads:/data/uploads:Z \
+                -p 127.0.0.1:8795:8795 \
+                "$image" \
+                uvicorn app.main:app --host 0.0.0.0 --port 8795
+              ;;
+            stop)
+              podman stop -t 20 "$name" >/dev/null 2>&1 || true
+              podman rm -f "$name" >/dev/null 2>&1 || true
+              ;;
+            *) echo "usage: $0 start|stop" >&2; exit 2 ;;
+          esac
+
+    - name: Refresh V2 user service definition
+      ansible.builtin.copy:
+        dest: /home/p2ops/.config/systemd/user/reviewmuse-v2.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=ReviewMuse V2 private PostgreSQL application
+          Wants=network-online.target reviewmuse-postgres.service
+          After=network-online.target reviewmuse-postgres.service
+
+          [Service]
+          Type=simple
+          ExecStart=/srv/reviewmuse/scripts/v2-service.sh start
+          ExecStop=/srv/reviewmuse/scripts/v2-service.sh stop
+          Restart=on-failure
+          RestartSec=5
+          TimeoutStopSec=45
+
+          [Install]
+          WantedBy=default.target
+
+    - name: Restart V2 private application
+      ansible.builtin.shell: |
+        set -euo pipefail
+        uid="$(id -u)"
+        export XDG_RUNTIME_DIR="/run/user/${uid}"
+        export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+        systemctl --user daemon-reload
+        systemctl --user enable reviewmuse-v2.service >/dev/null
+        systemctl --user restart reviewmuse-v2.service
+        for i in $(seq 1 60); do
+          if curl -fsS --max-time 3 http://127.0.0.1:8795/health >/tmp/reviewmuse-v2-health.$$ 2>/dev/null; then
+            break
+          fi
+          sleep 2
+        done
+        test -s /tmp/reviewmuse-v2-health.$$
+        grep -q '"version":"0.5.0"' /tmp/reviewmuse-v2-health.$$
+        printf 'HEALTH='; cat /tmp/reviewmuse-v2-health.$$; echo
+        rm -f /tmp/reviewmuse-v2-health.$$
+        echo "SERVICE_ACTIVE=$(systemctl --user is-active reviewmuse-v2.service)"
+        echo "SERVICE_ENABLED=$(systemctl --user is-enabled reviewmuse-v2.service)"
+      args:
+        executable: /bin/bash
+      register: started
+      changed_when: true
+
+    - name: Verify website routes and private bind
+      ansible.builtin.shell: |
+        set -euo pipefail
+        curl -fsS http://127.0.0.1:8795/ | grep -q 'Help customers say what they'
+        curl -fsS http://127.0.0.1:8795/principles | grep -q 'Help people express the truth more clearly'
+        curl -fsS http://127.0.0.1:8795/privacy | grep -q 'Collect what the product needs'
+        curl -fsS http://127.0.0.1:8795/terms | grep -q 'Use ReviewMuse to help real customers'
+        curl -fsS http://127.0.0.1:8795/robots.txt | grep -q 'Sitemap: https://getreviewmuse.com/sitemap.xml'
+        curl -fsS http://127.0.0.1:8795/sitemap.xml | grep -q '<loc>https://getreviewmuse.com/</loc>'
+        bind="$(ss -lnt | awk '$4 ~ /127\.0\.0\.1:8795$/ {print $4; exit}')"
+        test "$bind" = '127.0.0.1:8795'
+        if ss -lnt | awk '{print $4}' | grep -Eq '(^|:)0\.0\.0\.0:8795$|\[::\]:8795$|192\.168\.0\.158:8795$'; then
+          echo PUBLIC_BIND=failed
+          exit 1
+        fi
+        echo WEBSITE=ok
+        echo BIND="$bind"
+        echo PUBLIC_BIND=none
+      args:
+        executable: /bin/bash
+      register: website
+      changed_when: false
+
+    - name: Show refresh summary
+      ansible.builtin.debug:
+        msg:
+          - "{{ started.stdout_lines }}"
+          - "{{ website.stdout_lines }}"
