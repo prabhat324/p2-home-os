@@ -1,0 +1,83 @@
+---
+- name: Verify compute-03 readiness for ReviewMuse production
+  hosts: compute-03
+  gather_facts: false
+  tasks:
+    - name: Collect ReviewMuse production readiness
+      ansible.builtin.shell: |
+        set -euo pipefail
+        echo "HOST=$(hostname -s)"
+        echo "USER=$(id -un) UID=$(id -u) GID=$(id -g)"
+        echo "=== REVIEWMUSE ROOT ==="
+        if [[ -d /srv/reviewmuse ]]; then
+          stat -c 'PATH=%n OWNER=%U GROUP=%G MODE=%a' /srv/reviewmuse
+          if test -w /srv/reviewmuse; then echo 'REVIEWMUSE_WRITABLE=yes'; else echo 'REVIEWMUSE_WRITABLE=no'; fi
+          probe="/srv/reviewmuse/.p2ops-write-test.$$"
+          if (umask 077; : > "$probe"); then
+            rm -f "$probe"
+            echo 'REVIEWMUSE_WRITE_TEST=ok'
+          else
+            echo 'REVIEWMUSE_WRITE_TEST=failed'
+          fi
+        else
+          echo 'REVIEWMUSE_ROOT=missing'
+        fi
+        df -h /srv | sed -n '1,2p'
+        echo "=== ROOTLESS CONTAINER TOOLING ==="
+        command -v podman || true
+        podman --version 2>/dev/null || true
+        command -v podman-compose || true
+        podman-compose --version 2>/dev/null || true
+        command -v newuidmap || true
+        command -v newgidmap || true
+        echo "SUBUID=$(grep -E '^'"$(id -un)"':' /etc/subuid 2>/dev/null || true)"
+        echo "SUBGID=$(grep -E '^'"$(id -un)"':' /etc/subgid 2>/dev/null || true)"
+        echo "LINGER=$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || echo unknown)"
+        if podman info --format json >/tmp/reviewmuse-podman-info.$$ 2>/dev/null; then
+          python3 - /tmp/reviewmuse-podman-info.$$ <<'PY'
+        import json, sys
+        d=json.load(open(sys.argv[1]))
+        host=d.get('host',{})
+        store=d.get('store',{})
+        print('PODMAN_ROOTLESS=' + str(host.get('security',{}).get('rootless','unknown')).lower())
+        print('PODMAN_GRAPH_ROOT=' + str(store.get('graphRoot','unknown')))
+        print('PODMAN_RUN_ROOT=' + str(store.get('runRoot','unknown')))
+        PY
+          rm -f /tmp/reviewmuse-podman-info.$$
+        else
+          rm -f /tmp/reviewmuse-podman-info.$$ || true
+          echo 'PODMAN_INFO=failed'
+        fi
+        echo "PODMAN_PS_BEGIN"
+        podman ps --format '{{ "{{.Names}}" }}|{{ "{{.Status}}" }}|{{ "{{.Image}}" }}' 2>&1 || true
+        echo "PODMAN_PS_END"
+        echo "=== USER SYSTEMD ==="
+        uid="$(id -u)"
+        export XDG_RUNTIME_DIR="/run/user/${uid}"
+        export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+        systemctl --user is-system-running 2>&1 || true
+        systemctl --user list-unit-files --no-pager 2>/dev/null | grep -Ei 'reviewmuse|podman' || true
+        echo "=== OLLAMA ==="
+        echo "OLLAMA_ACTIVE=$(systemctl is-active ollama.service 2>/dev/null || true)"
+        if curl -fsS --max-time 5 http://192.168.0.158:11434/api/tags >/tmp/reviewmuse-ollama-tags.$$ 2>/dev/null; then
+          python3 - /tmp/reviewmuse-ollama-tags.$$ <<'PY'
+        import json,sys
+        d=json.load(open(sys.argv[1]))
+        print('OLLAMA_REACHABLE=yes')
+        print('OLLAMA_MODELS=' + ','.join(x.get('name','') for x in d.get('models',[])))
+        PY
+          rm -f /tmp/reviewmuse-ollama-tags.$$
+        else
+          rm -f /tmp/reviewmuse-ollama-tags.$$ || true
+          echo 'OLLAMA_REACHABLE=no'
+        fi
+        echo "=== GPU ==="
+        nvidia-smi --query-gpu=name,memory.total,memory.used,utilization.gpu,temperature.gpu --format=csv,noheader 2>/dev/null | sed 's/^/GPU=/' || true
+      args:
+        executable: /bin/bash
+      register: readiness
+      changed_when: false
+
+    - name: Print ReviewMuse readiness
+      ansible.builtin.debug:
+        msg: "{{ readiness.stdout_lines }}"
