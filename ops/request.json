@@ -1,5 +1,5 @@
 {
-  "request_id": "reviewmuse-migration-verify-20260819-0056",
-  "operation": "reviewmuse-migration-verify",
+  "request_id": "reviewmuse-v1-private-canary-20260819-0057",
+  "operation": "reviewmuse-v1-deploy",
   "target": "compute-03"
 }
