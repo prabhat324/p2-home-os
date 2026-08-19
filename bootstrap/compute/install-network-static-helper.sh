@@ -3,8 +3,8 @@ set -euo pipefail
 
 HOST="$(hostname -s)"
 case "$HOST" in
-  compute-02|compute-03) ;;
-  *) echo "This installer is restricted to compute-02/compute-03; current host: $HOST" >&2; exit 2 ;;
+  compute-02|compute-03|compute-04) ;;
+  *) echo "This installer is restricted to compute-02/compute-03/compute-04; current host: $HOST" >&2; exit 2 ;;
 esac
 
 if [[ ${EUID} -eq 0 ]]; then
