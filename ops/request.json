@@ -1,5 +1,5 @@
 {
-  "request_id": "compute03-rootless-readiness-audit-20260819-0048",
-  "operation": "osho-cancel-audit",
-  "target": "osho_nodes"
+  "request_id": "reviewmuse-readiness-20260819-0052",
+  "operation": "reviewmuse-readiness",
+  "target": "compute-03"
 }
