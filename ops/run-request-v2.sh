@@ -39,6 +39,10 @@ case "${operation}" in
     [[ "${target}" == "compute-03" ]] || { echo "reviewmuse-migration-verify is restricted to compute-03" >&2; exit 2; }
     playbook="playbooks/reviewmuse-migration-verify.yml"
     ;;
+  reviewmuse-v1-deploy)
+    [[ "${target}" == "compute-03" ]] || { echo "reviewmuse-v1-deploy is restricted to compute-03" >&2; exit 2; }
+    playbook="playbooks/reviewmuse-v1-deploy.yml"
+    ;;
   *)
     exec bash "${ROOT_DIR}/ops/run-request.sh" "${REQUEST_FILE}"
     ;;
