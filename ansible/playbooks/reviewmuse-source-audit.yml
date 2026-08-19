@@ -1,0 +1,89 @@
+---
+- name: Audit existing ReviewMuse V1 source on compute-04
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Collect ReviewMuse source and runtime inventory
+      ansible.builtin.shell: |
+        set -euo pipefail
+        root=/srv/compose/reviewmuse
+        echo "HOST=$(hostname -s)"
+        echo "USER=$(id -un) UID=$(id -u) GID=$(id -g)"
+        echo "=== SOURCE ROOT ==="
+        if [[ ! -d "$root" ]]; then
+          echo "SOURCE_ROOT=missing"
+          exit 0
+        fi
+        stat -c 'PATH=%n OWNER=%U GROUP=%G MODE=%a' "$root"
+        du -sh "$root" 2>/dev/null | sed 's/^/SOURCE_SIZE=/' || true
+        echo "UNREADABLE_FILES=$(find "$root" -type f ! -readable 2>/dev/null | wc -l)"
+        echo "SOURCE_FILES_BEGIN"
+        find "$root" -maxdepth 2 -type f -printf '%P|%s bytes\n' 2>/dev/null \
+          | grep -Ev '(^|/)(\.env|.*secret.*|.*token.*|.*credential.*)$' \
+          | sort | head -n 200 || true
+        echo "SOURCE_FILES_END"
+        echo "=== COMPOSE ==="
+        for f in compose.yml compose.yaml docker-compose.yml docker-compose.yaml; do
+          if [[ -f "$root/$f" ]]; then
+            echo "COMPOSE_FILE=$f"
+          fi
+        done
+        if [[ -f "$root/Dockerfile" ]]; then echo 'DOCKERFILE=yes'; else echo 'DOCKERFILE=no'; fi
+        echo "=== RUNTIME ==="
+        echo "PORT_8794=$(ss -lnt 2>/dev/null | awk '$4 ~ /:8794$/ {print $4; exit}')"
+        if curl -fsS --max-time 5 http://127.0.0.1:8794/health >/tmp/reviewmuse-health.$$ 2>/dev/null; then
+          printf 'HEALTH='
+          tr '\n' ' ' </tmp/reviewmuse-health.$$ | head -c 500
+          echo
+          rm -f /tmp/reviewmuse-health.$$
+        else
+          rm -f /tmp/reviewmuse-health.$$ || true
+          echo 'HEALTH=unreachable'
+        fi
+        if command -v docker >/dev/null 2>&1; then
+          echo "DOCKER_VERSION=$(docker --version 2>/dev/null || true)"
+          if docker ps >/dev/null 2>&1; then
+            echo 'DOCKER_ACCESS=yes'
+            docker ps --format '{{ "{{.Names}}" }}|{{ "{{.Status}}" }}|{{ "{{.Image}}" }}' | grep -Ei 'reviewmuse|ollama' || true
+          else
+            echo 'DOCKER_ACCESS=no'
+          fi
+        else
+          echo 'DOCKER=missing'
+        fi
+        echo "=== SQLITE ==="
+        db="$root/data/reviewmuse.db"
+        if [[ -f "$db" && -r "$db" ]]; then
+          stat -c 'SQLITE_PATH=%n SIZE=%s OWNER=%U GROUP=%G MODE=%a' "$db"
+          python3 - "$db" <<'PY'
+        import sqlite3, sys
+        p=sys.argv[1]
+        try:
+            con=sqlite3.connect(f'file:{p}?mode=ro', uri=True, timeout=5)
+            qc=con.execute('pragma quick_check').fetchone()[0]
+            tables=[r[0] for r in con.execute("select name from sqlite_master where type='table' order by name")]
+            print('SQLITE_QUICK_CHECK='+str(qc))
+            print('SQLITE_TABLES='+','.join(tables))
+            con.close()
+        except Exception as e:
+            print('SQLITE_AUDIT_ERROR='+type(e).__name__)
+        PY
+        else
+          echo 'SQLITE=missing-or-unreadable'
+        fi
+        echo "=== UPLOADS ==="
+        uploads="$root/data/uploads"
+        if [[ -d "$uploads" ]]; then
+          echo "UPLOAD_FILES=$(find "$uploads" -type f 2>/dev/null | wc -l)"
+          du -sh "$uploads" 2>/dev/null | sed 's/^/UPLOAD_SIZE=/' || true
+        else
+          echo 'UPLOADS=missing'
+        fi
+      args:
+        executable: /bin/bash
+      register: source_audit
+      changed_when: false
+
+    - name: Print ReviewMuse source audit
+      ansible.builtin.debug:
+        msg: "{{ source_audit.stdout_lines }}"
