@@ -15,6 +15,19 @@
           | grep -Ei 'power key|poweroff|power-off|shutdown|shutting down|suspend|sleep|hibernate|lid|battery|critical|thermal|overheat|watchdog|acpi|systemd-shutdown|reboot' \
           | tail -160 || true
         echo
+        echo '=== SHUTDOWN TRIGGER WINDOW 07:06:30-07:07:10 ==='
+        journalctl -b -1 --since '2026-08-19 07:06:30' --until '2026-08-19 07:07:10' --no-pager -o short-precise 2>/dev/null || true
+        echo
+        echo '=== PRIVILEGED POWER COMMANDS ==='
+        journalctl -b -1 --no-pager 2>/dev/null \
+          | grep -Ei 'sudo.*COMMAND=.*(poweroff|shutdown|reboot|halt|systemctl.*(poweroff|reboot|halt))|pkexec.*(poweroff|shutdown|reboot)|systemd-logind.*(power|lid)' \
+          | tail -80 || true
+        echo
+        echo '=== UPOWER / BATTERY EVENTS ==='
+        journalctl -b -1 --no-pager 2>/dev/null \
+          | grep -Ei 'upower|battery.*(low|critical|empty|discharg|charg)|AC.*(online|offline|plug|unplug)|on battery|line power' \
+          | tail -120 || true
+        echo
         echo '=== PREVIOUS BOOT END ==='
         journalctl -b -1 --no-pager -n 120 2>/dev/null || true
         echo
