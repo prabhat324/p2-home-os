@@ -1,5 +1,5 @@
 {
-  "request_id": "compute04-sleep-alert-core-status-20260819-0748",
-  "operation": "status",
-  "target": "core-01"
+  "request_id": "compute04-sleep-ping-20260819-0750",
+  "operation": "ping",
+  "target": "compute-04"
 }
