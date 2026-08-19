@@ -1,0 +1,276 @@
+---
+- name: Harden ReviewMuse production foundation on compute-03
+  hosts: compute-03
+  gather_facts: false
+  tasks:
+    - name: Verify current ReviewMuse foundation
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          test -d /srv/reviewmuse
+          test -s /srv/reviewmuse/secrets/postgres.env
+          podman ps --filter name=reviewmuse-postgres --format '{{ "{{.Names}}" }}' | grep -qx reviewmuse-postgres
+          podman exec reviewmuse-postgres sh -lc 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null
+          echo FOUNDATION=ok
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Tighten private directory permissions
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          chmod 0700 /srv/reviewmuse/secrets
+          find /srv/reviewmuse/secrets -type f -exec chmod 0600 {} +
+          chmod 0750 /srv/reviewmuse/data /srv/reviewmuse/backups /srv/reviewmuse/logs /srv/reviewmuse/scripts /srv/reviewmuse/config
+          echo PERMISSIONS=hardened
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Generate restricted application DB credentials locally
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          envfile=/srv/reviewmuse/secrets/app-db.env
+          if [[ -s "$envfile" ]]; then
+            chmod 0600 "$envfile"
+            echo APP_DB_ENV=preserved
+            exit 0
+          fi
+          umask 077
+          password="$(python3 - <<'PY'
+          import secrets
+          print(secrets.token_hex(32))
+          PY
+          )"
+          cat > "$envfile" <<EOF
+          REVIEWMUSE_DB_HOST=reviewmuse-postgres
+          REVIEWMUSE_DB_PORT=5432
+          REVIEWMUSE_DB_NAME=reviewmuse
+          REVIEWMUSE_DB_USER=reviewmuse_app
+          REVIEWMUSE_DB_PASSWORD=${password}
+          EOF
+          chmod 0600 "$envfile"
+          echo APP_DB_ENV=created
+        executable: /bin/bash
+      register: app_db_env
+      changed_when: "'created' in app_db_env.stdout"
+      no_log: true
+
+    - name: Create restricted PostgreSQL application role
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          set -a
+          . /srv/reviewmuse/secrets/postgres.env
+          . /srv/reviewmuse/secrets/app-db.env
+          set +a
+          sql="DO \\$\\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='reviewmuse_app') THEN CREATE ROLE reviewmuse_app LOGIN PASSWORD '${REVIEWMUSE_DB_PASSWORD}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT; ELSE ALTER ROLE reviewmuse_app LOGIN PASSWORD '${REVIEWMUSE_DB_PASSWORD}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT; END IF; END \\$\\$;"
+          podman exec -e PGPASSWORD="$POSTGRES_PASSWORD" reviewmuse-postgres psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$sql" >/dev/null
+          podman exec -e PGPASSWORD="$POSTGRES_PASSWORD" reviewmuse-postgres psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "REVOKE ALL ON DATABASE reviewmuse FROM PUBLIC; GRANT CONNECT ON DATABASE reviewmuse TO reviewmuse_app; REVOKE CREATE ON SCHEMA public FROM PUBLIC; GRANT USAGE ON SCHEMA public TO reviewmuse_app; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO reviewmuse_app; GRANT USAGE,SELECT,UPDATE ON ALL SEQUENCES IN SCHEMA public TO reviewmuse_app;" >/dev/null
+          podman exec -e PGPASSWORD="$POSTGRES_PASSWORD" reviewmuse-postgres psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "ALTER DEFAULT PRIVILEGES FOR ROLE reviewmuse IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO reviewmuse_app; ALTER DEFAULT PRIVILEGES FOR ROLE reviewmuse IN SCHEMA public GRANT USAGE,SELECT,UPDATE ON SEQUENCES TO reviewmuse_app;" >/dev/null
+          echo APP_DB_ROLE=ready
+        executable: /bin/bash
+      register: db_role
+      changed_when: true
+      no_log: true
+
+    - name: Generate application runtime secrets locally
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          envfile=/srv/reviewmuse/secrets/app-runtime.env
+          if [[ -s "$envfile" ]]; then
+            chmod 0600 "$envfile"
+            echo APP_RUNTIME_ENV=preserved
+            exit 0
+          fi
+          umask 077
+          session="$(python3 - <<'PY'
+          import secrets
+          print(secrets.token_hex(64))
+          PY
+          )"
+          csrf="$(python3 - <<'PY'
+          import secrets
+          print(secrets.token_hex(48))
+          PY
+          )"
+          pepper="$(python3 - <<'PY'
+          import secrets
+          print(secrets.token_hex(48))
+          PY
+          )"
+          cat > "$envfile" <<EOF
+          REVIEWMUSE_SESSION_SECRET=${session}
+          REVIEWMUSE_CSRF_SECRET=${csrf}
+          REVIEWMUSE_PASSWORD_PEPPER=${pepper}
+          REVIEWMUSE_COOKIE_SECURE=true
+          REVIEWMUSE_COOKIE_SAMESITE=lax
+          REVIEWMUSE_MODEL=qwen3:4b-instruct
+          REVIEWMUSE_OLLAMA_URL=http://192.168.0.158:11434
+          REVIEWMUSE_PUBLIC_ORIGIN=https://getreviewmuse.com
+          EOF
+          chmod 0600 "$envfile"
+          echo APP_RUNTIME_ENV=created
+        executable: /bin/bash
+      register: runtime_env
+      changed_when: "'created' in runtime_env.stdout"
+      no_log: true
+
+    - name: Build local DATABASE_URL environment
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          set -a
+          . /srv/reviewmuse/secrets/app-db.env
+          set +a
+          python3 - <<'PY'
+          import os
+          from urllib.parse import quote
+          p='/srv/reviewmuse/secrets/database-url.env'
+          pw=quote(os.environ['REVIEWMUSE_DB_PASSWORD'], safe='')
+          url=f"postgresql://{os.environ['REVIEWMUSE_DB_USER']}:{pw}@{os.environ['REVIEWMUSE_DB_HOST']}:{os.environ['REVIEWMUSE_DB_PORT']}/{os.environ['REVIEWMUSE_DB_NAME']}"
+          with open(p,'w',encoding='utf-8') as f: f.write('DATABASE_URL='+url+'\n')
+          os.chmod(p,0o600)
+          PY
+          echo DATABASE_URL_ENV=ready
+        executable: /bin/bash
+      changed_when: true
+      no_log: true
+
+    - name: Create and verify immediate PostgreSQL backup
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          out="$(/srv/reviewmuse/scripts/backup-postgres.sh)"
+          test -s "$out"
+          db=reviewmuse_restore_check
+          podman exec reviewmuse-postgres sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" dropdb -U "$POSTGRES_USER" --if-exists reviewmuse_restore_check' >/dev/null
+          podman exec reviewmuse-postgres sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" createdb -U "$POSTGRES_USER" reviewmuse_restore_check' >/dev/null
+          cat "$out" | podman exec -i reviewmuse-postgres sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" pg_restore -U "$POSTGRES_USER" -d reviewmuse_restore_check'
+          podman exec reviewmuse-postgres sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d reviewmuse_restore_check -Atqc "select 1"' | grep -qx 1
+          podman exec reviewmuse-postgres sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" dropdb -U "$POSTGRES_USER" reviewmuse_restore_check' >/dev/null
+          echo "BACKUP_FILE=$(basename "$out")"
+          echo "BACKUP_BYTES=$(stat -c %s "$out")"
+          echo POSTGRES_RESTORE_TEST=ok
+        executable: /bin/bash
+      register: pg_backup
+      changed_when: true
+
+    - name: Create and verify immediate legacy SQLite backup
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          if [[ ! -x /srv/reviewmuse/scripts/backup-legacy-sqlite.sh ]]; then
+            echo LEGACY_SQLITE_BACKUP=not-applicable
+            exit 0
+          fi
+          out="$(/srv/reviewmuse/scripts/backup-legacy-sqlite.sh)"
+          test -s "$out"
+          python3 - "$out" <<'PY'
+          import sqlite3,sys
+          con=sqlite3.connect(f'file:{sys.argv[1]}?mode=ro', uri=True)
+          qc=con.execute('pragma quick_check').fetchone()[0]
+          print('LEGACY_SQLITE_QUICK_CHECK='+str(qc))
+          if qc!='ok': raise SystemExit(1)
+          con.close()
+          PY
+          echo "LEGACY_SQLITE_BACKUP=$(basename "$out")"
+        executable: /bin/bash
+      register: sqlite_backup
+      changed_when: true
+
+    - name: Install local ReviewMuse health check
+      ansible.builtin.copy:
+        dest: /srv/reviewmuse/scripts/healthcheck.sh
+        mode: '0750'
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          fail=0
+          printf 'ts=%s ' "$(date -Is)"
+          if podman exec reviewmuse-postgres sh -lc 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null 2>&1; then printf 'postgres=ok '; else printf 'postgres=fail '; fail=1; fi
+          if curl -fsS --max-time 5 http://192.168.0.158:11434/api/tags >/dev/null 2>&1; then printf 'ollama=ok '; else printf 'ollama=fail '; fail=1; fi
+          if curl -fsS --max-time 5 http://127.0.0.1:8794/health >/dev/null 2>&1; then printf 'v1_canary=ok '; else printf 'v1_canary=fail '; fail=1; fi
+          echo
+          exit "$fail"
+
+    - name: Install weekly restore-check helper
+      ansible.builtin.copy:
+        dest: /srv/reviewmuse/scripts/verify-postgres-backup.sh
+        mode: '0750'
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          latest="$(find /srv/reviewmuse/backups/postgres -type f -name 'reviewmuse-*.dump' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
+          test -s "$latest"
+          podman exec reviewmuse-postgres sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" dropdb -U "$POSTGRES_USER" --if-exists reviewmuse_restore_check' >/dev/null
+          podman exec reviewmuse-postgres sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" createdb -U "$POSTGRES_USER" reviewmuse_restore_check' >/dev/null
+          trap 'podman exec reviewmuse-postgres sh -lc '\''PGPASSWORD="$POSTGRES_PASSWORD" dropdb -U "$POSTGRES_USER" --if-exists reviewmuse_restore_check'\'' >/dev/null 2>&1 || true' EXIT
+          cat "$latest" | podman exec -i reviewmuse-postgres sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" pg_restore -U "$POSTGRES_USER" -d reviewmuse_restore_check'
+          podman exec reviewmuse-postgres sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d reviewmuse_restore_check -Atqc "select 1"' | grep -qx 1
+          echo "$(date -Is) restore_test=ok backup=$(basename "$latest")"
+
+    - name: Configure local monitoring and backup verification schedules
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          current="$(crontab -l 2>/dev/null || true)"
+          filtered="$(printf '%s\n' "$current" | grep -v '/srv/reviewmuse/scripts/healthcheck.sh' | grep -v '/srv/reviewmuse/scripts/verify-postgres-backup.sh' || true)"
+          {
+            printf '%s\n' "$filtered"
+            echo '*/5 * * * * /srv/reviewmuse/scripts/healthcheck.sh >>/srv/reviewmuse/logs/health.log 2>&1'
+            echo '41 4 * * 0 /srv/reviewmuse/scripts/verify-postgres-backup.sh >>/srv/reviewmuse/logs/postgres-restore-test.log 2>&1'
+          } | sed '/^[[:space:]]*$/d' | crontab -
+          echo SCHEDULES=installed
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Create private V2 workspace
+      ansible.builtin.file:
+        path: /srv/reviewmuse/app/v2
+        state: directory
+        mode: '0750'
+
+    - name: Write production state marker
+      ansible.builtin.copy:
+        dest: /srv/reviewmuse/config/production-state.txt
+        mode: '0640'
+        content: |
+          ReviewMuse production migration state
+          Host: compute-03
+          Persistent root: /srv/reviewmuse
+          V1 canary: 127.0.0.1:8794
+          PostgreSQL: 17, rootless Podman, private network only
+          Application DB role: reviewmuse_app, restricted privileges
+          Application source: private/local only; do not store in p2-home-os
+          Public exposure: disabled pending V2 auth and database migration
+          Public origin target: https://getreviewmuse.com
+          Future migration: move /srv/reviewmuse to the ProLiant host
+
+    - name: Verify final hardened foundation
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          /srv/reviewmuse/scripts/healthcheck.sh
+          uid="$(id -u)"
+          export XDG_RUNTIME_DIR="/run/user/${uid}"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+          echo "POSTGRES_SERVICE=$(systemctl --user is-active reviewmuse-postgres.service)"
+          echo "V1_SERVICE=$(systemctl --user is-active reviewmuse-v1.service)"
+          echo "POSTGRES_BACKUPS=$(find /srv/reviewmuse/backups/postgres -type f -name 'reviewmuse-*.dump' | wc -l)"
+          echo "SQLITE_BACKUPS=$(find /srv/reviewmuse/backups/legacy-sqlite -type f -name 'reviewmuse-*.db' 2>/dev/null | wc -l)"
+          echo "SECRETS_MODE=$(stat -c %a /srv/reviewmuse/secrets)"
+          echo "APP_DB_MODE=$(stat -c %a /srv/reviewmuse/secrets/app-db.env)"
+          echo "RUNTIME_MODE=$(stat -c %a /srv/reviewmuse/secrets/app-runtime.env)"
+          echo "V2_WORKSPACE=$(stat -c '%U:%G %a %n' /srv/reviewmuse/app/v2)"
+        executable: /bin/bash
+      register: summary
+      changed_when: false
+
+    - name: Show hardening summary
+      ansible.builtin.debug:
+        msg:
+          - "{{ pg_backup.stdout_lines }}"
+          - "{{ sqlite_backup.stdout_lines }}"
+          - "{{ summary.stdout_lines }}"
