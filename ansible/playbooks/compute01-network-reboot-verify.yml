@@ -1,0 +1,76 @@
+---
+- name: Reboot compute-01 and verify fixed production address
+  hosts: compute-01
+  gather_facts: false
+  vars:
+    desired_ip: 192.168.0.31
+  tasks:
+    - name: Verify scoped network helper before reboot
+      ansible.builtin.command: sudo -n /usr/local/sbin/p2ops-network-static status
+      register: before_status
+      changed_when: false
+
+    - name: Assert compute-01 is on desired address before reboot
+      ansible.builtin.assert:
+        that:
+          - "'CURRENT=192.168.0.31/24' in before_status.stdout"
+          - "'DESIRED=192.168.0.31/24' in before_status.stdout"
+        fail_msg: "compute-01 is not ready for persistence reboot verification"
+
+    - name: Start validated reboot in detached process
+      ansible.builtin.shell: >-
+        nohup sudo -n /usr/local/sbin/p2ops-network-static reboot
+        >/tmp/p2-network-reboot.log 2>&1 </dev/null &
+      changed_when: true
+
+    - name: Wait for SSH to stop
+      ansible.builtin.wait_for:
+        host: "{{ desired_ip }}"
+        port: 22
+        state: stopped
+        delay: 2
+        timeout: 90
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+
+    - name: Wait for SSH to return on fixed address
+      ansible.builtin.wait_for:
+        host: "{{ desired_ip }}"
+        port: 22
+        state: started
+        delay: 5
+        timeout: 240
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+
+    - name: Wait for remote connection after reboot
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: 120
+
+    - name: Verify persistent network state after reboot
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "HOST=$(hostname -s)"
+        ip -4 -o addr show scope global
+        ip -4 route show default
+        sudo -n /usr/local/sbin/p2ops-network-static status
+      args:
+        executable: /bin/bash
+      register: after_status
+      changed_when: false
+
+    - name: Assert address is static after reboot
+      ansible.builtin.assert:
+        that:
+          - "'CURRENT=192.168.0.31/24' in after_status.stdout"
+          - "'DESIRED=192.168.0.31/24' in after_status.stdout"
+          - "'dynamic' not in after_status.stdout"
+          - "'proto dhcp' not in after_status.stdout"
+        fail_msg: "compute-01 returned after reboot but its production address is not proven static"
+
+    - name: Print post-reboot network state
+      ansible.builtin.debug:
+        var: after_status.stdout_lines
