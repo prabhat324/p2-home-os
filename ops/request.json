@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-repair-20260819-0029",
-  "operation": "dashboard-deploy",
-  "target": "compute-02"
+  "request_id": "p2-dashboard-route-20260819-0030",
+  "operation": "p2-dashboard-route",
+  "target": "core-01"
 }
