@@ -1,5 +1,5 @@
 {
-  "request_id": "compute03-osho-pre-repurpose-audit-20260819-0046",
+  "request_id": "compute03-storage-permission-audit-20260819-0047",
   "operation": "osho-cancel-audit",
   "target": "osho_nodes"
 }
