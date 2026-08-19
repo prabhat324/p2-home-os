@@ -13,6 +13,10 @@ case "$HOST" in
     DESIRED_CIDR="192.168.0.158/24"
     CURRENT_HINT="192.168.0.157"
     ;;
+  compute-04)
+    DESIRED_CIDR="192.168.0.177/24"
+    CURRENT_HINT="192.168.0.176"
+    ;;
   *) echo "Unsupported host: $HOST" >&2; exit 2 ;;
 esac
 DESIRED_IP="${DESIRED_CIDR%/*}"
