@@ -1,0 +1,44 @@
+---
+- name: Normalize core-01 operating-system identity
+  hosts: core-01
+  gather_facts: false
+  tasks:
+    - name: Verify scoped core identity helper
+      ansible.builtin.command: sudo -n /usr/local/sbin/p2ops-core-identity status
+      register: identity_before
+      changed_when: false
+
+    - name: Print pre-change core identity
+      ansible.builtin.debug:
+        var: identity_before.stdout_lines
+
+    - name: Apply core-01 identity
+      ansible.builtin.command: sudo -n /usr/local/sbin/p2ops-core-identity apply
+      register: identity_apply
+      changed_when: "'Applied core identity.' in identity_apply.stdout"
+
+    - name: Collect normalized identity
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "HOSTNAME=$(hostname -s)"
+        echo "FQDN=$(hostname -f 2>/dev/null || true)"
+        echo "HOSTNAME_FILE=$(cat /etc/hostname)"
+        echo "HOSTS_127_0_1_1=$(awk '$1==\"127.0.1.1\" {print; exit}' /etc/hosts)"
+        echo "RUNNER=$(systemctl is-active actions.runner.prabhat324-p2-home-os.core-01.service 2>/dev/null || true)"
+      args:
+        executable: /bin/bash
+      register: identity_after
+      changed_when: false
+
+    - name: Assert core-01 identity is normalized
+      ansible.builtin.assert:
+        that:
+          - "'HOSTNAME=core-01' in identity_after.stdout"
+          - "'HOSTNAME_FILE=core-01' in identity_after.stdout"
+          - "'HOSTS_127_0_1_1=127.0.1.1 core-01' in identity_after.stdout"
+          - "'RUNNER=active' in identity_after.stdout"
+        fail_msg: "core-01 identity did not normalize cleanly"
+
+    - name: Print normalized core identity
+      ansible.builtin.debug:
+        var: identity_after.stdout_lines
