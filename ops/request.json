@@ -1,5 +1,5 @@
 {
-  "request_id": "reviewmuse-bootstrap-20260819-0054",
-  "operation": "reviewmuse-bootstrap",
-  "target": "compute-03"
+  "request_id": "reviewmuse-stage-migration-20260819-0055",
+  "operation": "reviewmuse-stage-migration",
+  "target": "all"
 }
