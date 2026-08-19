@@ -1,5 +1,5 @@
 {
-  "request_id": "compute04-power-trigger-detail-20260819-0814",
+  "request_id": "compute04-upower-history-20260819-0816",
   "operation": "compute04-power-event-diagnose",
   "target": "compute-04"
 }
