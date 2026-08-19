@@ -57,7 +57,7 @@ case "${operation}" in
     ;;
   reviewmuse-prod-harden)
     [[ "${target}" == "compute-03" ]] || { echo "reviewmuse-prod-harden is restricted to compute-03" >&2; exit 2; }
-    playbook="playbooks/reviewmuse-prod-harden-repair.yml"
+    playbook="playbooks/reviewmuse-prod-finalize.yml"
     ;;
   reviewmuse-db-role-diagnose)
     [[ "${target}" == "compute-03" ]] || { echo "reviewmuse-db-role-diagnose is restricted to compute-03" >&2; exit 2; }
