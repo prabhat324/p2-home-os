@@ -1,5 +1,5 @@
 {
-  "request_id": "compute03-status-linked-20260819-0044",
-  "operation": "status",
-  "target": "compute-03"
+  "request_id": "compute03-detailed-inventory-20260819-0045",
+  "operation": "home-dashboard-inventory",
+  "target": "all"
 }
