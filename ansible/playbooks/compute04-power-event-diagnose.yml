@@ -1,0 +1,53 @@
+---
+- name: Diagnose previous compute-04 power event
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Collect previous shutdown and current power policy evidence
+      become: true
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '=== BOOTS / SHUTDOWNS ==='
+        last -x 2>/dev/null | head -30 || true
+        echo
+        echo '=== PREVIOUS BOOT POWER EVENTS ==='
+        journalctl -b -1 --no-pager 2>/dev/null \
+          | grep -Ei 'power key|poweroff|power-off|shutdown|shutting down|suspend|sleep|hibernate|lid|battery|critical|thermal|overheat|watchdog|acpi|systemd-shutdown|reboot' \
+          | tail -160 || true
+        echo
+        echo '=== PREVIOUS BOOT END ==='
+        journalctl -b -1 --no-pager -n 120 2>/dev/null || true
+        echo
+        echo '=== CURRENT LOGIND POLICY ==='
+        systemd-analyze cat-config systemd/logind.conf 2>/dev/null \
+          | grep -E '^(HandleLidSwitch|HandleLidSwitchExternalPower|HandleLidSwitchDocked|LidSwitchIgnoreInhibited|IdleAction|IdleActionSec)=' \
+          | tail -20 || true
+        echo
+        echo '=== P2 POLICY FILE ==='
+        cat /etc/systemd/logind.conf.d/20-p2-server.conf 2>/dev/null || echo missing
+        echo
+        echo '=== SLEEP TARGETS ==='
+        for unit in sleep.target suspend.target hibernate.target hybrid-sleep.target; do
+          printf '%s=' "$unit"
+          systemctl is-enabled "$unit" 2>&1 || true
+        done
+        echo
+        echo '=== POWER SUPPLIES ==='
+        for p in /sys/class/power_supply/*; do
+          [ -d "$p" ] || continue
+          echo "[$(basename "$p")]"
+          for f in type online status capacity; do
+            [ -r "$p/$f" ] && echo "$f=$(cat "$p/$f")"
+          done
+        done
+        echo
+        echo '=== CURRENT UPTIME ==='
+        uptime -p
+      args:
+        executable: /bin/bash
+      register: power_diag
+      changed_when: false
+
+    - name: Print power event evidence
+      ansible.builtin.debug:
+        msg: "{{ power_diag.stdout_lines }}"
