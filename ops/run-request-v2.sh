@@ -75,6 +75,10 @@ case "${operation}" in
     [[ "${target}" == "compute-03" ]] || { echo "reviewmuse-v2-schema-grant is restricted to compute-03" >&2; exit 2; }
     playbook="playbooks/reviewmuse-v2-schema-grant.yml"
     ;;
+  reviewmuse-v2-schema-revoke)
+    [[ "${target}" == "compute-03" ]] || { echo "reviewmuse-v2-schema-revoke is restricted to compute-03" >&2; exit 2; }
+    playbook="playbooks/reviewmuse-v2-schema-revoke.yml"
+    ;;
   *)
     exec bash "${ROOT_DIR}/ops/run-request.sh" "${REQUEST_FILE}"
     ;;
