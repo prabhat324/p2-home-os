@@ -83,6 +83,10 @@ case "${operation}" in
     [[ "${target}" == "compute-03" ]] || { echo "reviewmuse-v2-db-hardening is restricted to compute-03" >&2; exit 2; }
     playbook="playbooks/reviewmuse-v2-db-hardening.yml"
     ;;
+  reviewmuse-v2-refresh)
+    [[ "${target}" == "compute-03" ]] || { echo "reviewmuse-v2-refresh is restricted to compute-03" >&2; exit 2; }
+    playbook="playbooks/reviewmuse-v2-refresh.yml"
+    ;;
   *)
     exec bash "${ROOT_DIR}/ops/run-request.sh" "${REQUEST_FILE}"
     ;;
