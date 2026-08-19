@@ -1,5 +1,5 @@
 {
-  "request_id": "compute04-sleep-ping-20260819-0750",
-  "operation": "ping",
-  "target": "compute-04"
+  "request_id": "psquare-node-watchdog-deploy-20260819-0758",
+  "operation": "psquare-node-watchdog-deploy",
+  "target": "core-01"
 }
