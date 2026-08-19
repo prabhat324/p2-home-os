@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Proactive P² Home OS node availability watchdog.
+"""Proactive P² Home OS availability and compute-04 power watchdog.
 
 Runs on core-01 and posts Discord alerts only on confirmed state changes.
 Compute nodes are checked on SSH/22; storage-01 is checked on QTS/8080.
 Three consecutive failures are required before declaring a node offline.
+compute-04 is also queried for external-power and battery state so power loss
+is reported before the machine reaches its graceful low-battery shutdown.
 """
 from __future__ import annotations
 
@@ -13,6 +15,7 @@ import json
 import os
 import pathlib
 import socket
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -24,6 +27,10 @@ STATE_FILE = STATE_DIR / "psquare-node-watchdog.json"
 API = "https://discord.com/api/v10"
 CHECK_INTERVAL_SECONDS = 60
 FAILURE_THRESHOLD = 3
+LOW_BATTERY_PERCENT = 30
+BATTERY_RESET_PERCENT = 35
+COMPUTE04_SSH_USER = "p2ops"
+COMPUTE04_SSH_KEY = HOME / ".ssh" / "id_ed25519_p2homeos"
 
 NODES = {
     "compute-01": {"ip": "192.168.0.31", "port": 22, "role": "primary-compute", "probe": "SSH"},
@@ -64,7 +71,7 @@ def discord_post(token: str, channel_id: str, text: str) -> None:
         headers={
             "Authorization": f"Bot {token}",
             "Content-Type": "application/json",
-            "User-Agent": "pSquare-Home-OS-Node-Watchdog/1.0",
+            "User-Agent": "pSquare-Home-OS-Node-Watchdog/1.1",
         },
     )
     for attempt in range(4):
@@ -97,6 +104,60 @@ def tcp_up(ip: str, port: int) -> bool:
 
 def probe_all() -> dict[str, bool]:
     return {name: tcp_up(str(info["ip"]), int(info["port"])) for name, info in NODES.items()}
+
+
+def probe_compute04_power() -> dict:
+    """Return compute-04 power state; never raises when the host is unavailable."""
+    remote = r'''for p in /sys/class/power_supply/*; do
+  [ -d "$p" ] || continue
+  n="$(basename "$p")"
+  t="$(cat "$p/type" 2>/dev/null || true)"
+  o="$(cat "$p/online" 2>/dev/null || true)"
+  s="$(cat "$p/status" 2>/dev/null || true)"
+  c="$(cat "$p/capacity" 2>/dev/null || true)"
+  printf '%s|%s|%s|%s|%s\n' "$n" "$t" "$o" "$s" "$c"
+done'''
+    cmd = [
+        "ssh",
+        "-i", str(COMPUTE04_SSH_KEY),
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=5",
+        "-o", "ConnectionAttempts=1",
+        f"{COMPUTE04_SSH_USER}@{NODES['compute-04']['ip']}",
+        "bash", "-lc", remote,
+    ]
+    try:
+        proc = subprocess.run(cmd, text=True, capture_output=True, timeout=12, check=False)
+    except Exception as exc:
+        return {"available": False, "error": type(exc).__name__}
+    if proc.returncode != 0:
+        return {"available": False, "error": f"ssh_rc_{proc.returncode}"}
+
+    supplies: list[dict] = []
+    for raw in proc.stdout.splitlines():
+        parts = raw.split("|", 4)
+        if len(parts) != 5:
+            continue
+        name, kind, online, status, capacity = parts
+        supplies.append({
+            "name": name,
+            "type": kind,
+            "online": online == "1",
+            "status": status,
+            "capacity": int(capacity) if capacity.isdigit() else None,
+        })
+
+    battery = next((p for p in supplies if p["type"].lower() == "battery"), None)
+    external = any(
+        p["online"] and p["type"].lower() in {"mains", "usb", "usb_c", "usb-pd", "usb_pd"}
+        for p in supplies
+    )
+    return {
+        "available": True,
+        "external_power": external,
+        "battery_percent": battery.get("capacity") if battery else None,
+        "battery_status": battery.get("status") if battery else "unknown",
+    }
 
 
 def load_state() -> dict:
@@ -133,7 +194,7 @@ def duration_text(start_iso: str | None) -> str:
     return f"about {hours}h {rem}m"
 
 
-def update_state(state: dict, results: dict[str, bool], token: str, channel_id: str) -> None:
+def update_node_state(state: dict, results: dict[str, bool], token: str, channel_id: str) -> None:
     nodes = state.setdefault("nodes", {})
     for name, is_up in results.items():
         info = NODES[name]
@@ -171,8 +232,69 @@ def update_state(state: dict, results: dict[str, bool], token: str, channel_id: 
         elif previous == "offline":
             item["status"] = "offline"
 
-    state["last_check"] = iso_now()
-    save_state(state)
+
+def update_compute04_power_state(state: dict, power: dict, token: str, channel_id: str) -> None:
+    if not power.get("available"):
+        return
+
+    root = state.setdefault("power", {})
+    item = root.setdefault("compute-04", {})
+    external = bool(power.get("external_power"))
+    battery = power.get("battery_percent")
+    battery_status = str(power.get("battery_status") or "unknown")
+    previous_external = item.get("external_power")
+
+    if previous_external is True and not external:
+        item["power_lost_since"] = iso_now()
+        discord_post(
+            token,
+            channel_id,
+            f"⚡ **P² power alert: compute-04 lost external power**\n"
+            f"The node is still online, but it is now running from battery"
+            + (f" at **{battery}%**." if isinstance(battery, int) else ".")
+            + "\nPlease check its AC/USB-C power connection before the battery reaches shutdown level.",
+        )
+    elif previous_external is False and external:
+        lost_since = item.get("power_lost_since")
+        discord_post(
+            token,
+            channel_id,
+            f"🔌 **P² power recovered: compute-04**\n"
+            f"External power is available again"
+            + (f"; battery is **{battery}%** ({battery_status})." if isinstance(battery, int) else ".")
+            + (f"\nPower interruption lasted **{duration_text(lost_since)}**." if lost_since else ""),
+        )
+        item["power_lost_since"] = None
+        item["low_battery_alerted"] = False
+    elif previous_external is None and not external:
+        item["power_lost_since"] = iso_now()
+        discord_post(
+            token,
+            channel_id,
+            f"⚡ **P² power alert: compute-04 has no external power**\n"
+            f"The watchdog started while compute-04 was on battery"
+            + (f" at **{battery}%**." if isinstance(battery, int) else "."),
+        )
+
+    low_risk = isinstance(battery, int) and battery <= LOW_BATTERY_PERCENT and (
+        not external or battery_status.lower() == "discharging"
+    )
+    if low_risk and not bool(item.get("low_battery_alerted")):
+        discord_post(
+            token,
+            channel_id,
+            f"🪫 **P² low-battery warning: compute-04 at {battery}%**\n"
+            f"Battery is {battery_status.lower()} and has reached the **{LOW_BATTERY_PERCENT}% warning threshold**.\n"
+            "The machine will retain its normal graceful low-battery shutdown protection.",
+        )
+        item["low_battery_alerted"] = True
+    elif isinstance(battery, int) and battery >= BATTERY_RESET_PERCENT:
+        item["low_battery_alerted"] = False
+
+    item["external_power"] = external
+    item["battery_percent"] = battery
+    item["battery_status"] = battery_status
+    item["last_power_check"] = iso_now()
 
 
 def main() -> int:
@@ -181,7 +303,10 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.once:
-        print(json.dumps({name: {**NODES[name], "online": up} for name, up in probe_all().items()}, sort_keys=True))
+        print(json.dumps({
+            "nodes": {name: {**NODES[name], "online": up} for name, up in probe_all().items()},
+            "compute04_power": probe_compute04_power(),
+        }, sort_keys=True))
         return 0
 
     cfg = load_config()
@@ -191,7 +316,12 @@ def main() -> int:
 
     while True:
         try:
-            update_state(state, probe_all(), token, channel_id)
+            results = probe_all()
+            update_node_state(state, results, token, channel_id)
+            if results.get("compute-04"):
+                update_compute04_power_state(state, probe_compute04_power(), token, channel_id)
+            state["last_check"] = iso_now()
+            save_state(state)
         except Exception as exc:
             print(f"node-watchdog error: {type(exc).__name__}: {exc}", flush=True)
         time.sleep(CHECK_INTERVAL_SECONDS)
