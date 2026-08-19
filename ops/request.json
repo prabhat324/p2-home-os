@@ -1,5 +1,5 @@
 {
-  "request_id": "reviewmuse-v2-deploy-20260819-0149",
-  "operation": "reviewmuse-v2-deploy",
+  "request_id": "reviewmuse-v2-schema-revoke-20260819-0150",
+  "operation": "reviewmuse-v2-schema-revoke",
   "target": "compute-03"
 }
