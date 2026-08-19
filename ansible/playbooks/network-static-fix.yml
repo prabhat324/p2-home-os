@@ -61,6 +61,8 @@
         delay: 4
         timeout: 90
       delegate_to: localhost
+      vars:
+        ansible_connection: local
 
     - name: Confirm restored production address
       ansible.builtin.debug:
