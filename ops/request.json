@@ -1,5 +1,5 @@
 {
-  "request_id": "psquare-health-20260818-2244",
-  "operation": "ping",
-  "target": "all"
+  "request_id": "network-static-compute02-20260819-0024",
+  "operation": "network-static-fix",
+  "target": "compute-02"
 }
