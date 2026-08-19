@@ -1,0 +1,40 @@
+---
+- name: Temporarily allow ReviewMuse app role to create migration schema objects
+  hosts: compute-03
+  gather_facts: false
+  tasks:
+    - name: Grant schema create to local application role
+      ansible.builtin.shell: |
+        set -euo pipefail
+        source /srv/reviewmuse/secrets/postgres.env
+        source /srv/reviewmuse/secrets/app-db.env
+        case "$REVIEWMUSE_DB_USER" in
+          reviewmuse_app) ;;
+          *) echo 'Unexpected application role' >&2; exit 2 ;;
+        esac
+        podman exec -e PGPASSWORD="$POSTGRES_PASSWORD" reviewmuse-postgres \
+          psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+          -c 'GRANT USAGE, CREATE ON SCHEMA public TO reviewmuse_app;'
+        echo SCHEMA_CREATE_GRANT=ok
+      args:
+        executable: /bin/bash
+      register: grant_result
+      changed_when: true
+      no_log: true
+
+    - name: Confirm grant without exposing credentials
+      ansible.builtin.shell: |
+        set -euo pipefail
+        source /srv/reviewmuse/secrets/postgres.env
+        podman exec -e PGPASSWORD="$POSTGRES_PASSWORD" reviewmuse-postgres \
+          psql -At -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+          -c "SELECT has_schema_privilege('reviewmuse_app','public','CREATE');"
+      args:
+        executable: /bin/bash
+      register: verify
+      changed_when: false
+      no_log: true
+
+    - name: Show safe grant result
+      ansible.builtin.debug:
+        msg: "TEMP_SCHEMA_CREATE={{ 'yes' if verify.stdout == 't' else 'no' }}"
