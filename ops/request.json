@@ -1,5 +1,5 @@
 {
-  "request_id": "storage01-dashboard-deploy-0212",
-  "operation": "dashboard-deploy",
-  "target": "compute-02"
+  "request_id": "reviewmuse-v2-refresh-20260819-0217",
+  "operation": "reviewmuse-v2-refresh",
+  "target": "compute-03"
 }
