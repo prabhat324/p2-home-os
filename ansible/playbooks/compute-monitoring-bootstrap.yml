@@ -1,6 +1,6 @@
 ---
-- name: Install unprivileged Glances monitoring on compute-03
-  hosts: compute-03
+- name: Install unprivileged Glances monitoring on compute-03/04
+  hosts: compute-03:compute-04
   gather_facts: false
   tasks:
     - name: Install and start Glances under p2ops
