@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-deploy-compute04-20260819-0041",
-  "operation": "dashboard-deploy",
-  "target": "compute-02"
+  "request_id": "p2-dashboard-route-compute04-20260819-0042",
+  "operation": "p2-dashboard-route",
+  "target": "core-01"
 }
