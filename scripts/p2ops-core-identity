@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ACTION="${1:-status}"
+DESIRED_HOSTNAME="core-01"
+CURRENT_HOSTNAME="$(hostname -s)"
+
+show_status() {
+  echo "CURRENT_HOSTNAME=$CURRENT_HOSTNAME"
+  echo "DESIRED_HOSTNAME=$DESIRED_HOSTNAME"
+  echo "HOSTNAME_FILE=$(cat /etc/hostname 2>/dev/null || true)"
+  echo "HOSTS_127_0_1_1=$(awk '$1=="127.0.1.1" {print; exit}' /etc/hosts 2>/dev/null || true)"
+}
+
+case "$ACTION" in
+  status)
+    show_status
+    ;;
+  apply)
+    show_status
+    case "$CURRENT_HOSTNAME" in
+      media-server|core-01) ;;
+      *) echo "Refusing unexpected current hostname: $CURRENT_HOSTNAME" >&2; exit 3 ;;
+    esac
+
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    cp -a /etc/hostname "/etc/hostname.p2-backup-$stamp"
+    cp -a /etc/hosts "/etc/hosts.p2-backup-$stamp"
+
+    hostnamectl set-hostname "$DESIRED_HOSTNAME"
+
+    python3 - <<'PY'
+from pathlib import Path
+p = Path('/etc/hosts')
+lines = p.read_text().splitlines()
+out = []
+replaced = False
+for line in lines:
+    parts = line.split()
+    if parts and parts[0] == '127.0.1.1':
+        if not replaced:
+            out.append('127.0.1.1 core-01 media-server')
+            replaced = True
+        continue
+    out.append(line)
+if not replaced:
+    insert_at = 1 if out else 0
+    out.insert(insert_at, '127.0.1.1 core-01 media-server')
+p.write_text('\n'.join(out) + '\n')
+PY
+
+    echo "Applied core identity."
+    echo "CURRENT_HOSTNAME=$(hostname -s)"
+    echo "HOSTNAME_FILE=$(cat /etc/hostname)"
+    echo "HOSTS_127_0_1_1=$(awk '$1=="127.0.1.1" {print; exit}' /etc/hosts)"
+    ;;
+  *)
+    echo "Usage: $0 {status|apply}" >&2
+    exit 2
+    ;;
+esac
