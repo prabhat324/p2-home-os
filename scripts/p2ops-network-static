@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ACTION="${1:-status}"
+HOST="$(hostname -s)"
+
+case "$HOST" in
+  compute-02) DESIRED_CIDR="192.168.0.88/24" ;;
+  compute-03) DESIRED_CIDR="192.168.0.158/24" ;;
+  *) echo "Unsupported host: $HOST" >&2; exit 2 ;;
+esac
+DESIRED_IP="${DESIRED_CIDR%/*}"
+
+IFACE="$(ip -4 route show default | awk 'NR==1 {for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')"
+GATEWAY="$(ip -4 route show default | awk 'NR==1 {for(i=1;i<=NF;i++) if($i=="via") {print $(i+1); exit}}')"
+CURRENT_CIDR="$(ip -4 -o addr show dev "$IFACE" scope global | awk 'NR==1 {print $4}')"
+CURRENT_IP="${CURRENT_CIDR%/*}"
+
+if [[ -z "$IFACE" || -z "$GATEWAY" ]]; then
+  echo "Could not determine active default interface/gateway" >&2
+  exit 3
+fi
+
+runtime_dns=""
+if command -v resolvectl >/dev/null 2>&1; then
+  runtime_dns="$(resolvectl dns "$IFACE" 2>/dev/null | sed -n 's/^Link [^:]*: //p' | head -1 || true)"
+fi
+if [[ -z "$runtime_dns" ]]; then
+  runtime_dns="$GATEWAY 1.1.1.1"
+fi
+DNS_CSV="$(tr ' ' ',' <<<"$runtime_dns")"
+
+show_status() {
+  echo "HOST=$HOST"
+  echo "IFACE=$IFACE"
+  echo "CURRENT=$CURRENT_CIDR"
+  echo "DESIRED=$DESIRED_CIDR"
+  echo "GATEWAY=$GATEWAY"
+  echo "DNS=$runtime_dns"
+  if command -v nmcli >/dev/null 2>&1; then
+    echo "NM_CONNECTION=$(nmcli -g GENERAL.CONNECTION device show "$IFACE" 2>/dev/null || true)"
+  fi
+}
+
+case "$ACTION" in
+  status)
+    show_status
+    exit 0
+    ;;
+  apply)
+    show_status
+    if [[ "$CURRENT_IP" != "$DESIRED_IP" ]] && ping -c 1 -W 1 "$DESIRED_IP" >/dev/null 2>&1; then
+      echo "Refusing: desired IP $DESIRED_IP already responds on LAN" >&2
+      exit 4
+    fi
+
+    if command -v nmcli >/dev/null 2>&1; then
+      CONN="$(nmcli -g GENERAL.CONNECTION device show "$IFACE" 2>/dev/null || true)"
+      if [[ -n "$CONN" && "$CONN" != "--" ]]; then
+        nmcli connection modify "$CONN" \
+          ipv4.method manual \
+          ipv4.addresses "$DESIRED_CIDR" \
+          ipv4.gateway "$GATEWAY" \
+          ipv4.dns "$DNS_CSV" \
+          ipv4.ignore-auto-dns yes
+        echo "Persisted static IPv4 with NetworkManager connection: $CONN"
+        nmcli connection up "$CONN"
+        exit 0
+      fi
+    fi
+
+    command -v netplan >/dev/null 2>&1 || { echo "Neither usable NetworkManager nor netplan found" >&2; exit 5; }
+    SECTION="ethernets"
+    if [[ -d "/sys/class/net/$IFACE/wireless" ]]; then SECTION="wifis"; fi
+    DNS_YAML="$(sed 's/,/, /g' <<<"$DNS_CSV")"
+    cat > /etc/netplan/99-psquare-static.yaml <<EOF
+network:
+  version: 2
+  $SECTION:
+    $IFACE:
+      dhcp4: false
+      addresses:
+        - $DESIRED_CIDR
+      routes:
+        - to: default
+          via: $GATEWAY
+      nameservers:
+        addresses: [$DNS_YAML]
+EOF
+    chmod 0600 /etc/netplan/99-psquare-static.yaml
+    netplan generate
+    echo "Persisted static IPv4 in /etc/netplan/99-psquare-static.yaml"
+    netplan apply
+    ;;
+  *)
+    echo "Usage: $0 {status|apply}" >&2
+    exit 2
+    ;;
+esac
