@@ -49,11 +49,13 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           payload="$(jq -nc \
             --arg state "pending" \
             --arg description "Homelab control request is running" \
             --arg context "p2-home-os/homelab-control" \
-            '{state:$state,description:$description,context:$context}')"
+            --arg target_url "$target_url" \
+            '{state:$state,description:$description,context:$context,target_url:$target_url}')"
           curl -fsS \
             -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
@@ -95,11 +97,13 @@ jobs:
             state=failure
             description="Homelab control request failed"
           fi
+          target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           payload="$(jq -nc \
             --arg state "$state" \
             --arg description "$description" \
             --arg context "p2-home-os/homelab-control" \
-            '{state:$state,description:$description,context:$context}')"
+            --arg target_url "$target_url" \
+            '{state:$state,description:$description,context:$context,target_url:$target_url}')"
           curl -fsS \
             -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
