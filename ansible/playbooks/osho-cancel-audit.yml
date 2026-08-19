@@ -16,6 +16,15 @@
         stat -c 'PATH=%n OWNER=%U GROUP=%G MODE=%a' /srv /srv/compose 2>/dev/null || true
         if [[ -w /srv ]]; then echo 'SRV_WRITABLE=yes'; else echo 'SRV_WRITABLE=no'; fi
         if [[ -w /srv/compose ]]; then echo 'SRV_COMPOSE_WRITABLE=yes'; else echo 'SRV_COMPOSE_WRITABLE=no'; fi
+        echo '=== ROOTLESS RUNTIME READINESS ==='
+        echo "PODMAN=$(command -v podman 2>/dev/null || echo missing)"
+        echo "DOCKER=$(command -v docker 2>/dev/null || echo missing)"
+        echo "NEWUIDMAP=$(command -v newuidmap 2>/dev/null || echo missing)"
+        echo "NEWGIDMAP=$(command -v newgidmap 2>/dev/null || echo missing)"
+        grep '^p2ops:' /etc/subuid 2>/dev/null | sed 's/^/SUBUID=/' || echo 'SUBUID=missing'
+        grep '^p2ops:' /etc/subgid 2>/dev/null | sed 's/^/SUBGID=/' || echo 'SUBGID=missing'
+        systemctl --user is-enabled docker.service 2>/dev/null | sed 's/^/ROOTLESS_DOCKER_ENABLED=/' || true
+        systemctl --user is-active docker.service 2>/dev/null | sed 's/^/ROOTLESS_DOCKER_ACTIVE=/' || true
         echo '=== UNIT FILES ==='
         systemctl list-unit-files --no-pager | grep -Ei 'osho|youtube|publish' || true
         echo '=== ACTIVE UNITS ==='
