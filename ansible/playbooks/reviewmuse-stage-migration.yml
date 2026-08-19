@@ -1,0 +1,135 @@
+---
+- name: Build a consistent local-only ReviewMuse migration bundle on compute-04
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Stage source with a consistent SQLite snapshot
+      ansible.builtin.shell: |
+        set -euo pipefail
+        root=/srv/compose/reviewmuse
+        stage=/tmp/reviewmuse-migration-stage
+        archive=/tmp/reviewmuse-v1-stage.tar.gz
+        test -d "$root"
+        test -r "$root/app/main.py"
+        rm -rf "$stage" "$archive"
+        mkdir -p "$stage/source"
+        cp -a "$root/." "$stage/source/"
+        db="$root/data/reviewmuse.db"
+        snap="$stage/source/data/reviewmuse.db"
+        if [[ -f "$db" ]]; then
+          rm -f "$snap"
+          python3 - "$db" "$snap" <<'PY'
+        import sqlite3, sys
+        src_path, dst_path = sys.argv[1], sys.argv[2]
+        src = sqlite3.connect(f'file:{src_path}?mode=ro', uri=True, timeout=10)
+        dst = sqlite3.connect(dst_path)
+        src.backup(dst)
+        qc = dst.execute('pragma quick_check').fetchone()[0]
+        if qc != 'ok':
+            raise SystemExit('snapshot quick_check failed: ' + str(qc))
+        dst.close(); src.close()
+        PY
+        fi
+        find "$stage/source" -type f ! -readable -print -quit | grep -q . && { echo 'UNREADABLE_FILE_IN_STAGE=yes' >&2; exit 3; } || true
+        tar -C "$stage" -czf "$archive" source
+        chmod 0600 "$archive"
+        echo "ARCHIVE=$archive"
+        echo "ARCHIVE_BYTES=$(stat -c %s "$archive")"
+        echo "ARCHIVE_SHA256=$(sha256sum "$archive" | awk '{print $1}')"
+        if [[ -f "$snap" ]]; then
+          echo "DB_SHA256=$(sha256sum "$snap" | awk '{print $1}')"
+        fi
+      args:
+        executable: /bin/bash
+      register: source_stage
+      changed_when: true
+
+    - name: Show migration bundle metadata
+      ansible.builtin.debug:
+        msg: "{{ source_stage.stdout_lines }}"
+
+    - name: Fetch migration bundle to core-01 runner
+      ansible.builtin.fetch:
+        src: /tmp/reviewmuse-v1-stage.tar.gz
+        dest: /tmp/reviewmuse-v1-stage.tar.gz
+        flat: true
+
+- name: Install staged ReviewMuse source on compute-03 without starting it
+  hosts: compute-03
+  gather_facts: false
+  tasks:
+    - name: Verify ReviewMuse migration destination
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test -d /srv/reviewmuse/migration
+        test -w /srv/reviewmuse/migration
+        echo 'DESTINATION=ready'
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Copy migration bundle from core-01 runner
+      ansible.builtin.copy:
+        src: /tmp/reviewmuse-v1-stage.tar.gz
+        dest: /srv/reviewmuse/migration/reviewmuse-v1-stage.tar.gz
+        mode: '0600'
+
+    - name: Extract staged V1 source
+      ansible.builtin.shell: |
+        set -euo pipefail
+        dest=/srv/reviewmuse/migration/v1-source
+        archive=/srv/reviewmuse/migration/reviewmuse-v1-stage.tar.gz
+        rm -rf "$dest"
+        mkdir -p "$dest"
+        tar -C "$dest" --strip-components=1 -xzf "$archive"
+        test -f "$dest/app/main.py"
+        test -f "$dest/compose.yml"
+        test -f "$dest/Dockerfile"
+        echo "STAGED_SIZE=$(du -sh "$dest" | awk '{print $1}')"
+        echo "ARCHIVE_SHA256=$(sha256sum "$archive" | awk '{print $1}')"
+        db="$dest/data/reviewmuse.db"
+        if [[ -f "$db" ]]; then
+          python3 - "$db" <<'PY'
+        import sqlite3, sys
+        p=sys.argv[1]
+        con=sqlite3.connect(f'file:{p}?mode=ro', uri=True, timeout=5)
+        print('SQLITE_QUICK_CHECK='+str(con.execute('pragma quick_check').fetchone()[0]))
+        print('SQLITE_TABLES='+','.join(r[0] for r in con.execute("select name from sqlite_master where type='table' order by name")))
+        con.close()
+        PY
+          echo "DB_SHA256=$(sha256sum "$db" | awk '{print $1}')"
+        fi
+        uploads="$dest/data/uploads"
+        if [[ -d "$uploads" ]]; then
+          echo "UPLOAD_FILES=$(find "$uploads" -type f | wc -l)"
+        fi
+      args:
+        executable: /bin/bash
+      register: dest_stage
+      changed_when: true
+
+    - name: Show staged migration verification
+      ansible.builtin.debug:
+        msg: "{{ dest_stage.stdout_lines }}"
+
+- name: Remove temporary migration bundle from compute-04
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Remove remote temporary migration files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/reviewmuse-v1-stage.tar.gz
+        - /tmp/reviewmuse-migration-stage
+
+- name: Remove controller temporary migration bundle
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Remove local temporary migration bundle
+      ansible.builtin.file:
+        path: /tmp/reviewmuse-v1-stage.tar.gz
+        state: absent
