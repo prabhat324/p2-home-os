@@ -23,6 +23,14 @@ case "${operation}" in
     [[ "${target}" == "all" ]] || { echo "infrastructure-persistence-audit is restricted to all" >&2; exit 2; }
     playbook="playbooks/infrastructure-persistence-audit.yml"
     ;;
+  core-identity-fix)
+    [[ "${target}" == "core-01" ]] || { echo "core-identity-fix is restricted to core-01" >&2; exit 2; }
+    playbook="playbooks/core-identity-fix.yml"
+    ;;
+  compute01-network-reboot-verify)
+    [[ "${target}" == "compute-01" ]] || { echo "compute01-network-reboot-verify is restricted to compute-01" >&2; exit 2; }
+    playbook="playbooks/compute01-network-reboot-verify.yml"
+    ;;
   reviewmuse-readiness)
     [[ "${target}" == "compute-03" ]] || { echo "reviewmuse-readiness is restricted to compute-03" >&2; exit 2; }
     playbook="playbooks/reviewmuse-readiness.yml"
