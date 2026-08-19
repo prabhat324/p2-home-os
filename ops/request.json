@@ -1,5 +1,5 @@
 {
-  "request_id": "psquare-node-watchdog-deploy-20260819-0800",
-  "operation": "psquare-node-watchdog-deploy",
-  "target": "core-01"
+  "request_id": "compute04-live-ping-20260819-0811",
+  "operation": "ping",
+  "target": "compute-04"
 }
