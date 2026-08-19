@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-compute04-ip-fix-20260819-0111",
-  "operation": "dashboard-deploy",
-  "target": "compute-02"
+  "request_id": "compute04-monitoring-refresh-20260819-0112",
+  "operation": "compute-monitoring-bootstrap",
+  "target": "compute-04"
 }
