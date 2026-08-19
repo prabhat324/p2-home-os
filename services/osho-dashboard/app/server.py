@@ -32,6 +32,7 @@ GLANCES_NODES = {
     "compute-01": "192.168.0.31",
     "compute-02": "192.168.0.88",
     "compute-03": "192.168.0.158",
+    "compute-04": "192.168.0.177",
 }
 GLANCES_PLUGINS = {"cpu", "mem", "fs", "uptime", "sensors"}
 
