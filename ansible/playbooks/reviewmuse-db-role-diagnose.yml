@@ -1,0 +1,42 @@
+---
+- name: Diagnose ReviewMuse restricted DB role setup
+  hosts: compute-03
+  gather_facts: false
+  tasks:
+    - name: Run sanitized DB role diagnostics
+      ansible.builtin.shell:
+        cmd: |
+          set -u
+          set -a
+          . /srv/reviewmuse/secrets/postgres.env
+          . /srv/reviewmuse/secrets/app-db.env
+          set +a
+          run_step() {
+            name="$1"; shift
+            out="/tmp/rm-role-${name}.out"; err="/tmp/rm-role-${name}.err"
+            "$@" >"$out" 2>"$err"
+            rc=$?
+            echo "STEP=${name} RC=${rc}"
+            if [[ $rc -ne 0 ]]; then
+              sed -E 's/[0-9a-fA-F]{32,}/[REDACTED]/g' "$err" | tail -n 20 | sed "s/^/ERR_${name}=/"
+            fi
+            rm -f "$out" "$err"
+          }
+          run_step ping podman exec -e PGPASSWORD="$POSTGRES_PASSWORD" reviewmuse-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc 'select current_user,current_database()'
+          run_step exists podman exec -e PGPASSWORD="$POSTGRES_PASSWORD" reviewmuse-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc "select 1 from pg_roles where rolname='reviewmuse_app'"
+          if podman exec -e PGPASSWORD="$POSTGRES_PASSWORD" reviewmuse-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc "select 1 from pg_roles where rolname='reviewmuse_app'" | grep -qx 1; then
+            run_step alter podman exec -e PGPASSWORD="$POSTGRES_PASSWORD" reviewmuse-postgres psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "ALTER ROLE reviewmuse_app LOGIN PASSWORD '${REVIEWMUSE_DB_PASSWORD}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;"
+          else
+            run_step create podman exec -e PGPASSWORD="$POSTGRES_PASSWORD" reviewmuse-postgres psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE ROLE reviewmuse_app LOGIN PASSWORD '${REVIEWMUSE_DB_PASSWORD}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;"
+          fi
+          run_step grants podman exec -e PGPASSWORD="$POSTGRES_PASSWORD" reviewmuse-postgres psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "REVOKE ALL ON DATABASE reviewmuse FROM PUBLIC; GRANT CONNECT ON DATABASE reviewmuse TO reviewmuse_app; REVOKE CREATE ON SCHEMA public FROM PUBLIC; GRANT USAGE ON SCHEMA public TO reviewmuse_app; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO reviewmuse_app; GRANT USAGE,SELECT,UPDATE ON ALL SEQUENCES IN SCHEMA public TO reviewmuse_app;"
+          run_step defaults podman exec -e PGPASSWORD="$POSTGRES_PASSWORD" reviewmuse-postgres psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "ALTER DEFAULT PRIVILEGES FOR ROLE reviewmuse IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO reviewmuse_app; ALTER DEFAULT PRIVILEGES FOR ROLE reviewmuse IN SCHEMA public GRANT USAGE,SELECT,UPDATE ON SEQUENCES TO reviewmuse_app;"
+          echo "ROLE_STATE=$(podman exec -e PGPASSWORD="$POSTGRES_PASSWORD" reviewmuse-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc \"select rolname||':'||rolsuper||':'||rolcreatedb||':'||rolcreaterole from pg_roles where rolname='reviewmuse_app'\" 2>/dev/null || true)"
+          exit 0
+        executable: /bin/bash
+      register: diag
+      changed_when: false
+
+    - name: Show sanitized DB role diagnostics
+      ansible.builtin.debug:
+        msg: "{{ diag.stdout_lines }}"
