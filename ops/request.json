@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-redeploy-compute04-177-20260819-0132",
-  "operation": "dashboard-deploy",
-  "target": "compute-02"
+  "request_id": "p2-dashboard-verify-compute04-20260819-0133",
+  "operation": "p2-dashboard-diagnose",
+  "target": "core-01"
 }
