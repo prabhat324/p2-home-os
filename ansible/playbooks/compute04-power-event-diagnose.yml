@@ -28,13 +28,21 @@
           | grep -Ei 'upower|battery.*(low|critical|empty|discharg|charg)|AC.*(online|offline|plug|unplug)|on battery|line power' \
           | tail -120 || true
         echo
+        echo '=== UPOWER HISTORY FILES ==='
+        ls -lh /var/lib/upower 2>/dev/null || true
+        for f in /var/lib/upower/history-charge-* /var/lib/upower/history-rate-* /var/lib/upower/history-time-*; do
+          [ -f "$f" ] || continue
+          echo "--- $f ---"
+          tail -80 "$f" 2>/dev/null || true
+        done
+        echo
         echo '=== PREVIOUS BOOT END ==='
         journalctl -b -1 --no-pager -n 120 2>/dev/null || true
         echo
         echo '=== CURRENT LOGIND POLICY ==='
         systemd-analyze cat-config systemd/logind.conf 2>/dev/null \
-          | grep -E '^(HandleLidSwitch|HandleLidSwitchExternalPower|HandleLidSwitchDocked|LidSwitchIgnoreInhibited|IdleAction|IdleActionSec)=' \
-          | tail -20 || true
+          | grep -E '^(HandleLidSwitch|HandleLidSwitchExternalPower|HandleLidSwitchDocked|HandlePowerKey|HandlePowerKeyLongPress|LidSwitchIgnoreInhibited|IdleAction|IdleActionSec)=' \
+          | tail -30 || true
         echo
         echo '=== P2 POLICY FILE ==='
         cat /etc/systemd/logind.conf.d/20-p2-server.conf 2>/dev/null || echo missing
