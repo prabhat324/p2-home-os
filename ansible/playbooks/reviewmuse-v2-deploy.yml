@@ -1,0 +1,167 @@
+---
+- name: Build, migrate, and launch private ReviewMuse V2 canary
+  hosts: compute-03
+  gather_facts: false
+  vars:
+    root: /srv/reviewmuse
+    app_root: /srv/reviewmuse/app/v2
+    image: localhost/reviewmuse-v2:0.4.0
+  tasks:
+    - name: Verify private V2 source exists locally
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test -f "{{ app_root }}/Dockerfile"
+        test -f "{{ app_root }}/requirements.txt"
+        test -f "{{ app_root }}/app/main.py"
+        test -f "{{ app_root }}/app/migrate_legacy.py"
+        python3 -m py_compile "{{ app_root }}/app/main.py" "{{ app_root }}/app/migrate_legacy.py"
+        echo SOURCE=ok
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Build V2 image from local private source
+      ansible.builtin.shell: |
+        set -euo pipefail
+        podman build --pull=missing -t "{{ image }}" "{{ app_root }}"
+      args:
+        executable: /bin/bash
+      register: build
+      changed_when: true
+
+    - name: Preserve any legacy uploaded assets in production upload volume
+      ansible.builtin.shell: |
+        set -euo pipefail
+        mkdir -p "{{ root }}/data/uploads"
+        if [[ -d "{{ root }}/data/legacy-sqlite/uploads" ]]; then
+          cp -an "{{ root }}/data/legacy-sqlite/uploads/." "{{ root }}/data/uploads/" || true
+        fi
+        echo "UPLOAD_FILES=$(find "{{ root }}/data/uploads" -type f | wc -l)"
+      args:
+        executable: /bin/bash
+      register: uploads
+      changed_when: false
+
+    - name: Migrate legacy SQLite business and events into PostgreSQL
+      ansible.builtin.shell: |
+        set -euo pipefail
+        podman run --rm \
+          --network reviewmuse \
+          --env-file "{{ root }}/secrets/database-url.env" \
+          -e REVIEWMUSE_LEGACY_DB=/legacy/reviewmuse.db \
+          -v "{{ root }}/data/legacy-sqlite:/legacy:ro,Z" \
+          "{{ image }}" python -m app.migrate_legacy
+      args:
+        executable: /bin/bash
+      register: migration
+      changed_when: "'STATUS=applied' in migration.stdout"
+
+    - name: Write V2 rootless lifecycle wrapper
+      ansible.builtin.copy:
+        dest: /srv/reviewmuse/scripts/v2-service.sh
+        mode: '0750'
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          export PATH=/usr/local/bin:/usr/bin:/bin
+          name=reviewmuse-v2
+          image=localhost/reviewmuse-v2:0.4.0
+          case "${1:-}" in
+            start)
+              podman rm -f "$name" >/dev/null 2>&1 || true
+              exec podman run --name "$name" \
+                --network reviewmuse \
+                --env-file /srv/reviewmuse/secrets/database-url.env \
+                --env-file /srv/reviewmuse/secrets/app-runtime.env \
+                -v /srv/reviewmuse/data/uploads:/data/uploads:Z \
+                -p 127.0.0.1:8795:8795 \
+                "$image" \
+                uvicorn app.main:app --host 0.0.0.0 --port 8795
+              ;;
+            stop)
+              podman stop -t 20 "$name" >/dev/null 2>&1 || true
+              podman rm -f "$name" >/dev/null 2>&1 || true
+              ;;
+            *) echo "usage: $0 start|stop" >&2; exit 2 ;;
+          esac
+
+    - name: Install V2 user service
+      ansible.builtin.copy:
+        dest: /home/p2ops/.config/systemd/user/reviewmuse-v2.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=ReviewMuse V2 private PostgreSQL canary
+          Wants=network-online.target reviewmuse-postgres.service
+          After=network-online.target reviewmuse-postgres.service
+
+          [Service]
+          Type=simple
+          ExecStart=/srv/reviewmuse/scripts/v2-service.sh start
+          ExecStop=/srv/reviewmuse/scripts/v2-service.sh stop
+          Restart=on-failure
+          RestartSec=5
+          TimeoutStopSec=45
+
+          [Install]
+          WantedBy=default.target
+
+    - name: Start V2 private canary
+      ansible.builtin.shell: |
+        set -euo pipefail
+        uid="$(id -u)"
+        export XDG_RUNTIME_DIR="/run/user/${uid}"
+        export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+        systemctl --user daemon-reload
+        systemctl --user enable reviewmuse-v2.service >/dev/null
+        systemctl --user restart reviewmuse-v2.service
+        for i in $(seq 1 60); do
+          if curl -fsS --max-time 3 http://127.0.0.1:8795/health > /tmp/reviewmuse-v2-health.$$ 2>/dev/null; then
+            break
+          fi
+          sleep 2
+        done
+        test -s /tmp/reviewmuse-v2-health.$$
+        printf 'HEALTH='; cat /tmp/reviewmuse-v2-health.$$; echo
+        rm -f /tmp/reviewmuse-v2-health.$$
+        echo "SERVICE_ACTIVE=$(systemctl --user is-active reviewmuse-v2.service)"
+        echo "SERVICE_ENABLED=$(systemctl --user is-enabled reviewmuse-v2.service)"
+        echo "BIND=$(ss -lnt | awk '$4 ~ /127\.0\.0\.1:8795$/ {print $4; exit}')"
+        if ss -lnt | awk '{print $4}' | grep -Eq '(^|:)0\.0\.0\.0:8795$|\[::\]:8795$|192\.168\.0\.158:8795$'; then
+          echo PUBLIC_BIND=failed
+          exit 1
+        fi
+        echo PUBLIC_BIND=none
+      args:
+        executable: /bin/bash
+      register: started
+      changed_when: true
+
+    - name: Verify PostgreSQL migration counts
+      ansible.builtin.shell: |
+        set -euo pipefail
+        podman run --rm --network reviewmuse \
+          --env-file "{{ root }}/secrets/database-url.env" \
+          "{{ image }}" python - <<'PY'
+        import os, psycopg
+        with psycopg.connect(os.environ['DATABASE_URL']) as c:
+            with c.cursor() as q:
+                q.execute('select count(*) from businesses'); b=q.fetchone()[0]
+                q.execute('select count(*) from events'); e=q.fetchone()[0]
+                q.execute('select count(*) from users'); u=q.fetchone()[0]
+                q.execute('select count(*) from memberships'); m=q.fetchone()[0]
+        print(f'BUSINESSES={b} EVENTS={e} USERS={u} MEMBERSHIPS={m}')
+        assert b >= 1 and e >= 42
+        PY
+      args:
+        executable: /bin/bash
+      register: counts
+      changed_when: false
+
+    - name: Show V2 deployment summary
+      ansible.builtin.debug:
+        msg:
+          - "{{ migration.stdout_lines }}"
+          - "{{ uploads.stdout_lines }}"
+          - "{{ started.stdout_lines }}"
+          - "{{ counts.stdout_lines }}"
