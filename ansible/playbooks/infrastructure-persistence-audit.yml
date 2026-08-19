@@ -1,0 +1,89 @@
+---
+- name: Audit core-01 identity and control-plane privileges
+  hosts: core-01
+  gather_facts: false
+  tasks:
+    - name: Collect core identity state
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "HOSTNAME=$(hostname -s)"
+        echo "FQDN=$(hostname -f 2>/dev/null || true)"
+        echo "USER=$(id -un)"
+        echo "UID=$(id -u)"
+        echo "HOSTNAME_FILE=$(cat /etc/hostname 2>/dev/null || true)"
+        echo '=== HOSTS ==='
+        grep -vE '^[[:space:]]*(#|$)' /etc/hosts 2>/dev/null || true
+        echo '=== ADDRESSES ==='
+        ip -4 -br addr 2>/dev/null || true
+        echo '=== RUNNER ==='
+        systemctl is-active actions.runner.prabhat324-p2-home-os.core-01.service 2>/dev/null || true
+        systemctl is-enabled actions.runner.prabhat324-p2-home-os.core-01.service 2>/dev/null || true
+        echo '=== SUDO ==='
+        sudo -n -l 2>&1 || true
+      args:
+        executable: /bin/bash
+      register: core_audit
+      changed_when: false
+
+    - name: Print core identity state
+      ansible.builtin.debug:
+        var: core_audit.stdout_lines
+
+- name: Audit compute node network persistence
+  hosts: compute-01:compute-02:compute-03
+  gather_facts: false
+  tasks:
+    - name: Collect network persistence evidence
+      ansible.builtin.shell: |
+        set -o pipefail
+        EXPECTED="{{ production_ip }}"
+        IFACE="$(ip -4 -o addr show scope global | awk -v ip="$EXPECTED" '$4 ~ ("^" ip "/") {print $2; exit}')"
+        if [ -z "$IFACE" ]; then
+          IFACE="$(ip -4 route show default | awk 'NR==1 {for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')"
+        fi
+        echo "HOST=$(hostname -s)"
+        echo "EXPECTED=$EXPECTED"
+        echo "IFACE=${IFACE:-unknown}"
+        echo '=== ADDRESSES ==='
+        ip -4 -br addr 2>/dev/null || true
+        echo '=== EXPECTED ADDRESS DETAIL ==='
+        if [ -n "$IFACE" ]; then ip -4 -o addr show dev "$IFACE" 2>/dev/null || true; fi
+        echo '=== DEFAULT ROUTE ==='
+        ip -4 route show default 2>/dev/null || true
+        echo '=== DHCP ROUTES ==='
+        ip -4 route show proto dhcp 2>/dev/null || true
+        echo '=== BACKENDS ==='
+        printf 'NetworkManager='; systemctl is-active NetworkManager 2>/dev/null || true
+        printf 'systemd-networkd='; systemctl is-active systemd-networkd 2>/dev/null || true
+        echo '=== NETWORKCTL ==='
+        if [ -n "$IFACE" ] && command -v networkctl >/dev/null 2>&1; then
+          networkctl status "$IFACE" --no-pager 2>&1 | sed -n '1,100p' || true
+        fi
+        echo '=== NMCLI ==='
+        if [ -n "$IFACE" ] && command -v nmcli >/dev/null 2>&1; then
+          nmcli -f GENERAL.CONNECTION,IP4.ADDRESS,IP4.GATEWAY,IP4.DNS device show "$IFACE" 2>&1 || true
+          CONN="$(nmcli -g GENERAL.CONNECTION device show "$IFACE" 2>/dev/null || true)"
+          if [ -n "$CONN" ] && [ "$CONN" != "--" ]; then
+            nmcli -f connection.id,connection.interface-name,ipv4.method,ipv4.addresses,ipv4.gateway,ipv4.dns connection show "$CONN" 2>&1 || true
+          fi
+        fi
+        echo '=== NETPLAN FILES ==='
+        ls -l /etc/netplan 2>&1 || true
+        echo '=== NETPLAN GET ==='
+        netplan get 2>&1 || true
+        echo '=== STATIC HELPER ==='
+        if [ -x /usr/local/sbin/p2ops-network-static ]; then
+          sudo -n /usr/local/sbin/p2ops-network-static status 2>&1 || true
+        else
+          echo 'STATIC_HELPER=missing'
+        fi
+        echo '=== SUDO ==='
+        sudo -n -l 2>&1 || true
+      args:
+        executable: /bin/bash
+      register: network_audit
+      changed_when: false
+
+    - name: Print network persistence evidence
+      ansible.builtin.debug:
+        var: network_audit.stdout_lines
