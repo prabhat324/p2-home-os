@@ -1,0 +1,18 @@
+---
+- name: Inspect Juniper switch-02
+  hosts: switch-02
+  gather_facts: false
+  connection: ansible.netcommon.netconf
+  tasks:
+    - name: Gather Junos facts
+      junipernetworks.junos.junos_facts:
+        gather_subset:
+          - min
+
+    - name: Show switch summary
+      ansible.builtin.debug:
+        msg:
+          hostname: "{{ ansible_net_hostname | default(inventory_hostname) }}"
+          model: "{{ ansible_net_model | default('unknown') }}"
+          version: "{{ ansible_net_version | default('unknown') }}"
+          serial: "{{ ansible_net_serialnum | default('unknown') }}"
