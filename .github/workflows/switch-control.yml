@@ -1,0 +1,63 @@
+name: Switch Control
+
+on:
+  push:
+    branches:
+      - ops-control
+    paths:
+      - ops/switch-request.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: switch-control
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    if: github.repository == 'prabhat324/p2-home-os'
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - core-01
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout control code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate switch request
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$(jq -er '.target' ops/switch-request.json)"
+          operation="$(jq -er '.operation' ops/switch-request.json)"
+          [[ "$target" == "switch-01" ]] || { echo "Unsupported target: $target"; exit 2; }
+          case "$operation" in
+            status|verify|harden) ;;
+            *) echo "Unsupported operation: $operation"; exit 2 ;;
+          esac
+
+      - name: Ensure Juniper Ansible dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          ansible-galaxy collection install -r ansible/requirements.yml
+          python3 -c 'import ncclient' || python3 -m pip install --user --break-system-packages ncclient
+
+      - name: Execute switch request
+        shell: bash
+        run: |
+          set -euo pipefail
+          operation="$(jq -er '.operation' ops/switch-request.json)"
+          case "$operation" in
+            status) playbook="switch01-status.yml" ;;
+            verify) playbook="switch01-verify.yml" ;;
+            harden) playbook="switch01-harden.yml" ;;
+          esac
+          cd ansible
+          ansible-playbook "playbooks/${playbook}" --limit switch-01
