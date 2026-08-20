@@ -1,25 +1,19 @@
-# switch-01 — Juniper EX2300-C-12P
+# switch-01 — Cisco SG350-10MP
 
 ## Identity
 
-- Hostname: `switch-01`
-- Model: Juniper EX2300-C-12P
-- Management interface: `vme.0` (dedicated MGMT port)
-- Current management IP: `192.168.0.65/24` via DHCP
-- Management MAC: `d0:81:c5:e1:82:5c`
-- Admin account: `psquare`
-- Root SSH: disabled after bootstrap
-- SSH: enabled
-- NETCONF: enabled for Ansible management
-- ZTP `chassis auto-image-upgrade`: disabled
-- Juniper phone-home: disabled
+- Canonical pSquare name: `switch-01`
+- Model: Cisco SG350-10MP
+- Role: existing active wired network switch
+- Vendor: Cisco
+- Status: existing production switch; this identity is reserved for the Cisco device
 
-## Control plane
+## Naming rule
 
-The switch is managed from the `p2-home-os` Ansible control plane on core-01. The self-hosted runner key is `/home/p2runner/.ssh/id_ed25519_p2homeos`; only the public key is installed on the Juniper `psquare` account.
+`switch-01` refers only to the Cisco SG350-10MP. The Juniper EX2300-C-12P is `switch-02` and must not reuse the `switch-01` hostname, inventory name, documentation name, or automation target.
 
-Ansible inventory group: `network_switches`.
+## Management
 
-## Notes
+The Cisco switch predates the Juniper onboarding and remains the existing `switch-01`. Its management address and configuration are intentionally not changed as part of the Juniper naming correction.
 
-Keep the dedicated MGMT port connected to the management LAN. Regular `ge-0/0/x` and `xe-0/1/x` interfaces should be used for switching rather than switch administration. Before disruptive changes, back up the committed configuration through Ansible.
+Before making management-plane or provisioning changes, positively identify the Cisco by model/MAC/serial and back up its current configuration.
