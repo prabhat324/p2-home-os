@@ -24,7 +24,8 @@
 - compute-01: `192.168.0.31`
 - compute-02: `192.168.0.88`
 - compute-03 preferred wired address: `192.168.0.158`
-- Cisco SG350-10MP has been used as the wired switch during the compute/storage build.
+- `switch-01`: Cisco SG350-10MP, existing active wired switch.
+- `switch-02`: Juniper EX2300-C-12P, management IP `192.168.0.65`.
 - Tailscale provides remote access.
 
 ## Smart-home / media clients
