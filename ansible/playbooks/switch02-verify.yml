@@ -9,13 +9,21 @@
         gather_subset:
           - min
 
+    - name: Confirm Junos hostname
+      ansible.builtin.assert:
+        that:
+          - ansible_net_hostname == 'switch-02'
+        fail_msg: "Juniper hostname is {{ ansible_net_hostname | default('unknown') }}, expected switch-02"
+        success_msg: "Juniper hostname is switch-02"
+
     - name: Read committed configuration
       junipernetworks.junos.junos_command:
         commands:
-          - show configuration system services | display set
-          - show configuration system phone-home | display set
-          - show configuration chassis | display set | match auto-image
-          - show interfaces terse | match vme
+          - show configuration system host-name
+          - show configuration system services
+          - show configuration system phone-home
+          - show configuration chassis
+          - show interfaces terse
       register: switch_verify
 
     - name: Display verification
