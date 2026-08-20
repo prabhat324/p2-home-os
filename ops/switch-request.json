@@ -1,0 +1,5 @@
+{
+  "request_id": "switch01-status-20260819-2214",
+  "operation": "status",
+  "target": "switch-01"
+}
