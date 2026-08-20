@@ -3,7 +3,7 @@
 ```text
                          Home LAN 192.168.0.0/24
                                   |
-                         Cisco SG350-10MP
+                    switch-01 — Cisco SG350-10MP
                                   |
           +-----------------------+-----------------------+
           |                       |                       |
@@ -20,6 +20,13 @@
                                                    Osho :8800
 ```
 
+## Switch identities
+
+- `switch-01` — Cisco SG350-10MP, existing active wired switch.
+- `switch-02` — Juniper EX2300-C-12P, management address `192.168.0.65`.
+
+The Juniper is never to be labeled `switch-01`; that name is reserved for the Cisco.
+
 ## Preferred paths
 
 - Use wired Ethernet for compute nodes where available.
@@ -34,6 +41,8 @@ media-server / core-01
 compute-01
 compute-02
 compute-03
+switch-01
+switch-02
 ```
 
 ## Storage path
