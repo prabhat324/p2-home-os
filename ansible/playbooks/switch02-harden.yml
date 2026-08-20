@@ -1,0 +1,24 @@
+---
+- name: Apply baseline management configuration to Juniper switch-02
+  hosts: switch-02
+  gather_facts: false
+  connection: ansible.netcommon.netconf
+  tasks:
+    - name: Enforce management baseline
+      junipernetworks.junos.junos_config:
+        lines:
+          - set system host-name switch-02
+          - set system services ssh
+          - set system services ssh root-login deny
+          - set system services netconf ssh
+          - delete system phone-home
+          - delete chassis auto-image-upgrade
+          - delete interfaces irb unit 0 family inet dhcp
+          - delete interfaces irb unit 0 family inet6
+        confirm: 5
+      register: switch_change
+
+    - name: Confirm committed configuration
+      junipernetworks.junos.junos_config:
+        confirm_commit: true
+      when: switch_change.changed
