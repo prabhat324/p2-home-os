@@ -1,0 +1,6 @@
+---
+ansible_connection: ansible.netcommon.netconf
+ansible_network_os: junipernetworks.junos.junos
+ansible_user: psquare
+ansible_private_key_file: "{{ lookup('env', 'HOME') }}/.ssh/id_ed25519_p2homeos"
+ansible_command_timeout: 60
