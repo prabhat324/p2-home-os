@@ -8,6 +8,7 @@
 | `compute-01` | `192.168.0.31` | Primary GPU/application node |
 | `compute-02` | `192.168.0.88` | Osho control plane / Piper |
 | `compute-03` | `192.168.0.158` wired | Secondary GPU worker |
+| `switch-02` | `192.168.0.65` | Juniper EX2300-C-12P management |
 
 compute-03 has also been observed on Wi-Fi at `192.168.0.150`, but wired Ethernet has the preferred route metric and should be treated as the production path.
 
@@ -69,4 +70,7 @@ Avoid direct public port forwarding for internal dashboards and storage services
 
 ## Wired switching
 
-A Cisco SG350-10MP is used in the wired network path. Consistent DNS/hosts configuration matters more than hard-coding DHCP addresses into application configs.
+- `switch-01` — Cisco SG350-10MP. This is the existing active Cisco switch and keeps the `switch-01` identity.
+- `switch-02` — Juniper EX2300-C-12P. Management IP currently `192.168.0.65`; Juniper automation and hostname use `switch-02`.
+
+Do not reuse `switch-01` for the Juniper. Consistent DNS/hosts configuration matters more than hard-coding DHCP addresses into application configs.
