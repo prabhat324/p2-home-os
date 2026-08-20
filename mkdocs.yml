@@ -72,6 +72,9 @@ nav:
       - Operations: 12-project-osho/operations.md
   - Operations:
       - Control Plane: 08-maintenance/control-plane.md
+      - Switches:
+          - switch-01 — Cisco SG350-10MP: 08-maintenance/switch-01.md
+          - switch-02 — Juniper EX2300-C-12P: 08-maintenance/switch-02.md
       - Backup Strategy: 07-backups.md
       - Maintenance: 08-maintenance.md
       - Disaster Recovery: 09-recovery.md
