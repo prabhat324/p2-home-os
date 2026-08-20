@@ -1,0 +1,23 @@
+---
+- name: Verify Juniper switch-02 management plane
+  hosts: switch-02
+  gather_facts: false
+  connection: ansible.netcommon.netconf
+  tasks:
+    - name: Gather Junos facts
+      junipernetworks.junos.junos_facts:
+        gather_subset:
+          - min
+
+    - name: Read committed configuration
+      junipernetworks.junos.junos_command:
+        commands:
+          - show configuration system services | display set
+          - show configuration system phone-home | display set
+          - show configuration chassis | display set | match auto-image
+          - show interfaces terse | match vme
+      register: switch_verify
+
+    - name: Display verification
+      ansible.builtin.debug:
+        var: switch_verify.stdout_lines
