@@ -50,3 +50,39 @@
     - name: Print backup evidence
       ansible.builtin.debug:
         var: backup_audit.stdout_lines
+
+- name: Verify compute-01 private photo backup completion
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Check backup service and compare source/backup inventory
+      ansible.builtin.shell: |
+        set -u
+        echo '=== COMPUTE01 BACKUP SERVICE ==='
+        systemctl show compute01-backup.service \
+          -p Result -p ExecMainStatus -p ExecMainCode \
+          -p ExecMainStartTimestamp -p ExecMainExitTimestamp \
+          --no-pager 2>/dev/null || true
+        echo '=== PHOTO FILE COUNTS ==='
+        for p in /mnt/photos-primary /mnt/photos-backup; do
+          printf '%s files=' "$p"
+          find "$p" -xdev -type f -print 2>/dev/null | wc -l
+          printf '%s bytes=' "$p"
+          find "$p" -xdev -type f -printf '%s\n' 2>/dev/null | awk '{s+=$1} END{printf "%.0f\n",s}'
+        done
+        echo '=== RSYNC DRY-RUN SUMMARY ==='
+        if command -v rsync >/dev/null 2>&1; then
+          rsync -aHAXn --delete --stats /mnt/photos-primary/ /mnt/photos-backup/ 2>&1 \
+            | grep -E 'Number of files|Number of regular files transferred|Total file size|Total transferred file size|Literal data|Matched data|sent .* bytes|speedup' || true
+        else
+          echo 'rsync-unavailable'
+        fi
+        sync
+      args:
+        executable: /bin/bash
+      register: photo_verify
+      changed_when: false
+
+    - name: Print photo backup verification
+      ansible.builtin.debug:
+        var: photo_verify.stdout_lines
