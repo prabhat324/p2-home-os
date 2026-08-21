@@ -1,0 +1,30 @@
+---
+- name: Diagnose compute-01 photo storage after relocation
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Collect storage detection and mount evidence
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '=== LSBLK ==='
+        lsblk -o NAME,MODEL,SERIAL,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS
+        echo '=== FSTAB ==='
+        cat /etc/fstab 2>/dev/null || true
+        echo '=== BY-UUID ==='
+        ls -l /dev/disk/by-uuid 2>/dev/null || true
+        echo '=== USB STORAGE ==='
+        lsusb 2>/dev/null || true
+        echo '=== MOUNT UNITS ==='
+        systemctl status mnt-photos\\x2dprimary.mount mnt-photos\\x2dbackup.mount --no-pager 2>&1 || true
+        echo '=== MOUNT ATTEMPTABILITY ==='
+        systemctl show -p LoadState -p ActiveState -p SubState mnt-photos\\x2dprimary.mount mnt-photos\\x2dbackup.mount 2>/dev/null || true
+        echo '=== FAILED UNITS ==='
+        systemctl --failed --no-pager --no-legend 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      register: storage_diag
+      changed_when: false
+
+    - name: Print storage diagnostic
+      ansible.builtin.debug:
+        var: storage_diag.stdout_lines
