@@ -1,5 +1,5 @@
 {
-  "request_id": "photo-storage-readonly-verify-20260821-1944",
-  "operation": "photo-storage-readonly-verify",
-  "target": "compute-01"
+  "request_id": "g50-01-adopt-20260821-1945",
+  "operation": "g50-01-adopt",
+  "target": "core-01"
 }
