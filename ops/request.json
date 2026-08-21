@@ -1,5 +1,5 @@
 {
-  "request_id": "photo-storage-mount-readiness-20260821-1942",
-  "operation": "photo-storage-mount-readiness",
+  "request_id": "photo-storage-readonly-verify-20260821-1944",
+  "operation": "photo-storage-readonly-verify",
   "target": "compute-01"
 }
