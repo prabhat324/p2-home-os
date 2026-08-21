@@ -22,50 +22,70 @@
       register: identity
       changed_when: false
 
-    - name: Mount primary read-only through UDisks
-      ansible.builtin.command: udisksctl mount -b /dev/sdb1 -o ro
-      register: mount_primary
-      changed_when: true
+    - name: Read-only mount, verify inventories, and always clean up
+      block:
+        - name: Mount primary read-only through UDisks
+          ansible.builtin.command: udisksctl mount -b /dev/sdb1 -o ro
+          register: mount_primary
+          changed_when: true
 
-    - name: Mount backup read-only through UDisks
-      ansible.builtin.command: udisksctl mount -b /dev/sda1 -o ro
-      register: mount_backup
-      changed_when: true
+        - name: Mount backup read-only through UDisks
+          ansible.builtin.command: udisksctl mount -b /dev/sda1 -o ro
+          register: mount_backup
+          changed_when: true
 
-    - name: Verify read-only mounts and compare inventories
-      ansible.builtin.shell: |
-        set -euo pipefail
-        echo '=== MOUNTS ==='
-        findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS /mnt/photos-primary
-        findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS /mnt/photos-backup
-        findmnt -rn -o OPTIONS /mnt/photos-primary | grep -qw ro
-        findmnt -rn -o OPTIONS /mnt/photos-backup | grep -qw ro
+        - name: Verify read-only mounts and compare inventories
+          ansible.builtin.shell: |
+            set -euo pipefail
+            echo '=== MOUNTS ==='
+            findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS /mnt/photos-primary
+            findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS /mnt/photos-backup
+            findmnt -rn -o OPTIONS /mnt/photos-primary | grep -qw ro
+            findmnt -rn -o OPTIONS /mnt/photos-backup | grep -qw ro
 
-        echo '=== INVENTORY ==='
-        for p in /mnt/photos-primary /mnt/photos-backup; do
-          files="$(find "$p" -xdev -type f -print0 | awk 'BEGIN{RS="\0"} END{print NR+0}')"
-          bytes="$(find "$p" -xdev -type f -printf '%s\n' | awk '{s+=$1} END{printf "%.0f",s+0}')"
-          echo "$p files=$files bytes=$bytes"
-        done
-      args:
-        executable: /bin/bash
-      register: verify
-      changed_when: false
+            echo '=== INVENTORY ==='
+            for p in /mnt/photos-primary /mnt/photos-backup; do
+              files="$(find "$p" -xdev -type f -printf '1\n' | wc -l)"
+              bytes="$(find "$p" -xdev -type f -printf '%s\n' | awk '{s+=$1} END{printf "%.0f",s+0}')"
+              echo "$p files=$files bytes=$bytes"
+            done
+          args:
+            executable: /bin/bash
+          register: verify
+          changed_when: false
 
-    - name: Print verification evidence
-      ansible.builtin.debug:
-        msg:
-          - "{{ identity.stdout_lines }}"
-          - "{{ mount_primary.stdout_lines }}"
-          - "{{ mount_backup.stdout_lines }}"
-          - "{{ verify.stdout_lines }}"
+        - name: Print verification evidence
+          ansible.builtin.debug:
+            msg:
+              - "{{ identity.stdout_lines }}"
+              - "{{ mount_primary.stdout_lines | default([]) }}"
+              - "{{ mount_backup.stdout_lines | default([]) }}"
+              - "{{ verify.stdout_lines | default([]) }}"
+      always:
+        - name: Unmount primary verification mount if present
+          ansible.builtin.command: udisksctl unmount -b /dev/sdb1
+          register: unmount_primary
+          changed_when: unmount_primary.rc == 0
+          failed_when: false
+          when: mount_primary is defined and mount_primary.rc == 0
 
-    - name: Unmount primary read-only verification mount
-      ansible.builtin.command: udisksctl unmount -b /dev/sdb1
-      changed_when: true
-      when: mount_primary.rc == 0
+        - name: Unmount backup verification mount if present
+          ansible.builtin.command: udisksctl unmount -b /dev/sda1
+          register: unmount_backup
+          changed_when: unmount_backup.rc == 0
+          failed_when: false
+          when: mount_backup is defined and mount_backup.rc == 0
 
-    - name: Unmount backup read-only verification mount
-      ansible.builtin.command: udisksctl unmount -b /dev/sda1
-      changed_when: true
-      when: mount_backup.rc == 0
+        - name: Confirm verification mounts are gone
+          ansible.builtin.shell: |
+            set -u
+            findmnt -rn /mnt/photos-primary 2>/dev/null || echo '/mnt/photos-primary=NOT_MOUNTED'
+            findmnt -rn /mnt/photos-backup 2>/dev/null || echo '/mnt/photos-backup=NOT_MOUNTED'
+          args:
+            executable: /bin/bash
+          register: cleanup_state
+          changed_when: false
+
+        - name: Print cleanup state
+          ansible.builtin.debug:
+            var: cleanup_state.stdout_lines
