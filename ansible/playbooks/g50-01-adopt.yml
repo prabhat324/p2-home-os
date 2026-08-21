@@ -16,7 +16,7 @@
       ansible.builtin.command:
         argv:
           - python3
-          - "{{ playbook_dir }}/../../ops/g50_01_adopt.py"
+          - "{{ playbook_dir }}/../../ops/g50_01_adopt_v2.py"
       register: g50_adopt
       changed_when: "'G50_01_ADOPT_OK' in g50_adopt.stdout"
 
