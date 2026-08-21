@@ -1,0 +1,52 @@
+---
+- name: Audit backup coverage and stateful workloads before relocation
+  hosts: core-01:compute-01:compute-02
+  gather_facts: false
+  tasks:
+    - name: Collect non-sensitive relocation backup evidence
+      ansible.builtin.shell: |
+        set -u
+        echo "HOST=$(hostname -s)"
+        echo "USER=$(id -un)"
+        echo "GROUPS=$(id -Gn)"
+        echo '=== STORAGE ==='
+        findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS 2>/dev/null | grep -E '^/mnt|^/srv|nfs|cifs' | sed -n '1,80p' || true
+        df -hT 2>/dev/null | grep -E 'Filesystem|/mnt|/srv|/$' | sed -n '1,80p' || true
+        echo '=== EXPECTED BACKUP MOUNTS ==='
+        for p in /mnt/photos-primary /mnt/backup /mnt/photos-backup /mnt/media /srv/backups /var/backups; do
+          if findmnt -rn "$p" >/dev/null 2>&1; then
+            echo "$p=MOUNTED"
+          elif [ -e "$p" ]; then
+            echo "$p=EXISTS_NOT_MOUNT"
+          else
+            echo "$p=ABSENT"
+          fi
+        done
+        echo '=== BACKUP TIMERS/SERVICES ==='
+        systemctl list-timers --all --no-pager 2>/dev/null | grep -Ei 'backup|rsync|restic|borg|snapshot' | sed -n '1,80p' || true
+        systemctl list-unit-files --no-pager 2>/dev/null | grep -Ei 'backup|rsync|restic|borg|snapshot' | sed -n '1,80p' || true
+        echo '=== RECENT BACKUP-LIKE FILES ==='
+        for base in /var/backups /srv/backups /home/$(id -un); do
+          [ -d "$base" ] || continue
+          find "$base" -maxdepth 3 -type f \( -iname '*.tar.gz' -o -iname '*.tgz' -o -iname '*.sql' -o -iname '*.sqlite*' -o -iname '*.bak' \) -printf '%TY-%Tm-%Td %TH:%TM %s %p\n' 2>/dev/null | sort -r | head -30 || true
+        done
+        echo '=== CONTAINERS ==='
+        if command -v docker >/dev/null 2>&1; then
+          docker ps --format '{{"{{"}}.Names{{"}}"}}|{{"{{"}}.Image{{"}}"}}|{{"{{"}}.Status{{"}}"}}' 2>/dev/null | sed -n '1,80p' || echo 'docker-unavailable-to-user'
+        fi
+        if command -v podman >/dev/null 2>&1; then
+          podman ps --format '{{"{{"}}.Names{{"}}"}}|{{"{{"}}.Image{{"}}"}}|{{"{{"}}.Status{{"}}"}}' 2>/dev/null | sed -n '1,80p' || true
+        fi
+        echo '=== STATEFUL PATH SIZES (NO CONTENTS) ==='
+        for p in /opt/docker/compose /srv/compose /srv/osho /mnt/photos-primary; do
+          [ -e "$p" ] && du -sh "$p" 2>/dev/null || true
+        done
+        sync
+      args:
+        executable: /bin/bash
+      register: backup_audit
+      changed_when: false
+
+    - name: Print backup evidence
+      ansible.builtin.debug:
+        var: backup_audit.stdout_lines
