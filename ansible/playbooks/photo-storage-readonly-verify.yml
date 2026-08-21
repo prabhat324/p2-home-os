@@ -1,0 +1,71 @@
+---
+- name: Read-only verify both photo filesystems and inventories
+  hosts: compute-01
+  gather_facts: false
+  vars:
+    primary_uuid: "697b7485-814e-48be-ba42-8bd4ae3e8336"
+    backup_uuid: "c82cb42b-8619-4322-a819-6a579d3b7c31"
+  tasks:
+    - name: Verify exact expected device UUIDs before any mount
+      ansible.builtin.shell: |
+        set -euo pipefail
+        p="$(readlink -f /dev/disk/by-uuid/{{ primary_uuid }})"
+        b="$(readlink -f /dev/disk/by-uuid/{{ backup_uuid }})"
+        echo "PRIMARY=$p"
+        echo "BACKUP=$b"
+        test "$p" = /dev/sdb1
+        test "$b" = /dev/sda1
+        ! findmnt -rn /mnt/photos-primary >/dev/null 2>&1
+        ! findmnt -rn /mnt/photos-backup >/dev/null 2>&1
+      args:
+        executable: /bin/bash
+      register: identity
+      changed_when: false
+
+    - name: Mount primary read-only through UDisks
+      ansible.builtin.command: udisksctl mount -b /dev/sdb1 -o ro
+      register: mount_primary
+      changed_when: true
+
+    - name: Mount backup read-only through UDisks
+      ansible.builtin.command: udisksctl mount -b /dev/sda1 -o ro
+      register: mount_backup
+      changed_when: true
+
+    - name: Verify read-only mounts and compare inventories
+      ansible.builtin.shell: |
+        set -euo pipefail
+        echo '=== MOUNTS ==='
+        findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS /mnt/photos-primary
+        findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS /mnt/photos-backup
+        findmnt -rn -o OPTIONS /mnt/photos-primary | grep -qw ro
+        findmnt -rn -o OPTIONS /mnt/photos-backup | grep -qw ro
+
+        echo '=== INVENTORY ==='
+        for p in /mnt/photos-primary /mnt/photos-backup; do
+          files="$(find "$p" -xdev -type f -print0 | awk 'BEGIN{RS="\0"} END{print NR+0}')"
+          bytes="$(find "$p" -xdev -type f -printf '%s\n' | awk '{s+=$1} END{printf "%.0f",s+0}')"
+          echo "$p files=$files bytes=$bytes"
+        done
+      args:
+        executable: /bin/bash
+      register: verify
+      changed_when: false
+
+    - name: Print verification evidence
+      ansible.builtin.debug:
+        msg:
+          - "{{ identity.stdout_lines }}"
+          - "{{ mount_primary.stdout_lines }}"
+          - "{{ mount_backup.stdout_lines }}"
+          - "{{ verify.stdout_lines }}"
+
+    - name: Unmount primary read-only verification mount
+      ansible.builtin.command: udisksctl unmount -b /dev/sdb1
+      changed_when: true
+      when: mount_primary.rc == 0
+
+    - name: Unmount backup read-only verification mount
+      ansible.builtin.command: udisksctl unmount -b /dev/sda1
+      changed_when: true
+      when: mount_backup.rc == 0
