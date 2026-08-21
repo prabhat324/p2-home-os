@@ -16,7 +16,7 @@
       ansible.builtin.command:
         argv:
           - python3
-          - ../ops/g50_manager.py
+          - "{{ playbook_dir }}/../../ops/g50_manager.py"
           - provision
           - --device
           - p2-g50-02
