@@ -1,5 +1,5 @@
 {
-  "request_id": "compute01-usb-storage-recheck-20260821-1902",
-  "operation": "pre-relocation-backup-audit",
-  "target": "all"
+  "request_id": "g50-01-adopt-20260821-1903",
+  "operation": "g50-01-adopt",
+  "target": "core-01"
 }
