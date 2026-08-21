@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""Finish G50 #1 adoption after the one-time HTTPS->HTTP recovery.
+"""Finish G50 #1 adoption, with FTP diagnostics for legacy-web recovery.
 
-This wrapper is intentionally conservative: it never changes outlet/ProAV power
-settings. If authenticated HTTP already works but the legacy HTTPS listener is
-still present, it reboots only the APC management interface so the protocol
-change takes effect, then hands control to the existing safe adopter.
+This wrapper never changes outlet/ProAV power settings. If authenticated HTTP
+is not available and the local OpenSSL stack cannot negotiate the device's
+obsolete HTTPS service, it retrieves config.ini over FTP using the staged
+administrator credential. The configuration is stored only on core-01 and only
+sanitized web/management settings are printed to the workflow log.
 """
 from __future__ import annotations
 
+import ftplib
+import io
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -100,7 +104,6 @@ def management_reboot(password: str) -> None:
     adopter.wait_unlocked(adopter.HOST, timeout=120)
     a = adopter.APC(adopter.HOST)
     a.login(adopter.ADMIN_USER, password)
-    oldbase = a.base
     try:
         try:
             status, _, _ = a.post("genreset1", {
@@ -114,8 +117,6 @@ def management_reboot(password: str) -> None:
     finally:
         a.base = None
 
-    # Management card only: wait for HTTP to disappear/reappear. Outlet power is
-    # controlled independently and is not altered by this action.
     deadline = time.time() + 120
     saw_down = False
     while time.time() < deadline:
@@ -127,6 +128,54 @@ def management_reboot(password: str) -> None:
         time.sleep(2)
     adopter.wait_unlocked(adopter.HOST, timeout=120)
     print("stage=management_interface_reboot_complete", flush=True)
+
+
+def ftp_config_probe(password: str) -> Path:
+    print("ftp_recovery=starting", flush=True)
+    buf = io.BytesIO()
+    ftp = ftplib.FTP(timeout=12)
+    ftp.connect(adopter.HOST, 21)
+    ftp.login(adopter.ADMIN_USER, password)
+    ftp.retrbinary("RETR config.ini", buf.write)
+    try:
+        ftp.quit()
+    except Exception:
+        ftp.close()
+
+    data = buf.getvalue()
+    if not data:
+        raise RuntimeError("FTP config.ini was empty")
+
+    outdir = adopter.STATE_ROOT / "ftp-recovery"
+    outdir.mkdir(parents=True, exist_ok=True)
+    os.chmod(outdir, 0o700)
+    path = outdir / "config-before-recovery.ini"
+    path.write_bytes(data)
+    os.chmod(path, 0o600)
+    print(f"ftp_config_saved={path}", flush=True)
+
+    text = data.decode("latin-1", errors="replace")
+    interesting = re.compile(r"(web|http|https|ssl|ftp|telnet|ssh|console|snmp)", re.I)
+    sensitive = re.compile(r"(pass|password|community|secret|auth|priv|key|phrase)", re.I)
+    section = ""
+    print("ftp_config_sanitized_begin", flush=True)
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("[") and line.endswith("]"):
+            section = line
+            if interesting.search(section):
+                print(section, flush=True)
+            continue
+        if not line or line.startswith(";"):
+            continue
+        if interesting.search(section) or interesting.search(line):
+            if "=" in line:
+                k, v = line.split("=", 1)
+                if sensitive.search(k):
+                    line = f"{k}=<redacted>"
+            print(line[:240], flush=True)
+    print("ftp_config_sanitized_end", flush=True)
+    return path
 
 
 def cleanup_original(source: Path) -> None:
@@ -155,7 +204,10 @@ def main() -> int:
             print("legacy_https_listener_after_reboot=" +
                   ("open" if adopter.port_open(adopter.HOST, 443) else "closed"), flush=True)
     else:
-        print("http_recovery=not_confirmed_falling_back", flush=True)
+        print("http_recovery=not_confirmed", flush=True)
+        ftp_config_probe(password)
+        print("G50_01_FTP_PROBE_OK", flush=True)
+        return 3
 
     rc = adopter.main()
     if rc == 0:
