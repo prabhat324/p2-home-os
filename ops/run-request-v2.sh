@@ -103,6 +103,10 @@ case "${operation}" in
     [[ "${target}" == "compute-04" ]] || { echo "compute04-power-event-diagnose is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/compute04-power-event-diagnose.yml"
     ;;
+  g50-02-provision)
+    [[ "${target}" == "core-01" ]] || { echo "g50-02-provision is restricted to core-01" >&2; exit 2; }
+    playbook="playbooks/g50-02-provision.yml"
+    ;;
   *)
     exec bash "${ROOT_DIR}/ops/run-request.sh" "${REQUEST_FILE}"
     ;;
