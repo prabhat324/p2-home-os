@@ -114,3 +114,36 @@
     - name: Print storage diagnostic
       ansible.builtin.debug:
         var: storage_diag.stdout_lines
+
+- name: Deep read-only photo disk diagnostic
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Read kernel-visible partition metadata without writing disks
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '=== LSBLK PARTITION DETAIL ==='
+        lsblk -o NAME,KNAME,MODEL,SERIAL,SIZE,TYPE,RO,RM,TRAN,STATE,FSTYPE,PTTYPE,PARTTYPE,PARTUUID,UUID,LABEL,MOUNTPOINTS 2>&1 || true
+        echo '=== PROC PARTITIONS ==='
+        grep -E '(^major|[[:space:]]sd[ab][0-9]*$)' /proc/partitions 2>/dev/null || cat /proc/partitions
+        echo '=== DEVICE BY-ID ==='
+        ls -l /dev/disk/by-id 2>/dev/null | grep -Ei 'wd|passport|wxt1e849j7c9|wx21d3752yd0' || true
+        echo '=== UDEV SDB ==='
+        udevadm info --query=property --name=/dev/sdb 2>&1 | grep -E '^(DEVNAME|DEVTYPE|ID_MODEL|ID_SERIAL|ID_SERIAL_SHORT|ID_PART_TABLE|ID_FS|ID_BUS|ID_USB)' || true
+        echo '=== SYSFS SDB CHILDREN ==='
+        find /sys/class/block/sdb -maxdepth 2 -type l -printf '%f -> %l\n' 2>/dev/null | sed -n '1,120p' || true
+        echo '=== RECENT KERNEL STORAGE EVENTS ==='
+        journalctl -k --no-pager --since '-45 minutes' 2>&1 | grep -Ei 'usb|uas|scsi|sd[a-z]|partition|gpt|i/o error|sense|reset|capacity|medium|read error' | tail -220 || true
+        echo '=== READ-ONLY USERSPACE PROBES ==='
+        command -v wipefs >/dev/null && wipefs -n /dev/sdb 2>&1 || true
+        command -v fdisk >/dev/null && fdisk -l /dev/sdb 2>&1 || true
+        command -v parted >/dev/null && parted -s /dev/sdb print 2>&1 || true
+        command -v smartctl >/dev/null && smartctl -i /dev/sdb 2>&1 || true
+      args:
+        executable: /bin/bash
+      register: deep_storage_diag
+      changed_when: false
+
+    - name: Print deep storage diagnostic
+      ansible.builtin.debug:
+        var: deep_storage_diag.stdout_lines
