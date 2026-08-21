@@ -1,0 +1,94 @@
+---
+- name: Read-only photo storage audit after direct USB reconnect
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Collect bounded read-only storage evidence
+      ansible.builtin.shell: |
+        set -u
+        export LC_ALL=C
+
+        echo '=== HOST ==='
+        hostname -s
+        date -Is
+
+        echo '=== BLOCK DEVICES ==='
+        timeout 5s lsblk -b -o NAME,KNAME,MODEL,SERIAL,SIZE,TYPE,RO,RM,TRAN,STATE,FSTYPE,PTTYPE,PARTTYPE,PARTUUID,UUID,LABEL,MOUNTPOINTS 2>&1 || echo 'lsblk=TIMEOUT_OR_ERROR'
+
+        primary="$(lsblk -dn -b -o NAME,SIZE,TRAN 2>/dev/null | awk '$2 >= 2500000000000 && $3 == "usb" {print "/dev/"$1; exit}')"
+        backup="$(lsblk -dn -b -o NAME,SIZE,TRAN 2>/dev/null | awk '$2 >= 1500000000000 && $2 < 2500000000000 && $3 == "usb" {print "/dev/"$1; exit}')"
+        echo "PRIMARY_DEVICE=${primary:-NOT_FOUND}"
+        echo "BACKUP_DEVICE=${backup:-NOT_FOUND}"
+
+        echo '=== USB TOPOLOGY ==='
+        timeout 5s lsusb -t 2>&1 || echo 'lsusb-tree=TIMEOUT_OR_ERROR'
+        timeout 5s lsusb 2>&1 | grep -Ei '1058:25e2|1058:0820|Western Digital|Genesys' || true
+
+        echo '=== PRIMARY UDEV / UDISKS ==='
+        if [ -n "${primary:-}" ] && [ -b "$primary" ]; then
+          timeout 5s udevadm info --query=property --name="$primary" 2>&1 | sort | grep -E '^(DEVNAME|DEVTYPE|ID_BUS|ID_MODEL|ID_MODEL_ID|ID_SERIAL|ID_SERIAL_SHORT|ID_USB|ID_PART_TABLE|ID_FS|ID_PATH|ID_VENDOR)' || true
+          if command -v udisksctl >/dev/null 2>&1; then
+            timeout 7s udisksctl info -b "$primary" 2>&1 | sed -n '1,220p' || echo 'udisks-primary=TIMEOUT_OR_ERROR'
+          fi
+          echo '--- primary sysfs ---'
+          dev="${primary#/dev/}"
+          for f in size ro removable; do
+            [ -r "/sys/class/block/$dev/$f" ] && printf '%s=' "$f" && cat "/sys/class/block/$dev/$f"
+          done
+          for f in logical_block_size physical_block_size minimum_io_size optimal_io_size max_sectors_kb rotational; do
+            [ -r "/sys/class/block/$dev/queue/$f" ] && printf 'queue.%s=' "$f" && cat "/sys/class/block/$dev/queue/$f"
+          done
+          echo '--- primary children ---'
+          ls -1 "/sys/class/block/$dev" 2>/dev/null | grep -E "^${dev}[0-9]+$" || echo 'NO_PARTITION_CHILDREN'
+        fi
+
+        echo '=== BACKUP UDEV / UDISKS ==='
+        if [ -n "${backup:-}" ] && [ -b "$backup" ]; then
+          timeout 5s udevadm info --query=property --name="$backup" 2>&1 | sort | grep -E '^(DEVNAME|DEVTYPE|ID_BUS|ID_MODEL|ID_MODEL_ID|ID_SERIAL|ID_SERIAL_SHORT|ID_USB|ID_PART_TABLE|ID_FS|ID_PATH|ID_VENDOR)' || true
+          bdev="${backup#/dev/}"
+          ls -1 "/sys/class/block/$bdev" 2>/dev/null | grep -E "^${bdev}[0-9]+$" || echo 'NO_BACKUP_PARTITION_CHILDREN'
+        fi
+
+        echo '=== EXPECTED UUIDS ==='
+        for u in 697b7485-814e-48be-ba42-8bd4ae3e8336 c82cb42b-8619-4322-a819-6a579d3b7c31; do
+          if [ -e "/dev/disk/by-uuid/$u" ]; then
+            echo "$u -> $(readlink -f "/dev/disk/by-uuid/$u")"
+          else
+            echo "$u -> MISSING"
+          fi
+        done
+
+        echo '=== MOUNTS ==='
+        findmnt -rn /mnt/photos-primary 2>/dev/null || echo '/mnt/photos-primary=NOT_MOUNTED'
+        findmnt -rn /mnt/photos-backup 2>/dev/null || echo '/mnt/photos-backup=NOT_MOUNTED'
+
+        echo '=== KERNEL USB/STORAGE EVENTS THIS BOOT ==='
+        timeout 5s journalctl -k -b --no-pager 2>&1 | grep -Ei 'usb|uas|scsi|sd[a-z]|My Passport|I/O error|medium error|sense key|reset SuperSpeed|device descriptor|GPT|partition|capacity' | tail -260 || true
+
+        echo '=== BOUNDED READ-ONLY DEVICE PROBES ==='
+        if [ -n "${primary:-}" ] && [ -b "$primary" ]; then
+          echo '--- no-sudo probes ---'
+          timeout 5s blockdev --getsize64 "$primary" 2>&1 || echo 'blockdev-primary=TIMEOUT_OR_ERROR_OR_DENIED'
+          timeout 5s wipefs -n "$primary" 2>&1 || echo 'wipefs-primary=TIMEOUT_OR_ERROR_OR_DENIED'
+          timeout 5s fdisk -l "$primary" 2>&1 || echo 'fdisk-primary=TIMEOUT_OR_ERROR_OR_DENIED'
+          timeout 5s parted -s "$primary" print 2>&1 || echo 'parted-primary=TIMEOUT_OR_ERROR_OR_DENIED'
+          timeout 5s blkid -p "$primary" 2>&1 || echo 'blkid-primary=TIMEOUT_OR_ERROR_OR_DENIED'
+          if command -v smartctl >/dev/null 2>&1; then
+            timeout 7s smartctl -i "$primary" 2>&1 || echo 'smartctl-primary=TIMEOUT_OR_ERROR_OR_DENIED'
+          fi
+        fi
+
+        echo '=== SUDO CAPABILITY (NO EXECUTION) ==='
+        timeout 5s sudo -n -l 2>&1 | sed -n '1,160p' || true
+
+        echo '=== COMPUTE-01 SERVICE HEALTH ==='
+        systemctl is-system-running 2>&1 || true
+        systemctl --failed --no-pager --no-legend 2>&1 || true
+      args:
+        executable: /bin/bash
+      register: storage_audit
+      changed_when: false
+
+    - name: Print read-only storage evidence
+      ansible.builtin.debug:
+        var: storage_audit.stdout_lines
