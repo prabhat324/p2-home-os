@@ -19,9 +19,11 @@ COPY app/ /app/
 # so the helper does not need broader filesystem or sudo permissions.
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/server.py /app/server.py
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/storage_server.py /app/storage_server.py
+ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/power_server.py /app/power_server.py
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/static/analytics.html /app/static/analytics.html
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/static/storage01.js /app/static/storage01.js
+ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/static/powergrid.js /app/static/powergrid.js
 
 EXPOSE 8787
 
-CMD ["uvicorn", "storage_server:app", "--host", "0.0.0.0", "--port", "8787"]
+CMD ["uvicorn", "power_server:app", "--host", "0.0.0.0", "--port", "8787"]
