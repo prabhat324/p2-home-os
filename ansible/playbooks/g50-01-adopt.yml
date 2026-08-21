@@ -12,6 +12,18 @@
             import socket; s=socket.create_connection(('192.168.0.236',80),3); s.close(); print('G50_01_HTTP_REACHABLE')
       changed_when: false
 
+    - name: Probe local legacy transport options
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/../../ops/g50_env_probe.py"
+      register: g50_env
+      changed_when: false
+
+    - name: Show sanitized legacy transport probe
+      ansible.builtin.debug:
+        var: g50_env.stdout_lines
+
     - name: Probe corrected credential and legacy transports without touching outlet power
       ansible.builtin.command:
         argv:
