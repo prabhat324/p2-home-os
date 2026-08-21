@@ -87,3 +87,30 @@
     - name: Print network persistence evidence
       ansible.builtin.debug:
         var: network_audit.stdout_lines
+
+- name: Audit clean power-off authorization
+  hosts: core-01:compute_nodes
+  gather_facts: false
+  ignore_unreachable: true
+  tasks:
+    - name: Query logind power-off authorization without changing state
+      ansible.builtin.shell: |
+        set -u
+        echo "HOST=$(hostname -s)"
+        echo "USER=$(id -un)"
+        printf 'CAN_POWEROFF='
+        if command -v busctl >/dev/null 2>&1; then
+          busctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager CanPowerOff 2>/dev/null || echo unavailable
+        else
+          echo busctl-unavailable
+        fi
+        printf 'SUDO_NONINTERACTIVE='; sudo -n true >/dev/null 2>&1 && echo yes || echo no
+        sync
+      args:
+        executable: /bin/bash
+      register: power_audit
+      changed_when: false
+
+    - name: Print power-off capability
+      ansible.builtin.debug:
+        var: power_audit.stdout_lines
