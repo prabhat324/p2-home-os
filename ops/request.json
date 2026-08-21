@@ -1,5 +1,5 @@
 {
-  "request_id": "post-relocation-status-20260821-1308",
-  "operation": "status",
+  "request_id": "post-relocation-storage-verify-20260821-1310",
+  "operation": "pre-relocation-backup-audit",
   "target": "all"
 }
