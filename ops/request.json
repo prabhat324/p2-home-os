@@ -1,5 +1,5 @@
 {
-  "request_id": "pre-relocation-photo-verify-20260821-1024",
-  "operation": "pre-relocation-backup-audit",
+  "request_id": "post-relocation-status-20260821-1308",
+  "operation": "status",
   "target": "all"
 }
