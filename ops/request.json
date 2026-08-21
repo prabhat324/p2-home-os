@@ -1,5 +1,5 @@
 {
-  "request_id": "g50-01-adopt-20260821-1906",
-  "operation": "g50-01-adopt",
-  "target": "core-01"
+  "request_id": "photo-primary-extended-readonly-20260821-1910",
+  "operation": "pre-relocation-backup-audit",
+  "target": "all"
 }
