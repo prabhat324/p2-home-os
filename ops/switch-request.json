@@ -1,5 +1,5 @@
 {
-  "request_id": "switch02-verify-20260819-2228",
-  "operation": "verify",
+  "request_id": "switch02-post-relocation-status-20260821-1342",
+  "operation": "status",
   "target": "switch-02"
 }
