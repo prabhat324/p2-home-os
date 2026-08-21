@@ -31,6 +31,10 @@ case "${operation}" in
     [[ "${target}" == "compute-01" ]] || { echo "photo-storage-mount-readiness is restricted to compute-01" >&2; exit 2; }
     playbook="playbooks/photo-storage-mount-readiness.yml"
     ;;
+  photo-storage-readonly-verify)
+    [[ "${target}" == "compute-01" ]] || { echo "photo-storage-readonly-verify is restricted to compute-01" >&2; exit 2; }
+    playbook="playbooks/photo-storage-readonly-verify.yml"
+    ;;
   pre-relocation-compute04-shutdown)
     [[ "${target}" == "compute-04" ]] || { echo "pre-relocation-compute04-shutdown is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/pre-relocation-compute04-shutdown.yml"
