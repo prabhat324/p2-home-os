@@ -1,0 +1,71 @@
+---
+- name: Back up compute-04 state and schedule a clean relocation power-off
+  hosts: compute-04
+  gather_facts: false
+  tasks:
+    - name: Create portable compute-04 relocation backup
+      ansible.builtin.shell: |
+        set -euo pipefail
+        STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+        OUT="/home/p2ops/pre-relocation-compute04-${STAMP}.tar.gz"
+        TMP="/var/tmp/pre-relocation-compute04-${STAMP}"
+        sudo -n mkdir -p "$TMP"
+        sudo -n chmod 700 "$TMP"
+        sudo -n bash -c '
+          set -e
+          echo "hostname=$(hostname -s)" > "'"$TMP"'/host.txt"
+          date -u >> "'"$TMP"'/host.txt"
+          ip -br addr >> "'"$TMP"'/host.txt" 2>&1 || true
+          ip route >> "'"$TMP"'/host.txt" 2>&1 || true
+          findmnt >> "'"$TMP"'/host.txt" 2>&1 || true
+          systemctl --failed --no-pager >> "'"$TMP"'/host.txt" 2>&1 || true
+          mkdir -p "'"$TMP"'/payload"
+          for p in /srv/mavrick/config /srv/mavrick/data /srv/mavrick/secrets /srv/mavrick/scripts /etc/netplan /etc/systemd/system; do
+            if [ -e "$p" ]; then cp -a --parents "$p" "'"$TMP"'/payload/" 2>/dev/null || true; fi
+          done
+          tar -C "'"$TMP"'" -czf "'"$OUT"'" .
+          chown p2ops:p2ops "'"$OUT"'"
+          chmod 600 "'"$OUT"'"
+          rm -rf "'"$TMP"'"
+        '
+        sha256sum "$OUT" > "${OUT}.sha256"
+        chmod 600 "${OUT}.sha256"
+        sync
+        echo "ARCHIVE=$OUT"
+      args:
+        executable: /bin/bash
+      register: backup_result
+      changed_when: true
+
+    - name: Capture backup archive path
+      ansible.builtin.set_fact:
+        compute04_backup_path: "{{ (backup_result.stdout_lines | select('match', '^ARCHIVE=') | list | first).split('=', 1)[1] }}"
+
+    - name: Fetch compute-04 backup to core-01 control node
+      ansible.builtin.fetch:
+        src: "{{ compute04_backup_path }}"
+        dest: "/home/p2runner/p2-relocation-backups/compute-04/"
+        flat: true
+
+    - name: Fetch checksum to core-01 control node
+      ansible.builtin.fetch:
+        src: "{{ compute04_backup_path }}.sha256"
+        dest: "/home/p2runner/p2-relocation-backups/compute-04/"
+        flat: true
+
+    - name: Schedule root-owned clean power-off after workflow has returned
+      ansible.builtin.shell: |
+        set -euo pipefail
+        sync
+        sudo -n systemd-run --unit=p2-relocation-poweroff --on-active=15s /usr/bin/systemctl poweroff
+        echo 'POWEROFF_SCHEDULED=yes'
+      args:
+        executable: /bin/bash
+      register: shutdown_result
+      changed_when: true
+
+    - name: Report scheduled shutdown
+      ansible.builtin.debug:
+        msg:
+          - "{{ backup_result.stdout }}"
+          - "{{ shutdown_result.stdout }}"
