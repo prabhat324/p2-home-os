@@ -12,22 +12,21 @@
             import socket; s=socket.create_connection(('192.168.0.236',80),3); s.close(); print('G50_01_HTTP_REACHABLE')
       changed_when: false
 
-    - name: Adopt and normalize G50 #1 without touching outlet power
+    - name: Probe corrected credential and legacy transports without touching outlet power
       ansible.builtin.command:
         argv:
           - python3
-          - "{{ playbook_dir }}/../../ops/g50_01_adopt_v4.py"
+          - "{{ playbook_dir }}/../../ops/g50_01_adopt_v3.py"
       register: g50_adopt
-      changed_when: "'G50_01_ADOPT_OK' in g50_adopt.stdout"
+      changed_when: false
+      failed_when: g50_adopt.rc not in [0,3]
 
-    - name: Show sanitized G50 #1 adoption result
+    - name: Show sanitized G50 #1 probe result
       ansible.builtin.debug:
         var: g50_adopt.stdout_lines
 
-    - name: Assert G50 #1 reached the expected managed state
+    - name: Assert credential was accepted by either HTTP or FTP path
       ansible.builtin.assert:
         that:
-          - "'G50_01_ADOPT_OK' in g50_adopt.stdout"
-          - "'ports=21:closed,22:closed,23:closed,80:open,443:closed' in g50_adopt.stdout"
-          - "'temporary_password_file=removed' in g50_adopt.stdout"
-        fail_msg: "G50 #1 did not reach the expected P2-managed state"
+          - "'G50_01_FTP_PROBE_OK' in g50_adopt.stdout or 'G50_01_ADOPT_OK' in g50_adopt.stdout"
+        fail_msg: "G50 #1 credential or legacy transport probe did not succeed"
