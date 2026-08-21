@@ -1,5 +1,5 @@
 {
-  "request_id": "psquare-node-watchdog-power-alerts-fix-20260819-0826",
-  "operation": "psquare-node-watchdog-deploy",
-  "target": "core-01"
+  "request_id": "pre-relocation-persistence-audit-20260821-1008",
+  "operation": "infrastructure-persistence-audit",
+  "target": "all"
 }
