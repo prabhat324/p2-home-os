@@ -147,3 +147,31 @@
     - name: Print deep storage diagnostic
       ansible.builtin.debug:
         var: deep_storage_diag.stdout_lines
+
+- name: Inspect photo backup safety and switch adjacency
+  hosts: compute-01:compute-02
+  gather_facts: false
+  tasks:
+    - name: Collect backup unit and LLDP evidence
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "=== HOST $(hostname -s) ==="
+        if [ "$(hostname -s)" = "compute-01" ]; then
+          echo '=== BACKUP SERVICE UNIT ==='
+          systemctl cat compute01-backup.service 2>&1 || true
+          echo '=== BACKUP TIMER UNIT ==='
+          systemctl cat compute01-backup.timer 2>&1 || true
+          echo '=== UDISKS BACKUP DEVICE ==='
+          command -v udisksctl >/dev/null && udisksctl info -b /dev/sda1 2>&1 | sed -n '1,140p' || true
+        fi
+        echo '=== NETWORK NEIGHBOR ==='
+        networkctl status 2>/dev/null | grep -E 'Connected To:|State:|Address:|Gateway:' | sed -n '1,80p' || true
+        command -v lldpcli >/dev/null && lldpcli show neighbors 2>&1 | sed -n '1,160p' || true
+      args:
+        executable: /bin/bash
+      register: safety_diag
+      changed_when: false
+
+    - name: Print backup safety and adjacency diagnostic
+      ansible.builtin.debug:
+        var: safety_diag.stdout_lines
