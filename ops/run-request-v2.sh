@@ -23,6 +23,10 @@ case "${operation}" in
     [[ "${target}" == "all" ]] || { echo "pre-relocation-backup-audit is restricted to all" >&2; exit 2; }
     playbook="playbooks/pre-relocation-backup-audit.yml"
     ;;
+  photo-storage-direct-audit)
+    [[ "${target}" == "compute-01" ]] || { echo "photo-storage-direct-audit is restricted to compute-01" >&2; exit 2; }
+    playbook="playbooks/photo-storage-direct-audit.yml"
+    ;;
   pre-relocation-compute04-shutdown)
     [[ "${target}" == "compute-04" ]] || { echo "pre-relocation-compute04-shutdown is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/pre-relocation-compute04-shutdown.yml"
