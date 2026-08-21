@@ -1,5 +1,5 @@
 {
-  "request_id": "pre-relocation-power-audit-20260821-1014",
-  "operation": "infrastructure-persistence-audit",
-  "target": "all"
+  "request_id": "pre-relocation-compute04-shutdown-20260821-1018",
+  "operation": "pre-relocation-compute04-shutdown",
+  "target": "compute-04"
 }
