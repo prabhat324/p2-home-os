@@ -1,0 +1,31 @@
+---
+- name: Verify photo storage mount and backup safety prerequisites
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Collect read-only mount readiness evidence
+      ansible.builtin.shell: |
+        set -u
+        export LC_ALL=C
+        echo '=== FSTAB PHOTO ENTRIES ==='
+        grep -nE 'photos-primary|photos-backup|697b7485|c82cb42b' /etc/fstab 2>&1 || true
+        echo '=== PRIMARY PARTITION ==='
+        timeout 5s udisksctl info -b /dev/sdb1 2>&1 | sed -n '1,180p' || true
+        echo '=== BACKUP PARTITION ==='
+        timeout 5s udisksctl info -b /dev/sda1 2>&1 | sed -n '1,180p' || true
+        echo '=== CURRENT MOUNTS ==='
+        findmnt -rn /mnt/photos-primary 2>/dev/null || echo '/mnt/photos-primary=NOT_MOUNTED'
+        findmnt -rn /mnt/photos-backup 2>/dev/null || echo '/mnt/photos-backup=NOT_MOUNTED'
+        echo '=== BACKUP SCRIPT ==='
+        sed -n '1,320p' /usr/local/sbin/compute01-backup.sh 2>&1 || true
+        echo '=== BACKUP TIMER ==='
+        systemctl cat compute01-backup.timer 2>&1 || true
+        systemctl status compute01-backup.timer --no-pager 2>&1 || true
+      args:
+        executable: /bin/bash
+      register: readiness
+      changed_when: false
+
+    - name: Print mount readiness evidence
+      ansible.builtin.debug:
+        var: readiness.stdout_lines
