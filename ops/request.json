@@ -1,5 +1,5 @@
 {
-  "request_id": "compute01-usb-stack-reset-20260821-1354",
-  "operation": "compute01-network-reboot-verify",
-  "target": "compute-01"
+  "request_id": "g50-02-provision-20260821-1357",
+  "operation": "g50-02-provision",
+  "target": "core-01"
 }
