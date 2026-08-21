@@ -1,5 +1,5 @@
 {
-  "request_id": "g50-01-adopt-20260821-1941",
-  "operation": "g50-01-adopt",
-  "target": "core-01"
+  "request_id": "photo-storage-mount-readiness-20260821-1942",
+  "operation": "photo-storage-mount-readiness",
+  "target": "compute-01"
 }
