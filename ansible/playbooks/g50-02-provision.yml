@@ -1,5 +1,5 @@
 ---
-- name: Reconcile APC G50 #2 into P2 managed state
+- name: Finish APC G50 #2 P2 managed state
   hosts: core-01
   gather_facts: false
   tasks:
@@ -12,11 +12,11 @@
             import socket; s=socket.create_connection(('192.168.0.240',80),3); s.close(); print('G50_02_HTTP_REACHABLE')
       changed_when: false
 
-    - name: Reconcile G50 #2 through resilient P2 manager
+    - name: Finish G50 #2 through staged P2 manager
       ansible.builtin.command:
         argv:
           - python3
-          - "{{ playbook_dir }}/../../ops/g50_manager_v3.py"
+          - "{{ playbook_dir }}/../../ops/g50_finish.py"
           - --device
           - p2-g50-02
           - --host
