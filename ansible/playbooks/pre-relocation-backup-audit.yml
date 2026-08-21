@@ -86,3 +86,31 @@
     - name: Print photo backup verification
       ansible.builtin.debug:
         var: photo_verify.stdout_lines
+
+- name: Diagnose compute-01 photo storage device detection
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Collect device and mount evidence
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '=== LSBLK ==='
+        lsblk -o NAME,MODEL,SERIAL,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS 2>/dev/null || true
+        echo '=== FSTAB ==='
+        cat /etc/fstab 2>/dev/null || true
+        echo '=== BY-UUID ==='
+        ls -l /dev/disk/by-uuid 2>/dev/null || true
+        echo '=== USB ==='
+        lsusb 2>/dev/null || true
+        echo '=== PHOTO MOUNT UNITS ==='
+        systemctl status mnt-photos\\x2dprimary.mount mnt-photos\\x2dbackup.mount --no-pager 2>&1 || true
+        echo '=== FAILED UNITS ==='
+        systemctl --failed --no-pager --no-legend 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      register: storage_diag
+      changed_when: false
+
+    - name: Print storage diagnostic
+      ansible.builtin.debug:
+        var: storage_diag.stdout_lines
