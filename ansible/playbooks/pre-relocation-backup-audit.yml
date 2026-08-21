@@ -148,6 +148,59 @@
       ansible.builtin.debug:
         var: deep_storage_diag.stdout_lines
 
+- name: Extended read-only transport and partition diagnostics for photo primary
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Collect USB bridge, sysfs, udisks and kernel evidence without writing disk
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '=== IDENTITY ==='
+        id
+        stat -c '%n mode=%a owner=%U group=%G major=%t minor=%T size=%s' /dev/sda /dev/sda1 /dev/sdb 2>&1 || true
+        echo '=== USB TOPOLOGY ==='
+        lsusb -t 2>&1 || true
+        echo '=== USB WD DESCRIPTORS (SUMMARY) ==='
+        usb-devices 2>/dev/null | awk 'BEGIN{RS=""} /Vendor=1058|ProdID=25e2|ProdID=0820/ {print}' | sed -n '1,220p' || true
+        echo '=== SYSFS SDB ==='
+        for f in size ro removable alignment_offset discard_alignment; do
+          [ -r "/sys/class/block/sdb/$f" ] && printf '%s=' "$f" && cat "/sys/class/block/sdb/$f"
+        done
+        for f in logical_block_size physical_block_size minimum_io_size optimal_io_size max_sectors_kb rotational; do
+          [ -r "/sys/class/block/sdb/queue/$f" ] && printf 'queue.%s=' "$f" && cat "/sys/class/block/sdb/queue/$f"
+        done
+        for f in vendor model rev state timeout; do
+          [ -r "/sys/class/block/sdb/device/$f" ] && printf 'device.%s=' "$f" && cat "/sys/class/block/sdb/device/$f"
+        done
+        echo '=== UDISKS WHOLE DISK ==='
+        command -v udisksctl >/dev/null && udisksctl info -b /dev/sdb 2>&1 | sed -n '1,220p' || true
+        echo '=== UDEV FULL PROPERTIES ==='
+        udevadm info --query=property --name=/dev/sdb 2>&1 | sort | sed -n '1,220p' || true
+        echo '=== UDEV DATABASE ENTRY ==='
+        majmin=$(stat -c '%t:%T' /dev/sdb 2>/dev/null || true)
+        if [ -n "$majmin" ]; then
+          major=$((16#${majmin%:*})); minor=$((16#${majmin#*:}));
+          cat "/run/udev/data/b${major}:${minor}" 2>/dev/null | sed -n '1,220p' || true
+        fi
+        echo '=== BY-PATH / BY-ID FOR SDB ==='
+        find /dev/disk/by-path /dev/disk/by-id -maxdepth 1 -type l -lname '../../sdb' -ls 2>/dev/null || true
+        echo '=== CURRENT KERNEL EVENTS FOR SDB / WD USB ==='
+        journalctl -k -b --no-pager 2>&1 | grep -Ei 'sdb|1058:25e2|My Passport|usb 2-|uas|scsi|I/O error|critical medium|sense key|reset SuperSpeed|device descriptor|GPT|partition' | tail -320 || true
+        echo '=== OPTIONAL SCSI READ-ONLY PROBES ==='
+        command -v sg_inq >/dev/null && sg_inq /dev/sdb 2>&1 || true
+        command -v sg_readcap >/dev/null && sg_readcap -l /dev/sdb 2>&1 || true
+        command -v blockdev >/dev/null && blockdev --getsize64 /dev/sdb 2>&1 || true
+        echo '=== BACKUP SCRIPT SAFETY ==='
+        sed -n '1,260p' /usr/local/sbin/compute01-backup.sh 2>&1 || true
+      args:
+        executable: /bin/bash
+      register: extended_primary_diag
+      changed_when: false
+
+    - name: Print extended primary disk diagnostic
+      ansible.builtin.debug:
+        var: extended_primary_diag.stdout_lines
+
 - name: Inspect photo backup safety and switch adjacency
   hosts: compute-01:compute-02
   gather_facts: false
