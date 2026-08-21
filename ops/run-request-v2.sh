@@ -19,6 +19,10 @@ if [[ ! "${request_id}" =~ ^[A-Za-z0-9._-]{1,80}$ ]]; then
 fi
 
 case "${operation}" in
+  pre-relocation-backup-audit)
+    [[ "${target}" == "all" ]] || { echo "pre-relocation-backup-audit is restricted to all" >&2; exit 2; }
+    playbook="playbooks/pre-relocation-backup-audit.yml"
+    ;;
   pre-relocation-compute04-shutdown)
     [[ "${target}" == "compute-04" ]] || { echo "pre-relocation-compute04-shutdown is restricted to compute-04" >&2; exit 2; }
     playbook="playbooks/pre-relocation-compute04-shutdown.yml"
