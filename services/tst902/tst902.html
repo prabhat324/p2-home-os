@@ -1,0 +1,104 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1008, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>P2 Home OS</title>
+<style>
+html,body{margin:0;padding:0;width:100%;height:100%;background:#07111d;color:#edf5ff;font-family:Arial,Helvetica,sans-serif;overflow:hidden}
+*{box-sizing:border-box}
+#app{width:1008px;height:588px;padding:18px 20px;background:#07111d}
+.top{height:56px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #203349;padding-bottom:12px}
+.brand{font-size:28px;font-weight:bold;letter-spacing:.5px}.brand small{font-size:12px;color:#8da2ba;font-weight:normal;margin-left:12px}
+.clock{font-size:18px;color:#b8c8da;text-align:right}.status{font-size:11px;color:#7ee2a8;margin-top:3px}
+.grid{display:grid;grid-template-columns:1.45fr 1fr;gap:14px;margin-top:14px;height:438px}
+.card{background:#0c1929;border:1px solid #203349;border-radius:12px;padding:14px}
+.card h2{margin:0 0 10px;font-size:17px}.muted{color:#8da2ba}
+.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}.metric{background:#091523;border:1px solid #1b2d43;border-radius:9px;padding:10px}.metric span{display:block;color:#8da2ba;font-size:10px;text-transform:uppercase}.metric b{display:block;font-size:22px;margin-top:6px}
+.g50{display:grid;grid-template-columns:1fr 1fr;gap:10px}.unit{background:#091523;border:1px solid #1b2d43;border-radius:10px;padding:12px}.unithead{display:flex;justify-content:space-between;align-items:center}.unit h3{margin:0;font-size:16px}.pill{padding:4px 8px;border-radius:12px;font-size:10px;background:#173047;color:#b9d7ef}.pill.ok{background:#143425;color:#8ef0b4}.unitgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px}.uval span{display:block;color:#8da2ba;font-size:9px;text-transform:uppercase}.uval b{display:block;font-size:17px;margin-top:3px}
+.side{display:grid;grid-template-rows:1fr 1fr;gap:14px}.sysrow{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid #1b2d43}.sysrow:last-child{border-bottom:0}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#54677a;margin-right:8px}.dot.ok{background:#40d17a}.dot.bad{background:#ef6f6f}
+.bigbtn{display:block;width:100%;height:48px;line-height:48px;text-align:center;background:#173047;border:1px solid #2d4e6b;border-radius:10px;color:#edf5ff;text-decoration:none;font-size:16px;margin-top:10px}.bigbtn:active{background:#214665}
+.foot{height:44px;margin-top:12px;display:flex;align-items:center;justify-content:space-between;color:#71879e;font-size:10px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top">
+    <div class="brand">P2 HOME OS <small>TST-902 Console</small></div>
+    <div class="clock"><div id="clock">--:--</div><div class="status" id="overall">Connecting...</div></div>
+  </div>
+  <div class="grid">
+    <div class="card">
+      <h2>Rack Power <span class="muted">· Wasaga Beach</span></h2>
+      <div class="summary">
+        <div class="metric"><span>Live Load</span><b id="liveWatts">-- W</b></div>
+        <div class="metric"><span>Grid Cost Today</span><b id="costToday">$--</b></div>
+        <div class="metric"><span>TOU Period</span><b id="tou">--</b></div>
+      </div>
+      <div class="g50">
+        <div class="unit">
+          <div class="unithead"><h3>G50 #1</h3><span class="pill" id="g1state">Waiting</span></div>
+          <div class="unitgrid">
+            <div class="uval"><span>Power</span><b id="g1w">-- W</b></div>
+            <div class="uval"><span>Current</span><b id="g1a">-- A</b></div>
+            <div class="uval"><span>Voltage</span><b id="g1v">-- V</b></div>
+            <div class="uval"><span>Today</span><b id="g1k">-- kWh</b></div>
+          </div>
+        </div>
+        <div class="unit">
+          <div class="unithead"><h3>G50 #2</h3><span class="pill" id="g2state">Waiting</span></div>
+          <div class="unitgrid">
+            <div class="uval"><span>Power</span><b id="g2w">-- W</b></div>
+            <div class="uval"><span>Current</span><b id="g2a">-- A</b></div>
+            <div class="uval"><span>Voltage</span><b id="g2v">-- V</b></div>
+            <div class="uval"><span>Today</span><b id="g2k">-- kWh</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="side">
+      <div class="card">
+        <h2>P2 Systems</h2>
+        <div class="sysrow"><span><i class="dot" id="d1"></i>Dashboard</span><b id="s1">Checking</b></div>
+        <div class="sysrow"><span><i class="dot" id="d2"></i>G50 #1</span><b id="s2">Checking</b></div>
+        <div class="sysrow"><span><i class="dot" id="d3"></i>G50 #2</span><b id="s3">Checking</b></div>
+        <div class="sysrow"><span><i class="dot" id="d4"></i>Grid Tracking</span><b id="s4">Checking</b></div>
+      </div>
+      <div class="card">
+        <h2>Quick Access</h2>
+        <a class="bigbtn" href="/">Open Full P2 Dashboard</a>
+        <div class="muted" style="font-size:11px;line-height:1.45;margin-top:12px">This panel is read-only for now. Reboot, shutdown and service controls will only be added behind confirmation screens.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>Local-only console · auto refresh 15s</span><span id="updated">Waiting for first update</span></div>
+</div>
+<script>
+(function(){
+function byId(id){return document.getElementById(id)}
+function num(v,d){var n=parseFloat(v);return isNaN(n)?'--':n.toFixed(d)}
+function money(v){var n=parseFloat(v);return isNaN(n)?'$--':'$'+n.toFixed(3)}
+function setDot(id,ok){byId(id).className='dot '+(ok?'ok':'bad')}
+function state(el,ok){el.className='pill '+(ok?'ok':'');el.innerHTML=ok?'ONLINE':'OFFLINE'}
+function tick(){var d=new Date();var h=d.getHours(),m=d.getMinutes();byId('clock').innerHTML=(h<10?'0':'')+h+':'+(m<10?'0':'')+m}
+function load(){
+ var x=new XMLHttpRequest();x.open('GET','/api/power/g50?ts='+(new Date().getTime()),true);x.onreadystatechange=function(){
+  if(x.readyState!==4)return;
+  if(x.status!==200){byId('overall').innerHTML='Dashboard API unavailable';setDot('d1',false);return}
+  try{
+   var d=JSON.parse(x.responseText),t=d.totals||{},tar=d.tariff||{},dev=d.devices||[];
+   byId('liveWatts').innerHTML=num(t.live_watts,0)+' W';byId('costToday').innerHTML=money(t.bill_cost_today_cad);byId('tou').innerHTML=tar.label||'--';
+   for(var i=0;i<dev.length;i++){
+    var u=dev[i],p=u.id==='g50-1'?'g1':'g2';state(byId(p+'state'),!!u.online);byId(p+'w').innerHTML=num(u.watts,0)+' W';byId(p+'a').innerHTML=num(u.current_a,1)+' A';byId(p+'v').innerHTML=num(u.voltage_v,0)+' V';byId(p+'k').innerHTML=num(u.kwh_today,3)+' kWh';
+    if(p==='g1'){setDot('d2',!!u.online);byId('s2').innerHTML=u.online?'Online':'Offline'}else{setDot('d3',!!u.online);byId('s3').innerHTML=u.online?'Online':'Offline'}
+   }
+   setDot('d1',true);byId('s1').innerHTML='Online';setDot('d4',d.status==='metered');byId('s4').innerHTML=d.status==='metered'?'Active':'Limited';byId('overall').innerHTML='P2 systems online';byId('updated').innerHTML='Updated '+(new Date()).toLocaleTimeString();
+  }catch(e){byId('overall').innerHTML='Telemetry parse error'}
+ };
+ x.send(null);
+}
+tick();setInterval(tick,1000);load();setInterval(load,15000);
+})();
+</script>
+</body>
+</html>
