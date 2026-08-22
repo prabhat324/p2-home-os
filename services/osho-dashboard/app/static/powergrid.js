@@ -35,9 +35,9 @@
     </div>
     <div class="power-summary">
       <div><span>Current TOU period</span><b id="powerTouPeriod">—</b></div>
-      <div><span>Electricity rate</span><b id="powerTouRate">—</b></div>
+      <div><span>TOU energy rate</span><b id="powerTouRate">—</b></div>
       <div><span>Live G50 load</span><b id="powerLiveWatts">—</b></div>
-      <div><span>Tracked bill cost today</span><b id="powerCostToday">—</b></div>
+      <div><span>Incremental grid cost today</span><b id="powerCostToday">—</b></div>
     </div>
     <div class="g50-list" id="g50List">
       <div class="empty-note">Loading G50 telemetry…</div>
@@ -65,7 +65,7 @@
 
   function g50Card(d){
     const badge = stateBadge(d);
-    const detail = d.message || (d.telemetry === 'metered' ? 'Live meter telemetry is being integrated into kWh and cost totals.' : '');
+    const detail = d.message || (d.telemetry === 'metered' ? 'Live meter telemetry is being integrated into kWh and incremental grid-cost totals.' : '');
     const identity = [d.model, d.serial ? `SN ${d.serial}` : null].filter(Boolean).join(' · ') || 'APC G50';
     return `<article class="g50-card">
       <div class="g50-head">
@@ -76,7 +76,7 @@
         <div class="g50-metric"><span>Live power</span><b>${watts(d.watts)}</b></div>
         <div class="g50-metric"><span>Current</span><b>${amps(d.current_a)}</b></div>
         <div class="g50-metric"><span>Energy today</span><b>${kwh(d.kwh_today)}</b></div>
-        <div class="g50-metric"><span>Cost today</span><b>${money(d.bill_cost_today_cad)}</b></div>
+        <div class="g50-metric"><span>Grid cost today</span><b>${money(d.bill_cost_today_cad)}</b></div>
       </div>
       <div class="g50-note">${detail || 'No active warning.'}</div>
     </article>`;
@@ -97,7 +97,7 @@
       document.getElementById('g50List').innerHTML = (d.devices || []).map(g50Card).join('') ||
         '<div class="empty-note">No G50 devices configured.</div>';
       document.getElementById('powerTariffDetail').textContent =
-        `Wasaga variable bill estimate ${Number(t.bill_equivalent_variable_rate_cents_per_kwh || 0).toFixed(2)}¢/kWh now · fixed $${Number(t.fixed_monthly_cad || 0).toFixed(2)}/mo not allocated`;
+        `Incremental all-in variable rate ${Number(t.bill_equivalent_variable_rate_cents_per_kwh || 0).toFixed(2)}¢/kWh now · household fixed monthly charges ignored`;
       document.getElementById('powerUpdated').textContent =
         `Updated ${new Date(d.updated_at).toLocaleTimeString([], {hour:'numeric', minute:'2-digit', second:'2-digit'})}`;
       const metered = Number(total.metered_devices || 0);
