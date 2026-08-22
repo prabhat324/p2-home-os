@@ -1,5 +1,5 @@
 {
-  "request_id": "compute01-photo-postmount-audit-20260821-2029",
-  "operation": "pre-relocation-backup-audit",
-  "target": "all"
+  "request_id": "compute01-photo-content-verify-20260821-2030",
+  "operation": "photo-storage-readonly-verify",
+  "target": "compute-01"
 }
