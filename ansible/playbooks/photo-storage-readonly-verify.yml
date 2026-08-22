@@ -6,7 +6,7 @@
     primary_uuid: "697b7485-814e-48be-ba42-8bd4ae3e8336"
     backup_uuid: "c82cb42b-8619-4322-a819-6a579d3b7c31"
   tasks:
-    - name: Verify mounted UUIDs, infer tree alignment, and sample content without writes
+    - name: Verify mounted UUIDs, tree alignment, content samples and backup layout without writes
       ansible.builtin.shell: |
         set -euo pipefail
         psrc="$(findmnt -rn -o SOURCE /mnt/photos-primary)"
@@ -21,9 +21,26 @@
         findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS /mnt/photos-primary
         findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS /mnt/photos-backup
 
-        echo '=== RSYNC ITEMIZED CHANGE CODES ONLY ==='
-        rsync -aHAXni --delete --out-format='%i' /mnt/photos-primary/ /mnt/photos-backup/ 2>/dev/null \
-          | sed '/^$/d' | sort | uniq -c | sort -nr | head -40 || true
+        echo '=== BACKUP ROOT STRUCTURE ==='
+        python3 - <<'PY'
+        import os
+        for root in ('/mnt/photos-primary','/mnt/photos-backup'):
+            entries=[]
+            try:
+                for e in os.scandir(root):
+                    typ='dir' if e.is_dir(follow_symlinks=False) else 'file' if e.is_file(follow_symlinks=False) else 'other'
+                    entries.append((e.name,typ))
+            except OSError as exc:
+                print(root, 'SCAN_ERROR', type(exc).__name__)
+                continue
+            print(root, 'TOP_LEVEL_COUNT', len(entries))
+            for name,typ in sorted(entries)[:40]:
+                print(root, typ, repr(name))
+        PY
+
+        echo '=== BACKUP UNIT HISTORY (READ-ONLY) ==='
+        systemctl show compute01-backup.service -p User -p Group -p ExecStart -p Result -p ExecMainStatus -p ExecMainCode --no-pager 2>/dev/null || true
+        journalctl -u compute01-backup.service --no-pager -n 120 2>&1 | sed -n '1,160p' || true
 
         echo '=== STRUCTURE AND CONTENT SAMPLE ==='
         python3 - <<'PY'
@@ -34,99 +51,58 @@
         EXPECT_BYTES=1087848195312
 
         def catalog(root):
-            out={}
-            total=0
-            errors=0
+            out={}; total=0; errors=0
             for dp, dns, fns in os.walk(root):
                 for fn in fns:
-                    full=os.path.join(dp, fn)
-                    rel=os.path.relpath(full, root)
-                    try:
-                        st=os.stat(full, follow_symlinks=False)
-                    except OSError:
-                        errors += 1
-                        continue
+                    full=os.path.join(dp, fn); rel=os.path.relpath(full, root)
+                    try: st=os.stat(full, follow_symlinks=False)
+                    except OSError: errors += 1; continue
                     if stat.S_ISREG(st.st_mode):
-                        out[rel]=(st.st_size, int(st.st_mtime), stat.S_IMODE(st.st_mode))
-                        total += st.st_size
+                        out[rel]=(st.st_size, int(st.st_mtime), stat.S_IMODE(st.st_mode)); total += st.st_size
             return out,total,errors
 
-        def stripn(path, n):
+        def stripn(path,n):
             parts=path.split(os.sep)
-            if len(parts) <= n:
-                return None
-            return os.sep.join(parts[n:])
+            return None if len(parts)<=n else os.sep.join(parts[n:])
 
-        pc,pbytes,perr=catalog(P)
-        bc,bbytes,berr=catalog(B)
+        pc,pbytes,perr=catalog(P); bc,bbytes,berr=catalog(B)
         print(f'PRIMARY files={len(pc)} bytes={pbytes} stat_errors={perr}')
         print(f'BACKUP files={len(bc)} bytes={bbytes} stat_errors={berr}')
         assert len(pc)==EXPECT_FILES and pbytes==EXPECT_BYTES and perr==0
         assert len(bc)==EXPECT_FILES and bbytes==EXPECT_BYTES and berr==0
 
         mapping=None
-        for ps in range(0,4):
+        for ps in range(4):
             pnorm={stripn(k,ps):k for k in pc if stripn(k,ps) is not None}
-            if len(pnorm) != len(pc):
-                continue
-            for bs in range(0,4):
+            if len(pnorm)!=len(pc): continue
+            for bs in range(4):
                 bnorm={stripn(k,bs):k for k in bc if stripn(k,bs) is not None}
-                if len(bnorm) != len(bc):
-                    continue
-                if set(pnorm)==set(bnorm):
-                    mapping=(ps,bs,pnorm,bnorm)
-                    break
-            if mapping:
-                break
-
-        if mapping is None:
-            print('TREE_ALIGNMENT=NONE_WITHIN_3_LEVELS')
-            print(f'PRIMARY_TOP_LEVEL_COUNT={len(set(k.split(os.sep,1)[0] for k in pc))}')
-            print(f'BACKUP_TOP_LEVEL_COUNT={len(set(k.split(os.sep,1)[0] for k in bc))}')
-            raise SystemExit(3)
-
-        ps,bs,pnorm,bnorm=mapping
-        keys=sorted(pnorm)
+                if len(bnorm)!=len(bc): continue
+                if set(pnorm)==set(bnorm): mapping=(ps,bs,pnorm,bnorm); break
+            if mapping: break
+        assert mapping is not None
+        ps,bs,pnorm,bnorm=mapping; keys=sorted(pnorm)
         print(f'TREE_ALIGNMENT=PASS strip_primary={ps} strip_backup={bs} matched_paths={len(keys)}')
-        size_mismatch=0
-        mtime_mismatch=0
-        mode_mismatch=0
-        for norm in keys:
-            pa=pc[pnorm[norm]]
-            ba=bc[bnorm[norm]]
-            size_mismatch += pa[0] != ba[0]
-            mtime_mismatch += pa[1] != ba[1]
-            mode_mismatch += pa[2] != ba[2]
+        size_mismatch=sum(pc[pnorm[k]][0]!=bc[bnorm[k]][0] for k in keys)
+        mtime_mismatch=sum(pc[pnorm[k]][1]!=bc[bnorm[k]][1] for k in keys)
+        mode_mismatch=sum(pc[pnorm[k]][2]!=bc[bnorm[k]][2] for k in keys)
         print(f'METADATA size_mismatch={size_mismatch} mtime_seconds_mismatch={mtime_mismatch} mode_mismatch={mode_mismatch}')
         assert size_mismatch==0
 
-        def window_hash(path, size):
-            h=hashlib.sha256()
-            h.update(str(size).encode())
-            with open(path,'rb', buffering=0) as f:
+        def window_hash(path,size):
+            h=hashlib.sha256(); h.update(str(size).encode())
+            with open(path,'rb',buffering=0) as f:
                 h.update(f.read(min(size,1024*1024)))
-                if size > 1024*1024:
-                    f.seek(max(0,size-1024*1024))
-                    h.update(f.read(1024*1024))
+                if size>1024*1024:
+                    f.seek(max(0,size-1024*1024)); h.update(f.read(1024*1024))
             return h.digest()
-
-        n=min(128,len(keys))
-        idxs=sorted(set(round(i*(len(keys)-1)/(n-1)) for i in range(n))) if n>1 else [0]
-        sampled=0
-        mismatch=0
-        errors=0
+        n=min(128,len(keys)); idxs=sorted(set(round(i*(len(keys)-1)/(n-1)) for i in range(n))) if n>1 else [0]
+        mismatch=errors=sampled=0
         for i in idxs:
-            norm=keys[i]
-            pr=pnorm[norm]
-            br=bnorm[norm]
-            size=pc[pr][0]
+            k=keys[i]; pr=pnorm[k]; br=bnorm[k]; size=pc[pr][0]
             try:
-                a=window_hash(os.path.join(P,pr),size)
-                b=window_hash(os.path.join(B,br),size)
-                sampled += 1
-                mismatch += a != b
-            except OSError:
-                errors += 1
+                sampled+=1; mismatch += window_hash(os.path.join(P,pr),size)!=window_hash(os.path.join(B,br),size)
+            except OSError: errors+=1
         print(f'CONTENT_SAMPLE files={sampled} window_hash_mismatch={mismatch} read_errors={errors}')
         assert mismatch==0 and errors==0
         print('READONLY_CONTENT_VERIFY=PASS')
