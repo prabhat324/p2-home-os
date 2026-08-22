@@ -1,0 +1,127 @@
+---
+- name: Activate verified direct-attached photo storage on compute-01
+  hosts: compute-01
+  gather_facts: false
+  vars:
+    desired_ip: 192.168.0.31
+    primary_uuid: 697b7485-814e-48be-ba42-8bd4ae3e8336
+    backup_uuid: c82cb42b-8619-4322-a819-6a579d3b7c31
+    primary_serial: WD-WX21D3752YD0
+    backup_serial: WD-WXT1E849J7C9
+    expected_files: '30049'
+    expected_bytes: '1087848195312'
+  tasks:
+    - name: Preflight exact disks, direct USB paths, UUIDs and fstab
+      ansible.builtin.shell: |
+        set -euo pipefail
+        pdev="$(readlink -f /dev/disk/by-uuid/{{ primary_uuid }})"
+        bdev="$(readlink -f /dev/disk/by-uuid/{{ backup_uuid }})"
+        pdisk="/dev/$(lsblk -no PKNAME "$pdev")"
+        bdisk="/dev/$(lsblk -no PKNAME "$bdev")"
+        pserial="$(lsblk -dn -o SERIAL "$pdisk" | xargs)"
+        bserial="$(lsblk -dn -o SERIAL "$bdisk" | xargs)"
+        ppath="$(udevadm info --query=property --name="$pdisk" | sed -n 's/^ID_PATH=//p')"
+        bpath="$(udevadm info --query=property --name="$bdisk" | sed -n 's/^ID_PATH=//p')"
+        echo "PRIMARY_PART=$pdev PRIMARY_DISK=$pdisk SERIAL=$pserial PATH=$ppath"
+        echo "BACKUP_PART=$bdev BACKUP_DISK=$bdisk SERIAL=$bserial PATH=$bpath"
+        test "$pserial" = "{{ primary_serial }}"
+        test "$bserial" = "{{ backup_serial }}"
+        echo "$ppath" | grep -Eq 'usb-0:[0-9]+:1\.0-scsi-0:0:0:0$'
+        echo "$bpath" | grep -Eq 'usb-0:[0-9]+:1\.0-scsi-0:0:0:0$'
+        grep -Fq 'UUID={{ primary_uuid }} /mnt/photos-primary ext4' /etc/fstab
+        grep -Fq 'UUID={{ backup_uuid }} /mnt/photos-backup ext4' /etc/fstab
+        ! findmnt -rn /mnt/photos-primary >/dev/null 2>&1
+        ! findmnt -rn /mnt/photos-backup >/dev/null 2>&1
+        echo 'DIRECT_USB_PREFLIGHT=PASS'
+      args:
+        executable: /bin/bash
+      register: preflight
+      changed_when: false
+
+    - name: Print preflight evidence
+      ansible.builtin.debug:
+        var: preflight.stdout_lines
+
+    - name: Start controlled reboot so systemd mounts fstab entries as root
+      ansible.builtin.shell: >-
+        nohup sudo -n /usr/local/sbin/p2ops-network-static reboot
+        >/tmp/p2-photo-storage-reboot.log 2>&1 </dev/null &
+      changed_when: true
+
+    - name: Wait for SSH to stop
+      ansible.builtin.wait_for:
+        host: "{{ desired_ip }}"
+        port: 22
+        state: stopped
+        delay: 2
+        timeout: 90
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+
+    - name: Wait for SSH to return
+      ansible.builtin.wait_for:
+        host: "{{ desired_ip }}"
+        port: 22
+        state: started
+        delay: 5
+        timeout: 300
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+
+    - name: Wait for compute-01 connection after reboot
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: 150
+
+    - name: Verify mounts, identities, inventories and kernel health
+      ansible.builtin.shell: |
+        set -euo pipefail
+        echo '=== MOUNTS ==='
+        findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS /mnt/photos-primary
+        findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS /mnt/photos-backup
+        puuid="$(findmnt -rn -o UUID /mnt/photos-primary)"
+        buuid="$(findmnt -rn -o UUID /mnt/photos-backup)"
+        echo "PRIMARY_UUID=$puuid"
+        echo "BACKUP_UUID=$buuid"
+        test "$puuid" = "{{ primary_uuid }}"
+        test "$buuid" = "{{ backup_uuid }}"
+
+        echo '=== INVENTORY ==='
+        pfiles="$(find /mnt/photos-primary -xdev -type f -printf '.' | wc -c)"
+        pbytes="$(find /mnt/photos-primary -xdev -type f -printf '%s\n' | awk '{s+=$1} END{printf "%.0f",s+0}')"
+        bfiles="$(find /mnt/photos-backup -xdev -type f -printf '.' | wc -c)"
+        bbytes="$(find /mnt/photos-backup -xdev -type f -printf '%s\n' | awk '{s+=$1} END{printf "%.0f",s+0}')"
+        echo "PRIMARY files=$pfiles bytes=$pbytes"
+        echo "BACKUP files=$bfiles bytes=$bbytes"
+        test "$pfiles" = "{{ expected_files }}"
+        test "$pbytes" = "{{ expected_bytes }}"
+        test "$bfiles" = "{{ expected_files }}"
+        test "$bbytes" = "{{ expected_bytes }}"
+
+        echo '=== DIRECT USB AFTER REBOOT ==='
+        for uuid in {{ primary_uuid }} {{ backup_uuid }}; do
+          part="$(readlink -f /dev/disk/by-uuid/$uuid)"
+          disk="/dev/$(lsblk -no PKNAME "$part")"
+          serial="$(lsblk -dn -o SERIAL "$disk" | xargs)"
+          path="$(udevadm info --query=property --name="$disk" | sed -n 's/^ID_PATH=//p')"
+          echo "$uuid part=$part disk=$disk serial=$serial path=$path"
+          echo "$path" | grep -Eq 'usb-0:[0-9]+:1\.0-scsi-0:0:0:0$'
+        done
+
+        echo '=== KERNEL STORAGE ERRORS THIS BOOT ==='
+        errs="$(journalctl -k -b --no-pager 2>/dev/null | grep -Ei 'I/O error|critical medium|sense key.*(medium|hardware)|reset SuperSpeed USB device|device descriptor read.*error|Buffer I/O error|EXT4-fs error' || true)"
+        if [ -n "$errs" ]; then printf '%s\n' "$errs"; exit 23; else echo 'NONE'; fi
+
+        echo '=== SERVICE PORTS ==='
+        ss -lnt 2>/dev/null | grep -E ':(22|8096|2283|61208)[[:space:]]' || true
+        echo 'PHOTO_STORAGE_ACTIVATION=PASS'
+      args:
+        executable: /bin/bash
+      register: verification
+      changed_when: false
+
+    - name: Print activation verification
+      ansible.builtin.debug:
+        var: verification.stdout_lines
