@@ -1,0 +1,38 @@
+name: G50 Telemetry Probe
+
+on:
+  push:
+    branches:
+      - ops-control
+    paths:
+      - ops/g50-telemetry-request.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g50-telemetry-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    if: github.repository == 'prabhat324/p2-home-os'
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - core-01
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout ops branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Run read-only telemetry discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ops/g50_telemetry_probe.py
