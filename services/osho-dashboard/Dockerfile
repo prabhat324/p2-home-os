@@ -24,7 +24,7 @@ ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/static/analytics.html /app/static/analytics.html
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/static/storage01.js /app/static/storage01.js
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/static/powergrid.js /app/static/powergrid.js
-ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/static/tst902.html /app/static/tst902.html
+ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/f15a496e91170a288c5dbdf38a5bf24d58cbce45/services/osho-dashboard/app/static/tst902.html /app/static/tst902.html
 
 EXPOSE 8787
 
