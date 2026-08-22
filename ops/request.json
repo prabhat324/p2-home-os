@@ -1,5 +1,5 @@
 {
-  "request_id": "g50-live-dashboard-20260821-2022",
-  "operation": "dashboard-deploy",
-  "target": "compute-02"
+  "request_id": "photo-storage-direct-audit-20260821-2023",
+  "operation": "photo-storage-direct-audit",
+  "target": "compute-01"
 }
