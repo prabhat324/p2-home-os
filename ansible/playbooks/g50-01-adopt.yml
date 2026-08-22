@@ -12,23 +12,11 @@
             import socket; s=socket.create_connection(('192.168.0.236',80),3); s.close(); print('G50_01_HTTP_REACHABLE')
       changed_when: false
 
-    - name: Probe legacy TLS handshake without credentials
-      ansible.builtin.command:
-        argv:
-          - python3
-          - "{{ playbook_dir }}/../../ops/g50_tls_probe.py"
-      register: tls_probe
-      changed_when: false
-
-    - name: Show sanitized legacy TLS handshake result
-      ansible.builtin.debug:
-        var: tls_probe.stdout_lines
-
     - name: Recover legacy management access and normalize G50 #1 without touching outlet power
       ansible.builtin.command:
         argv:
           - python3
-          - "{{ playbook_dir }}/../../ops/g50_01_adopt_v6.py"
+          - "{{ playbook_dir }}/../../ops/g50_01_adopt_v7.py"
       register: g50_adopt
       changed_when: "'G50_01_ADOPT_OK' in g50_adopt.stdout"
 
