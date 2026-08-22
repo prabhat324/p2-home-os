@@ -31,12 +31,27 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Push sanitized live telemetry
+      - name: Install and verify live telemetry collector
         shell: bash
         run: |
           set -euo pipefail
           out="$(mktemp)"
-          trap 'rm -f "$out"' EXIT
-          python3 ops/g50_telemetry_push.py | tee "$out"
+          tmpcron="$(mktemp)"
+          trap 'rm -f "$out" "$tmpcron"' EXIT
+          install_dir="$HOME/.local/lib/p2-home-os/g50"
+          lock_file="$HOME/.cache/p2-g50-telemetry.lock"
+          install -d -m 700 "$install_dir" "$HOME/.cache"
+          install -m 700 ops/g50_telemetry_push.py "$install_dir/g50_telemetry_push.py"
+          install -m 600 ops/g50_manager_v3.py "$install_dir/g50_manager_v3.py"
+          {
+            crontab -l 2>/dev/null | grep -v 'P2_G50_TELEMETRY' || true
+            printf '%s\n' "* * * * * /usr/bin/flock -n '$lock_file' /usr/bin/python3 '$install_dir/g50_telemetry_push.py' >/dev/null 2>&1 # P2_G50_TELEMETRY"
+          } >"$tmpcron"
+          crontab "$tmpcron"
+          {
+            echo "G50_COLLECTOR install_dir=$install_dir"
+            echo "G50_COLLECTOR cron=$(crontab -l | grep -c 'P2_G50_TELEMETRY')"
+            /usr/bin/python3 "$install_dir/g50_telemetry_push.py"
+          } | tee "$out"
           curl -fsS --connect-timeout 3 --max-time 8 \
             -X POST --data-binary "@$out" http://192.168.0.158:18080/ || true
