@@ -9,6 +9,7 @@ import threading
 import time
 
 from fastapi import HTTPException, Request
+from fastapi.responses import FileResponse
 
 import power_server as base
 
@@ -148,6 +149,16 @@ def _collect_with_month():
 base._collect_device = _collect_device_with_web
 base._totals = _totals_with_month
 base._collect = _collect_with_month
+
+
+@app.get("/tst902")
+def tst902_console():
+    return FileResponse(base.base_server.base_server.base.STATIC_DIR / "tst902.html", media_type="text/html")
+
+
+@app.get("/assets/tst902.html")
+def tst902_console_asset():
+    return FileResponse(base.base_server.base_server.base.STATIC_DIR / "tst902.html", media_type="text/html")
 
 
 @app.post("/api/power/g50/ingest")
