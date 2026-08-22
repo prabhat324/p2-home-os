@@ -1,5 +1,5 @@
 {
-  "request_id": "g50-01-adopt-20260821-2005",
-  "operation": "g50-01-adopt",
-  "target": "core-01"
+  "request_id": "g50-power-dashboard-20260821-2008",
+  "operation": "dashboard-deploy",
+  "target": "compute-02"
 }
