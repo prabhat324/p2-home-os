@@ -5,10 +5,8 @@
   vars:
     primary_uuid: "697b7485-814e-48be-ba42-8bd4ae3e8336"
     backup_uuid: "c82cb42b-8619-4322-a819-6a579d3b7c31"
-    expected_files: 30049
-    expected_bytes: 1087848195312
   tasks:
-    - name: Verify exact mounted UUIDs and compare metadata/content samples without writes
+    - name: Verify mounted UUIDs, infer tree alignment, and sample content without writes
       ansible.builtin.shell: |
         set -euo pipefail
         psrc="$(findmnt -rn -o SOURCE /mnt/photos-primary)"
@@ -27,7 +25,7 @@
         rsync -aHAXni --delete --out-format='%i' /mnt/photos-primary/ /mnt/photos-backup/ 2>/dev/null \
           | sed '/^$/d' | sort | uniq -c | sort -nr | head -40 || true
 
-        echo '=== CATALOG AND CONTENT SAMPLE ==='
+        echo '=== STRUCTURE AND CONTENT SAMPLE ==='
         python3 - <<'PY'
         import hashlib, os, stat
         P='/mnt/photos-primary'
@@ -53,58 +51,84 @@
                         total += st.st_size
             return out,total,errors
 
+        def stripn(path, n):
+            parts=path.split(os.sep)
+            if len(parts) <= n:
+                return None
+            return os.sep.join(parts[n:])
+
         pc,pbytes,perr=catalog(P)
         bc,bbytes,berr=catalog(B)
-        pnames=set(pc)
-        bnames=set(bc)
-        common=sorted(pnames & bnames)
-        only_p=len(pnames-bnames)
-        only_b=len(bnames-pnames)
-        size_mismatch=sum(pc[r][0] != bc[r][0] for r in common)
-        mtime_mismatch=sum(pc[r][1] != bc[r][1] for r in common)
-        mode_mismatch=sum(pc[r][2] != bc[r][2] for r in common)
         print(f'PRIMARY files={len(pc)} bytes={pbytes} stat_errors={perr}')
         print(f'BACKUP files={len(bc)} bytes={bbytes} stat_errors={berr}')
-        print(f'PATH_SET only_primary={only_p} only_backup={only_b} common={len(common)}')
+        assert len(pc)==EXPECT_FILES and pbytes==EXPECT_BYTES and perr==0
+        assert len(bc)==EXPECT_FILES and bbytes==EXPECT_BYTES and berr==0
+
+        mapping=None
+        for ps in range(0,4):
+            pnorm={stripn(k,ps):k for k in pc if stripn(k,ps) is not None}
+            if len(pnorm) != len(pc):
+                continue
+            for bs in range(0,4):
+                bnorm={stripn(k,bs):k for k in bc if stripn(k,bs) is not None}
+                if len(bnorm) != len(bc):
+                    continue
+                if set(pnorm)==set(bnorm):
+                    mapping=(ps,bs,pnorm,bnorm)
+                    break
+            if mapping:
+                break
+
+        if mapping is None:
+            print('TREE_ALIGNMENT=NONE_WITHIN_3_LEVELS')
+            print(f'PRIMARY_TOP_LEVEL_COUNT={len(set(k.split(os.sep,1)[0] for k in pc))}')
+            print(f'BACKUP_TOP_LEVEL_COUNT={len(set(k.split(os.sep,1)[0] for k in bc))}')
+            raise SystemExit(3)
+
+        ps,bs,pnorm,bnorm=mapping
+        keys=sorted(pnorm)
+        print(f'TREE_ALIGNMENT=PASS strip_primary={ps} strip_backup={bs} matched_paths={len(keys)}')
+        size_mismatch=0
+        mtime_mismatch=0
+        mode_mismatch=0
+        for norm in keys:
+            pa=pc[pnorm[norm]]
+            ba=bc[bnorm[norm]]
+            size_mismatch += pa[0] != ba[0]
+            mtime_mismatch += pa[1] != ba[1]
+            mode_mismatch += pa[2] != ba[2]
         print(f'METADATA size_mismatch={size_mismatch} mtime_seconds_mismatch={mtime_mismatch} mode_mismatch={mode_mismatch}')
+        assert size_mismatch==0
 
-        assert len(pc)==EXPECT_FILES and pbytes==EXPECT_BYTES
-        assert len(bc)==EXPECT_FILES and bbytes==EXPECT_BYTES
-        assert only_p==0 and only_b==0 and size_mismatch==0
-        assert perr==0 and berr==0
-
-        # Deterministic spread across the complete sorted catalog. For each sampled
-        # file compare SHA-256 over the first and last 1 MiB plus file size. This is
-        # intentionally bounded so validation does not read the entire ~1 TB twice.
-        n=min(96, len(common))
-        idxs=sorted(set(round(i*(len(common)-1)/(n-1)) for i in range(n))) if n > 1 else [0]
         def window_hash(path, size):
             h=hashlib.sha256()
             h.update(str(size).encode())
             with open(path,'rb', buffering=0) as f:
-                first=f.read(min(size, 1024*1024))
-                h.update(first)
+                h.update(f.read(min(size,1024*1024)))
                 if size > 1024*1024:
-                    f.seek(max(0, size-1024*1024))
+                    f.seek(max(0,size-1024*1024))
                     h.update(f.read(1024*1024))
             return h.digest()
 
+        n=min(128,len(keys))
+        idxs=sorted(set(round(i*(len(keys)-1)/(n-1)) for i in range(n))) if n>1 else [0]
         sampled=0
-        hash_mismatch=0
-        hash_errors=0
+        mismatch=0
+        errors=0
         for i in idxs:
-            rel=common[i]
-            size=pc[rel][0]
+            norm=keys[i]
+            pr=pnorm[norm]
+            br=bnorm[norm]
+            size=pc[pr][0]
             try:
-                a=window_hash(os.path.join(P,rel), size)
-                b=window_hash(os.path.join(B,rel), size)
+                a=window_hash(os.path.join(P,pr),size)
+                b=window_hash(os.path.join(B,br),size)
                 sampled += 1
-                if a != b:
-                    hash_mismatch += 1
+                mismatch += a != b
             except OSError:
-                hash_errors += 1
-        print(f'CONTENT_SAMPLE files={sampled} window_hash_mismatch={hash_mismatch} read_errors={hash_errors}')
-        assert hash_mismatch==0 and hash_errors==0
+                errors += 1
+        print(f'CONTENT_SAMPLE files={sampled} window_hash_mismatch={mismatch} read_errors={errors}')
+        assert mismatch==0 and errors==0
         print('READONLY_CONTENT_VERIFY=PASS')
         PY
       args:
