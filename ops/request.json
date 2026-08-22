@@ -1,5 +1,5 @@
 {
-  "request_id": "g50-monthly-cost-dashboard-20260821-2032",
-  "operation": "dashboard-deploy",
-  "target": "compute-02"
+  "request_id": "compute01-photo-backup-layout-audit-20260821-2034",
+  "operation": "photo-storage-readonly-verify",
+  "target": "compute-01"
 }
