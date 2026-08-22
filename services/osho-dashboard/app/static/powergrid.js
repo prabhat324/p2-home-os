@@ -97,7 +97,7 @@
       document.getElementById('g50List').innerHTML = (d.devices || []).map(g50Card).join('') ||
         '<div class="empty-note">No G50 devices configured.</div>';
       document.getElementById('powerTariffDetail').textContent =
-        `Incremental all-in variable rate ${Number(t.bill_equivalent_variable_rate_cents_per_kwh || 0).toFixed(2)}¢/kWh now · household fixed monthly charges ignored`;
+        `Incremental all-in variable rate ${Number(t.bill_equivalent_variable_rate_cents_per_kwh || 0).toFixed(2)}¢/kWh now · fixed household charges ignored`;
       document.getElementById('powerUpdated').textContent =
         `Updated ${new Date(d.updated_at).toLocaleTimeString([], {hour:'numeric', minute:'2-digit', second:'2-digit'})}`;
       const metered = Number(total.metered_devices || 0);
