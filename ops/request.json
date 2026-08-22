@@ -1,5 +1,5 @@
 {
-  "request_id": "g50-01-finish-20260821-2028",
-  "operation": "g50-01-adopt",
-  "target": "core-01"
+  "request_id": "compute01-photo-postmount-audit-20260821-2029",
+  "operation": "pre-relocation-backup-audit",
+  "target": "all"
 }
