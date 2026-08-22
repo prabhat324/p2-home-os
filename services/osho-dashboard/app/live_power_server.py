@@ -18,6 +18,8 @@ LIVE_FILE = Path("/data/g50-live.json")
 LIVE_MAX_AGE_SECONDS = 150
 _live_lock = threading.Lock()
 _original_collect_device = base._collect_device
+_original_totals = base._totals
+_original_collect = base._collect
 
 DEVICE_MAP = {
     "g50-1": "g50-1",
@@ -105,10 +107,47 @@ def _collect_device_with_web(device_id: str, config: dict):
     return current
 
 
-# The existing /api/power/g50 handler resolves this module global at request
-# time, so patching the collector lets the existing integration/cost code use
-# the authenticated-web watts without duplicating billing logic.
+def _totals_with_month(device_id: str, now_ts: float):
+    totals = _original_totals(device_id, now_ts)
+    month_prefix = datetime.fromtimestamp(now_ts, base.TORONTO).strftime("%Y-%m-") + "%"
+    with base._db_lock:
+        conn = base._db()
+        monthly = conn.execute(
+            """
+            SELECT
+                COALESCE(SUM(kwh), 0) AS kwh,
+                COALESCE(SUM(tou_cost), 0) AS tou_cost,
+                COALESCE(SUM(bill_cost), 0) AS bill_cost
+            FROM power_daily
+            WHERE device=? AND day LIKE ?
+            """,
+            (device_id, month_prefix),
+        ).fetchone()
+        conn.close()
+    totals.update({
+        "kwh_month": float(monthly["kwh"]) if monthly else 0.0,
+        "tou_cost_month_cad": float(monthly["tou_cost"]) if monthly else 0.0,
+        "bill_cost_month_cad": float(monthly["bill_cost"]) if monthly else 0.0,
+    })
+    return totals
+
+
+def _collect_with_month():
+    data = _original_collect()
+    devices = data.get("devices") or []
+    totals = data.setdefault("totals", {})
+    totals["kwh_month"] = sum(float(d.get("kwh_month") or 0.0) for d in devices)
+    totals["tou_cost_month_cad"] = sum(float(d.get("tou_cost_month_cad") or 0.0) for d in devices)
+    totals["bill_cost_month_cad"] = sum(float(d.get("bill_cost_month_cad") or 0.0) for d in devices)
+    return data
+
+
+# The existing /api/power/g50 handler resolves these module globals at request
+# time. Patch the collectors so authenticated-web watts feed the original
+# integration logic, then add current-calendar-month rollups from power_daily.
 base._collect_device = _collect_device_with_web
+base._totals = _totals_with_month
+base._collect = _collect_with_month
 
 
 @app.post("/api/power/g50/ingest")
