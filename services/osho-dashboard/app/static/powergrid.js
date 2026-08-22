@@ -36,8 +36,8 @@
     <div class="power-summary">
       <div><span>Current TOU period</span><b id="powerTouPeriod">—</b></div>
       <div><span>TOU energy rate</span><b id="powerTouRate">—</b></div>
-      <div><span>Live G50 load</span><b id="powerLiveWatts">—</b></div>
       <div><span>Incremental grid cost today</span><b id="powerCostToday">—</b></div>
+      <div><span>Grid cost this month</span><b id="powerCostMonth">—</b></div>
     </div>
     <div class="g50-list" id="g50List">
       <div class="empty-note">Loading G50 telemetry…</div>
@@ -92,8 +92,8 @@
       document.getElementById('powerTouPeriod').textContent = `${t.label || '—'} · ${t.season || '—'}`;
       document.getElementById('powerTouRate').textContent =
         t.rate_cents_per_kwh != null ? `${Number(t.rate_cents_per_kwh).toFixed(1)}¢/kWh` : '—';
-      document.getElementById('powerLiveWatts').textContent = watts(total.live_watts);
       document.getElementById('powerCostToday').textContent = money(total.bill_cost_today_cad);
+      document.getElementById('powerCostMonth').textContent = money(total.bill_cost_month_cad);
       document.getElementById('g50List').innerHTML = (d.devices || []).map(g50Card).join('') ||
         '<div class="empty-note">No G50 devices configured.</div>';
       document.getElementById('powerTariffDetail').textContent =
