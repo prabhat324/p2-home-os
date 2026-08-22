@@ -12,11 +12,11 @@
             import socket; s=socket.create_connection(('192.168.0.236',80),3); s.close(); print('G50_01_HTTP_REACHABLE')
       changed_when: false
 
-    - name: Provision factory-reset G50 #1 without touching outlet power
+    - name: Finish G50 #1 reconciliation after protocol changes
       ansible.builtin.command:
         argv:
           - python3
-          - "{{ playbook_dir }}/../../ops/g50_manager_v3.py"
+          - "{{ playbook_dir }}/../../ops/g50_finish.py"
           - --device
           - p2-g50-01
           - --host
