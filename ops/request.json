@@ -1,5 +1,5 @@
 {
-  "request_id": "compute01-photo-mirror-dryrun-20260821-2036",
-  "operation": "photo-storage-readonly-verify",
-  "target": "compute-01"
+  "request_id": "tst902-dashboard-deploy-20260821-2054",
+  "operation": "dashboard-deploy",
+  "target": "compute-02"
 }
