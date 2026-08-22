@@ -38,6 +38,10 @@
                 print(root, typ, repr(name))
         PY
 
+        echo '=== CORRECT MIRROR RSYNC DRY RUN ==='
+        rsync -aHAXn --delete --stats /mnt/photos-primary/ /mnt/photos-backup/primary-mirror/ 2>&1 \
+          | grep -E 'rsync:|IO error|Number of files|Number of regular files transferred|Total file size|Total transferred file size|Literal data|Matched data|sent .* bytes|speedup' || true
+
         echo '=== BACKUP UNIT HISTORY (READ-ONLY) ==='
         systemctl show compute01-backup.service -p User -p Group -p ExecStart -p Result -p ExecMainStatus -p ExecMainCode --no-pager 2>/dev/null || true
         journalctl -u compute01-backup.service --no-pager -n 120 2>&1 | sed -n '1,160p' || true
