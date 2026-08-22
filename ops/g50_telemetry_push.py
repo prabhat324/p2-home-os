@@ -8,6 +8,7 @@ performed.
 from __future__ import annotations
 
 import datetime as dt
+import html
 import json
 import re
 import sys
@@ -26,6 +27,13 @@ VOLTAGE = re.compile(r"Line\s+Voltage:\s*([0-9.]+)\s*VAC", re.I)
 FREQUENCY = re.compile(r"Line\s+Frequency:\s*([0-9.]+)\s*Hz", re.I)
 CURRENT = re.compile(r"Output\s+Current:\s*([0-9.]+)\s*Amps?", re.I)
 POWER = re.compile(r"Output\s+Power:\s*([0-9.]+)\s*Watts?", re.I)
+TAG = re.compile(r"<[^>]+>")
+
+
+def normalize_page(page: str) -> str:
+    page = html.unescape(page)
+    page = TAG.sub(" ", page)
+    return re.sub(r"\s+", " ", page)
 
 
 def number(pattern, text):
@@ -43,7 +51,7 @@ def read_device(device: str, host: str):
     except Exception as exc:
         return None, f"login-{type(exc).__name__}"
     try:
-        page = apc.get("olstatus.htm")
+        page = normalize_page(apc.get("olstatus.htm"))
     except Exception as exc:
         return None, f"status-{type(exc).__name__}"
     finally:
