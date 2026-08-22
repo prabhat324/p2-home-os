@@ -31,18 +31,12 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Run read-only telemetry discovery
+      - name: Push sanitized live telemetry
         shell: bash
         run: |
           set -euo pipefail
           out="$(mktemp)"
           trap 'rm -f "$out"' EXIT
-          {
-            python3 ops/g50_telemetry_inventory.py
-            echo 'G50_SUDO_BEGIN'
-            sudo -n -l 2>&1 || true
-            echo 'G50_SUDO_END'
-            python3 ops/g50_telemetry_probe.py
-          } | tee "$out"
+          python3 ops/g50_telemetry_push.py | tee "$out"
           curl -fsS --connect-timeout 3 --max-time 8 \
             -X POST --data-binary "@$out" http://192.168.0.158:18080/ || true
