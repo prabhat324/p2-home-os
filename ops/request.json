@@ -1,5 +1,5 @@
 {
-  "request_id": "compute01-photo-storage-activate-reboot-20260821-2026",
-  "operation": "compute01-network-reboot-verify",
-  "target": "compute-01"
+  "request_id": "g50-01-finish-20260821-2028",
+  "operation": "g50-01-adopt",
+  "target": "core-01"
 }
