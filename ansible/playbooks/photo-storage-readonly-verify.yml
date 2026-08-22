@@ -1,91 +1,117 @@
 ---
-- name: Read-only verify both photo filesystems and inventories
+- name: Read-only verify mounted photo primary and backup content
   hosts: compute-01
   gather_facts: false
   vars:
     primary_uuid: "697b7485-814e-48be-ba42-8bd4ae3e8336"
     backup_uuid: "c82cb42b-8619-4322-a819-6a579d3b7c31"
+    expected_files: 30049
+    expected_bytes: 1087848195312
   tasks:
-    - name: Verify exact expected device UUIDs before any mount
+    - name: Verify exact mounted UUIDs and compare metadata/content samples without writes
       ansible.builtin.shell: |
         set -euo pipefail
-        p="$(readlink -f /dev/disk/by-uuid/{{ primary_uuid }})"
-        b="$(readlink -f /dev/disk/by-uuid/{{ backup_uuid }})"
-        echo "PRIMARY=$p"
-        echo "BACKUP=$b"
-        test "$p" = /dev/sdb1
-        test "$b" = /dev/sda1
-        ! findmnt -rn /mnt/photos-primary >/dev/null 2>&1
-        ! findmnt -rn /mnt/photos-backup >/dev/null 2>&1
+        psrc="$(findmnt -rn -o SOURCE /mnt/photos-primary)"
+        bsrc="$(findmnt -rn -o SOURCE /mnt/photos-backup)"
+        puuid="$(lsblk -no UUID "$psrc" | head -1 | xargs)"
+        buuid="$(lsblk -no UUID "$bsrc" | head -1 | xargs)"
+        echo "PRIMARY_SOURCE=$psrc UUID=$puuid"
+        echo "BACKUP_SOURCE=$bsrc UUID=$buuid"
+        test "$puuid" = "{{ primary_uuid }}"
+        test "$buuid" = "{{ backup_uuid }}"
+        echo '=== MOUNT OPTIONS ==='
+        findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS /mnt/photos-primary
+        findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS /mnt/photos-backup
+
+        echo '=== RSYNC ITEMIZED CHANGE CODES ONLY ==='
+        rsync -aHAXni --delete --out-format='%i' /mnt/photos-primary/ /mnt/photos-backup/ 2>/dev/null \
+          | sed '/^$/d' | sort | uniq -c | sort -nr | head -40 || true
+
+        echo '=== CATALOG AND CONTENT SAMPLE ==='
+        python3 - <<'PY'
+        import hashlib, os, stat
+        P='/mnt/photos-primary'
+        B='/mnt/photos-backup'
+        EXPECT_FILES=30049
+        EXPECT_BYTES=1087848195312
+
+        def catalog(root):
+            out={}
+            total=0
+            errors=0
+            for dp, dns, fns in os.walk(root):
+                for fn in fns:
+                    full=os.path.join(dp, fn)
+                    rel=os.path.relpath(full, root)
+                    try:
+                        st=os.stat(full, follow_symlinks=False)
+                    except OSError:
+                        errors += 1
+                        continue
+                    if stat.S_ISREG(st.st_mode):
+                        out[rel]=(st.st_size, int(st.st_mtime), stat.S_IMODE(st.st_mode))
+                        total += st.st_size
+            return out,total,errors
+
+        pc,pbytes,perr=catalog(P)
+        bc,bbytes,berr=catalog(B)
+        pnames=set(pc)
+        bnames=set(bc)
+        common=sorted(pnames & bnames)
+        only_p=len(pnames-bnames)
+        only_b=len(bnames-pnames)
+        size_mismatch=sum(pc[r][0] != bc[r][0] for r in common)
+        mtime_mismatch=sum(pc[r][1] != bc[r][1] for r in common)
+        mode_mismatch=sum(pc[r][2] != bc[r][2] for r in common)
+        print(f'PRIMARY files={len(pc)} bytes={pbytes} stat_errors={perr}')
+        print(f'BACKUP files={len(bc)} bytes={bbytes} stat_errors={berr}')
+        print(f'PATH_SET only_primary={only_p} only_backup={only_b} common={len(common)}')
+        print(f'METADATA size_mismatch={size_mismatch} mtime_seconds_mismatch={mtime_mismatch} mode_mismatch={mode_mismatch}')
+
+        assert len(pc)==EXPECT_FILES and pbytes==EXPECT_BYTES
+        assert len(bc)==EXPECT_FILES and bbytes==EXPECT_BYTES
+        assert only_p==0 and only_b==0 and size_mismatch==0
+        assert perr==0 and berr==0
+
+        # Deterministic spread across the complete sorted catalog. For each sampled
+        # file compare SHA-256 over the first and last 1 MiB plus file size. This is
+        # intentionally bounded so validation does not read the entire ~1 TB twice.
+        n=min(96, len(common))
+        idxs=sorted(set(round(i*(len(common)-1)/(n-1)) for i in range(n))) if n > 1 else [0]
+        def window_hash(path, size):
+            h=hashlib.sha256()
+            h.update(str(size).encode())
+            with open(path,'rb', buffering=0) as f:
+                first=f.read(min(size, 1024*1024))
+                h.update(first)
+                if size > 1024*1024:
+                    f.seek(max(0, size-1024*1024))
+                    h.update(f.read(1024*1024))
+            return h.digest()
+
+        sampled=0
+        hash_mismatch=0
+        hash_errors=0
+        for i in idxs:
+            rel=common[i]
+            size=pc[rel][0]
+            try:
+                a=window_hash(os.path.join(P,rel), size)
+                b=window_hash(os.path.join(B,rel), size)
+                sampled += 1
+                if a != b:
+                    hash_mismatch += 1
+            except OSError:
+                hash_errors += 1
+        print(f'CONTENT_SAMPLE files={sampled} window_hash_mismatch={hash_mismatch} read_errors={hash_errors}')
+        assert hash_mismatch==0 and hash_errors==0
+        print('READONLY_CONTENT_VERIFY=PASS')
+        PY
       args:
         executable: /bin/bash
-      register: identity
+      register: verify
       changed_when: false
 
-    - name: Read-only mount, verify inventories, and always clean up
-      block:
-        - name: Mount primary read-only through UDisks
-          ansible.builtin.command: udisksctl mount -b /dev/sdb1 -o ro
-          register: mount_primary
-          changed_when: true
-
-        - name: Mount backup read-only through UDisks
-          ansible.builtin.command: udisksctl mount -b /dev/sda1 -o ro
-          register: mount_backup
-          changed_when: true
-
-        - name: Verify read-only mounts and compare inventories
-          ansible.builtin.shell: |
-            set -euo pipefail
-            echo '=== MOUNTS ==='
-            findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS /mnt/photos-primary
-            findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS /mnt/photos-backup
-            findmnt -rn -o OPTIONS /mnt/photos-primary | grep -qw ro
-            findmnt -rn -o OPTIONS /mnt/photos-backup | grep -qw ro
-
-            echo '=== INVENTORY ==='
-            for p in /mnt/photos-primary /mnt/photos-backup; do
-              files="$(find "$p" -xdev -type f -printf '1\n' | wc -l)"
-              bytes="$(find "$p" -xdev -type f -printf '%s\n' | awk '{s+=$1} END{printf "%.0f",s+0}')"
-              echo "$p files=$files bytes=$bytes"
-            done
-          args:
-            executable: /bin/bash
-          register: verify
-          changed_when: false
-
-        - name: Print verification evidence
-          ansible.builtin.debug:
-            msg:
-              - "{{ identity.stdout_lines }}"
-              - "{{ mount_primary.stdout_lines | default([]) }}"
-              - "{{ mount_backup.stdout_lines | default([]) }}"
-              - "{{ verify.stdout_lines | default([]) }}"
-      always:
-        - name: Unmount primary verification mount if present
-          ansible.builtin.command: udisksctl unmount -b /dev/sdb1
-          register: unmount_primary
-          changed_when: unmount_primary.rc == 0
-          failed_when: false
-          when: mount_primary is defined and mount_primary.rc == 0
-
-        - name: Unmount backup verification mount if present
-          ansible.builtin.command: udisksctl unmount -b /dev/sda1
-          register: unmount_backup
-          changed_when: unmount_backup.rc == 0
-          failed_when: false
-          when: mount_backup is defined and mount_backup.rc == 0
-
-        - name: Confirm verification mounts are gone
-          ansible.builtin.shell: |
-            set -u
-            findmnt -rn /mnt/photos-primary 2>/dev/null || echo '/mnt/photos-primary=NOT_MOUNTED'
-            findmnt -rn /mnt/photos-backup 2>/dev/null || echo '/mnt/photos-backup=NOT_MOUNTED'
-          args:
-            executable: /bin/bash
-          register: cleanup_state
-          changed_when: false
-
-        - name: Print cleanup state
-          ansible.builtin.debug:
-            var: cleanup_state.stdout_lines
+    - name: Print read-only verification evidence
+      ansible.builtin.debug:
+        var: verify.stdout_lines
