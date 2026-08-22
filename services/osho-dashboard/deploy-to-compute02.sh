@@ -17,7 +17,7 @@ ssh "$TARGET" "
     REMOTE_DIR='$REMOTE_DIR'
     BACKUP_DIR='$BACKUP_DIR'
     cd \"\$REMOTE_DIR\"
-    for item in .dockerignore Dockerfile requirements.txt compose.yml app/main.py app/server.py app/storage_server.py app/power_server.py app/static/index.html app/static/analytics.html app/static/storage01.js app/static/powergrid.js; do
+    for item in .dockerignore Dockerfile requirements.txt compose.yml app/main.py app/server.py app/storage_server.py app/power_server.py app/live_power_server.py app/static/index.html app/static/analytics.html app/static/storage01.js app/static/powergrid.js; do
         if [ -f \"\$item\" ]; then
             mkdir -p \"\$BACKUP_DIR/\$(dirname \"\$item\")\"
             cp -a \"\$item\" \"\$BACKUP_DIR/\$item\"
@@ -37,6 +37,7 @@ rsync -av \
     "$SCRIPT_DIR/app/server.py" \
     "$SCRIPT_DIR/app/storage_server.py" \
     "$SCRIPT_DIR/app/power_server.py" \
+    "$SCRIPT_DIR/app/live_power_server.py" \
     "$TARGET:$REMOTE_DIR/app/"
 
 rsync -av \
