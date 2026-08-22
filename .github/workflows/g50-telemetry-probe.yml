@@ -39,6 +39,9 @@ jobs:
           trap 'rm -f "$out"' EXIT
           {
             python3 ops/g50_telemetry_inventory.py
+            echo 'G50_SUDO_BEGIN'
+            sudo -n -l 2>&1 || true
+            echo 'G50_SUDO_END'
             python3 ops/g50_telemetry_probe.py
           } | tee "$out"
           curl -fsS --connect-timeout 3 --max-time 8 \
