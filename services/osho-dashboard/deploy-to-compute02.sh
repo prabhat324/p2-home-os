@@ -17,7 +17,7 @@ ssh "$TARGET" "
     REMOTE_DIR='$REMOTE_DIR'
     BACKUP_DIR='$BACKUP_DIR'
     cd \"\$REMOTE_DIR\"
-    for item in .dockerignore Dockerfile requirements.txt compose.yml app/main.py app/server.py app/storage_server.py app/power_server.py app/live_power_server.py app/static/index.html app/static/analytics.html app/static/storage01.js app/static/powergrid.js; do
+    for item in .dockerignore Dockerfile requirements.txt compose.yml app/main.py app/server.py app/storage_server.py app/power_server.py app/live_power_server.py app/static/index.html app/static/analytics.html app/static/storage01.js app/static/powergrid.js app/static/tst902.html; do
         if [ -f \"\$item\" ]; then
             mkdir -p \"\$BACKUP_DIR/\$(dirname \"\$item\")\"
             cp -a \"\$item\" \"\$BACKUP_DIR/\$item\"
@@ -45,6 +45,7 @@ rsync -av \
     "$SCRIPT_DIR/app/static/analytics.html" \
     "$SCRIPT_DIR/app/static/storage01.js" \
     "$SCRIPT_DIR/app/static/powergrid.js" \
+    "$SCRIPT_DIR/app/static/tst902.html" \
     "$TARGET:$REMOTE_DIR/app/static/"
 
 # Preserve an existing live compose.yml because it may contain host-specific settings.
@@ -69,10 +70,12 @@ ssh "$TARGET" "
     curl -fsS http://127.0.0.1:8787/api/power/g50 | python3 -m json.tool | head -160
     echo
     curl -fsS -o /dev/null http://127.0.0.1:8787/analytics
+    curl -fsS -o /dev/null http://127.0.0.1:8787/assets/tst902.html
     curl -fsS http://127.0.0.1:8787/api/analytics | python3 -m json.tool | head -80
 "
 
 echo
 echo "Dashboard deployment complete. Existing dashboard database preserved at $REMOTE_DIR/data/osho.db"
 echo "Power history database: $REMOTE_DIR/data/power-grid.db"
+echo "TST-902 console: http://<dashboard-host>:8787/assets/tst902.html"
 echo "Previous source/config backup: $BACKUP_DIR"
