@@ -1,5 +1,5 @@
 {
-  "request_id": "photo-storage-direct-audit-20260821-2023",
-  "operation": "photo-storage-direct-audit",
-  "target": "compute-01"
+  "request_id": "g50-01-factory-provision-20260821-2025",
+  "operation": "g50-01-adopt",
+  "target": "core-01"
 }
