@@ -21,6 +21,7 @@ ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/storage_server.py /app/storage_server.py
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/power_server.py /app/power_server.py
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/live_power_server.py /app/live_power_server.py
+ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/reviewmuse_server.py /app/reviewmuse_server.py
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/static/analytics.html /app/static/analytics.html
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/static/storage01.js /app/static/storage01.js
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/static/powergrid.js /app/static/powergrid.js
@@ -28,4 +29,4 @@ ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/f15a496e91170a288c5d
 
 EXPOSE 8787
 
-CMD ["uvicorn", "live_power_server:app", "--host", "0.0.0.0", "--port", "8787"]
+CMD ["uvicorn", "reviewmuse_server:app", "--host", "0.0.0.0", "--port", "8787"]
