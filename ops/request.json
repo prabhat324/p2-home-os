@@ -1,6 +1,5 @@
 {
-  "request_id": "video2-srt-postreboot-20260903-1624",
-  "operation": "transcribe-srt",
-  "target": "compute-01",
-  "source_drive_file_id": "1d6b1UNjcs3CnVWPxqzhXWh7ApnGzjkuN"
+  "request_id": "wasaga-media-inspect-20260903-1521",
+  "operation": "media-post-inspect",
+  "target": "compute-01"
 }
