@@ -50,9 +50,9 @@
             ffmpeg -y -hide_banner -loglevel warning -i "$master" -vn -ac 1 -ar 16000 -c:a pcm_s16le "$work/master.wav"
             echo "STAGE=transcription"
             container=osho-worker
-            image=$(docker inspect "$container" | jq -r '.[0].Config.Image')
-            models_src=$(docker inspect "$container" | jq -r '.[0].Mounts[] | select(.Destination=="/models") | .Source')
-            docker run --rm --gpus all -v "$models_src:/models" -v "$work:/input" -v "$work:/output" -i --entrypoint python3 "$image" - /input/master.wav /output/captions.srt <<'PY'
+            image=$(sudo -n docker inspect "$container" | jq -r '.[0].Config.Image')
+            models_src=$(sudo -n docker inspect "$container" | jq -r '.[0].Mounts[] | select(.Destination=="/models") | .Source')
+            sudo -n docker run --rm --gpus all -v "$models_src:/models" -v "$work:/input" -v "$work:/output" -i --entrypoint python3 "$image" - /input/master.wav /output/captions.srt <<'PY'
           import re, sys
           from pathlib import Path
           from faster_whisper import WhisperModel
@@ -92,8 +92,8 @@
           fi
 
           echo "STAGE=graphics"
-          docker build -t psquare/media-post:0.1 "$work"
-          docker run --rm --gpus all -v /srv/media-production:/work psquare/media-post:0.1             --project /app/project.json             --master /work/inbox/wasaga-report-2026/master.mp4             --captions /jobwork/captions.srt             --assets /work/inbox/wasaga-report-2026             --output /jobout
+          sudo -n docker build -t psquare/media-post:0.1 "$work"
+          sudo -n docker run --rm --gpus all -v /srv/media-production:/work psquare/media-post:0.1             --project /app/project.json             --master /work/inbox/wasaga-report-2026/master.mp4             --captions /jobwork/captions.srt             --assets /work/inbox/wasaga-report-2026             --output /jobout
 
           echo "STAGE=review-render"
           python3 - "$work/project.json" "$out" "$master" <<'PY'
