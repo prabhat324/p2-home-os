@@ -1,0 +1,36 @@
+---
+- name: Check live Wasaga edit and GPU state
+  hosts: compute-01
+  gather_facts: false
+  tasks:
+    - name: Read process container GPU and log state
+      ansible.builtin.shell: |
+        echo IDENTITY_BEGIN
+        id
+        getent group docker || true
+        stat -c 'DOCKER_SOCKET=%A %U:%G' /var/run/docker.sock || true
+        echo IDENTITY_END
+        echo PROCESS_BEGIN
+        pgrep -af '[r]un-review-edit.sh|faster_whisper|ffmpeg|python3.*master.wav' || true
+        echo PROCESS_END
+        echo DOCKER_BEGIN
+        sg docker -c 'docker ps --no-trunc' || true
+        echo DOCKER_END
+        echo GPU_BEGIN
+        nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader || true
+        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.free --format=csv,noheader || true
+        echo GPU_END
+        echo LOG_BEGIN
+        tail -n 100 /var/tmp/p2-media/wasaga-report-2026/output/edit.log 2>/dev/null || true
+        echo LOG_END
+        echo OUTPUT_BEGIN
+        find /var/tmp/p2-media/wasaga-report-2026 -maxdepth 3 -type f -printf '%p %s bytes\n' 2>/dev/null | sort || true
+        echo OUTPUT_END
+      args:
+        executable: /bin/bash
+      register: status
+      changed_when: false
+
+    - name: Return live status
+      ansible.builtin.debug:
+        msg: "{{ status.stdout_lines }}"
