@@ -469,10 +469,11 @@ function selectNodeTemp(rows){
 }
 async function pollNode(n){
  if(n.kind==='qnap'){
-  const c=new AbortController(),t=setTimeout(()=>c.abort(),2800);
-  try{await fetch(n.health,{mode:'no-cors',cache:'no-store',signal:c.signal});nodeState[n.name]={online:true,qnap:true,capacity:n.capacity,model:n.model,raid:'Telemetry pending',mgmt:'8080'};}
-  catch(e){nodeState[n.name]={online:false,qnap:true,capacity:n.capacity,model:n.model,raid:'Telemetry pending',mgmt:'8080'};}
-  finally{clearTimeout(t)}
+  try{
+   const d=await j('/api/storage/storage-01',6500);
+   const volume=Array.isArray(d.volumes)&&d.volumes.length?d.volumes[0]:null;
+   nodeState[n.name]={online:Boolean(d.online),qnap:true,status:d.status||'unknown',cpu:d.cpu_percent,volume,capacity:volume?.total||n.capacity,free:volume?.free||null,usedPercent:volume?.used_percent,populated:d.populated_bays,bays:d.bay_count,empty:d.empty_bays,goodDisks:d.good_disks,temp:d.max_disk_temperature_c,disks:d.disks||[],message:d.message||'',snmpConfigured:Boolean(d.snmp_configured),qtsReachable:Boolean(d.qts_reachable)};
+  }catch(e){nodeState[n.name]={online:false,qnap:true,status:'offline',message:e.message};}
   return;
  }
  try{const [cpu,mem,fs,up,sensors]=await Promise.all([j(n.glances+'/api/4/cpu'),j(n.glances+'/api/4/mem'),j(n.glances+'/api/4/fs'),j(n.glances+'/api/4/uptime').catch(()=>null),j(n.glances+'/api/4/sensors').catch(()=>[])]);const temp=selectNodeTemp(sensors);const fsRows=Array.isArray(fs)?fs:[];const root=fsRows.find(x=>(x.mnt_point||x.mountpoint)==='/'||(x.mnt_point||x.mountpoint)==='/srv')||fsRows[0]||null;const filesystems={};fsRows.forEach(x=>{const mount=x.mnt_point||x.mountpoint;if(!mount)return;const total=num(x,'size','total'),free=num(x,'free','available'),used=num(x,'used');filesystems[mount]={total,free,used:used!=null?used:(total!=null&&free!=null?total-free:null),percent:num(x,'percent')};});nodeState[n.name]={online:true,cpu:num(cpu,'total','percent')||0,ram:num(mem,'percent')||0,ramFree:num(mem,'available')!=null?num(mem,'available')/1073741824:null,disk:num(root,'percent')||0,diskFree:num(root,'free')!=null?num(root,'free')/1073741824:null,filesystems,temp,uptime:uptimeText(up&&((up.uptime)||up))};}catch(e){nodeState[n.name]={online:false};}}
