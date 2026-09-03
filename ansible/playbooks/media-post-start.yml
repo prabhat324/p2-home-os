@@ -4,8 +4,8 @@
   gather_facts: false
   vars:
     job_root: /srv/media-production/inbox/wasaga-report-2026
-    work_root: /srv/media-production/inbox/wasaga-report-2026/work
-    output_root: /srv/media-production/inbox/wasaga-report-2026/output
+    work_root: /home/psquare/media-production/wasaga-report-2026/work
+    output_root: /home/psquare/media-production/wasaga-report-2026/output
   tasks:
     - name: Create job directories
       ansible.builtin.file:
@@ -35,10 +35,10 @@
           #!/usr/bin/env bash
           set -euo pipefail
           job=/srv/media-production/inbox/wasaga-report-2026
-          work=/srv/media-production/inbox/wasaga-report-2026/work
-          out=/srv/media-production/inbox/wasaga-report-2026/output
+          work=/home/psquare/media-production/wasaga-report-2026/work
+          out=/home/psquare/media-production/wasaga-report-2026/output
           master="$job/master.mp4"
-          srt="$job/captions.srt"
+          srt="$work/captions.srt"
           log="$out/edit.log"
           exec >>"$log" 2>&1
           echo "STARTED=$(date -Is)"
@@ -52,7 +52,7 @@
             container=osho-worker
             image=$(docker inspect "$container" | jq -r '.[0].Config.Image')
             models_src=$(docker inspect "$container" | jq -r '.[0].Mounts[] | select(.Destination=="/models") | .Source')
-            docker run --rm --gpus all -v "$models_src:/models" -v "$work:/input" -v "$job:/output" -i --entrypoint python3 "$image" - /input/master.wav /output/captions.srt <<'PY'
+            docker run --rm --gpus all -v "$models_src:/models" -v "$work:/input" -v "$work:/output" -i --entrypoint python3 "$image" - /input/master.wav /output/captions.srt <<'PY'
           import re, sys
           from pathlib import Path
           from faster_whisper import WhisperModel
@@ -93,7 +93,7 @@
 
           echo "STAGE=graphics"
           docker build -t psquare/media-post:0.1 "$work"
-          docker run --rm --gpus all -v /srv/media-production:/work psquare/media-post:0.1             --project /app/project.json             --master /work/inbox/wasaga-report-2026/master.mp4             --captions /work/inbox/wasaga-report-2026/captions.srt             --assets /work/inbox/wasaga-report-2026             --output /work/inbox/wasaga-report-2026/output
+          docker run --rm --gpus all -v /srv/media-production:/work psquare/media-post:0.1             --project /app/project.json             --master /work/inbox/wasaga-report-2026/master.mp4             --captions /jobwork/captions.srt             --assets /work/inbox/wasaga-report-2026             --output /jobout
 
           echo "STAGE=review-render"
           python3 - "$work/project.json" "$out" "$master" <<'PY'
@@ -120,7 +120,7 @@
 
     - name: Check for an existing edit process
       ansible.builtin.shell: |
-        pgrep -af '/srv/media-production/inbox/wasaga-report-2026/work/run-review-edit.sh' || true
+        pgrep -af '/home/psquare/media-production/wasaga-report-2026/work/run-review-edit.sh' || true
       register: existing
       changed_when: false
 
