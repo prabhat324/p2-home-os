@@ -120,7 +120,7 @@
 
     - name: Check for an existing edit process
       ansible.builtin.shell: |
-        pgrep -af '/var/tmp/p2-media/wasaga-report-2026/work/run-review-edit.sh' || true
+        pgrep -af '[r]un-review-edit.sh' || true
       register: existing
       changed_when: false
 
