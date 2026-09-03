@@ -1,0 +1,22 @@
+{
+  "project_id": "wasaga-report-2026",
+  "title": "Wasaga Beach Report",
+  "brand": "BeSquare by pSquare",
+  "tagline": "Conversations Worth Having",
+  "format": {"width": 1920, "height": 1080, "fps": 30},
+  "palette": {"navy": "#0B1F33", "blue": "#1677FF", "gold": "#F2B544", "paper": "#F7F2E8", "ink": "#16202A"},
+  "editorial_labels": ["CONFIRMED", "PROPOSED", "QUESTION"],
+  "events": [
+    {"id":"vision","start":"00:00:42.780","duration":8,"type":"framework","label":"QUESTION","headline":"VISION → APPROVAL → FUNDING → DELIVERY","source":"Editorial framework"},
+    {"id":"destination","start":"00:01:10.160","duration":7,"type":"document","label":"CONFIRMED","headline":"Destination Wasaga master planning","source":"Town of Wasaga Beach","asset":"sources/destination-wasaga.png"},
+    {"id":"investment","start":"00:03:04.890","duration":8,"type":"headline","label":"PROPOSED","headline":"The $2-billion transformation claim","source":"Public statement — verify scope and timing"},
+    {"id":"breakdown","start":"00:03:43.590","duration":10,"type":"breakdown","label":"QUESTION","headline":"What makes up the $506M investment?","source":"Public project figures"},
+    {"id":"funding","start":"00:04:42.590","duration":8,"type":"number","label":"CONFIRMED","headline":"$38M confirmed funding","source":"Public funding announcements"},
+    {"id":"gondola","start":"00:06:41.170","duration":9,"type":"headline","label":"PROPOSED","headline":"Ropeway exploration—not project approval","source":"Town announcement / Doppelmayr","asset":"sources/ropeway-announcement.png"},
+    {"id":"sunray","start":"00:08:25.330","duration":10,"type":"document","label":"QUESTION","headline":"Sunray / Marriott: what is the delivery timeline?","source":"Town announcement","asset":"sources/sunray-announcement.png"},
+    {"id":"tax","start":"00:09:30.370","duration":7,"type":"number","label":"CONFIRMED","headline":"2.99% property-tax increase","source":"Town 2026 budget"},
+    {"id":"arena","start":"00:10:22.750","duration":9,"type":"breakdown","label":"QUESTION","headline":"Arena and library: budget vs. final cost","source":"Town budget documents"},
+    {"id":"election","start":"00:14:54.270","duration":8,"type":"date","label":"CONFIRMED","headline":"Municipal election — October 26, 2026","source":"Municipal election calendar"}
+  ]
+}
+
