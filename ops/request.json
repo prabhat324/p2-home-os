@@ -1,5 +1,6 @@
 {
-  "request_id": "compute01-reboot-for-video2-srt-20260903-1607",
-  "operation": "compute01-network-reboot-verify",
-  "target": "compute-01"
+  "request_id": "video2-srt-postreboot-20260903-1624",
+  "operation": "transcribe-srt",
+  "target": "compute-01",
+  "source_drive_file_id": "1d6b1UNjcs3CnVWPxqzhXWh7ApnGzjkuN"
 }
