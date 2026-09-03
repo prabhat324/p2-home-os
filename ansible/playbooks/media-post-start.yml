@@ -4,8 +4,8 @@
   gather_facts: false
   vars:
     job_root: /srv/media-production/inbox/wasaga-report-2026
-    work_root: /srv/media-production/work/wasaga-report-2026
-    output_root: /srv/media-production/output/wasaga-report-2026
+    work_root: /srv/media-production/inbox/wasaga-report-2026/work
+    output_root: /srv/media-production/inbox/wasaga-report-2026/output
   tasks:
     - name: Create job directories
       ansible.builtin.file:
@@ -35,8 +35,8 @@
           #!/usr/bin/env bash
           set -euo pipefail
           job=/srv/media-production/inbox/wasaga-report-2026
-          work=/srv/media-production/work/wasaga-report-2026
-          out=/srv/media-production/output/wasaga-report-2026
+          work=/srv/media-production/inbox/wasaga-report-2026/work
+          out=/srv/media-production/inbox/wasaga-report-2026/output
           master="$job/master.mp4"
           srt="$job/captions.srt"
           log="$out/edit.log"
@@ -93,7 +93,7 @@
 
           echo "STAGE=graphics"
           docker build -t psquare/media-post:0.1 "$work"
-          docker run --rm --gpus all -v /srv/media-production:/work psquare/media-post:0.1             --project /app/project.json             --master /work/inbox/wasaga-report-2026/master.mp4             --captions /work/inbox/wasaga-report-2026/captions.srt             --assets /work/inbox/wasaga-report-2026             --output /work/output/wasaga-report-2026
+          docker run --rm --gpus all -v /srv/media-production:/work psquare/media-post:0.1             --project /app/project.json             --master /work/inbox/wasaga-report-2026/master.mp4             --captions /work/inbox/wasaga-report-2026/captions.srt             --assets /work/inbox/wasaga-report-2026             --output /work/inbox/wasaga-report-2026/output
 
           echo "STAGE=review-render"
           python3 - "$work/project.json" "$out" "$master" <<'PY'
@@ -120,7 +120,7 @@
 
     - name: Check for an existing edit process
       ansible.builtin.shell: |
-        pgrep -af '/srv/media-production/work/wasaga-report-2026/run-review-edit.sh' || true
+        pgrep -af '/srv/media-production/inbox/wasaga-report-2026/work/run-review-edit.sh' || true
       register: existing
       changed_when: false
 
