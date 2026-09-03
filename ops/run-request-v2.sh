@@ -123,6 +123,10 @@ case "${operation}" in
     [[ "${target}" == "core-01" ]] || { echo "g50-02-provision is restricted to core-01" >&2; exit 2; }
     playbook="playbooks/g50-02-provision.yml"
     ;;
+  dashboard-predeploy-backup-inspect)
+    [[ "${target}" == "compute-02" ]] || { echo "dashboard-predeploy-backup-inspect is restricted to compute-02" >&2; exit 2; }
+    playbook="playbooks/dashboard-predeploy-backup-inspect.yml"
+    ;;
   *)
     exec bash "${ROOT_DIR}/ops/run-request.sh" "${REQUEST_FILE}"
     ;;
