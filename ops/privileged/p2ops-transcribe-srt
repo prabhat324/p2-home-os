@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ ${EUID} -eq 0 ]] || { echo "Must run as root via sudo" >&2; exit 1; }
+[[ "${1:-}" == "video2-20260903" ]] || { echo "Allowed action: video2-20260903" >&2; exit 2; }
+
+container=osho-worker
+drive_id=1d6b1UNjcs3CnVWPxqzhXWh7ApnGzjkuN
+host_root=/srv/osho/manual-transcripts/video2-20260903
+host_audio="$host_root/input.wav"
+host_srt="$host_root/Video2_Audio_Verified_Captions.srt"
+container_audio=/data/manual-transcripts/video2-20260903/input.wav
+container_srt=/data/manual-transcripts/video2-20260903/Video2_Audio_Verified_Captions.srt
+
+install -d -m 0700 "$host_root"
+curl -fL --retry 3 --connect-timeout 20 --max-time 300 \
+  "https://drive.usercontent.google.com/download?id=$drive_id&export=download&confirm=t" \
+  -o "$host_audio"
+test "$(stat -c %s "$host_audio")" -gt 1000000
+file "$host_audio" | grep -qiE 'WAVE audio|RIFF'
+
+docker inspect "$container" >/dev/null
+docker exec -i "$container" python3 - "$container_audio" "$container_srt" <<'PY'
+import re, sys
+from pathlib import Path
+from faster_whisper import WhisperModel
+audio_path, output_path = sys.argv[1], sys.argv[2]
+model=WhisperModel("medium",device="cuda",compute_type="int8_float16",download_root="/models")
+segments,info=model.transcribe(audio_path,language="en",beam_size=5,vad_filter=True,word_timestamps=True,condition_on_previous_text=True)
+words=[]
+for seg in segments:
+    for w in seg.words or []:
+        t=w.word.strip()
+        if t and w.start is not None and w.end is not None: words.append((float(w.start),float(w.end),t))
+def ts(s):
+    n=max(0,round(s*1000)); h,n=divmod(n,3600000); m,n=divmod(n,60000); sec,ms=divmod(n,1000)
+    return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
+def clean(tokens):
+    x=re.sub(r"\s+([,.;:!?])",r"\1"," ".join(tokens))
+    if len(x)<=42:return x
+    points=[i for i,c in enumerate(x) if c==" "]
+    p=min(points,key=lambda i:abs(i-len(x)/2)) if points else -1
+    return x if p<1 else x[:p].strip()+"\n"+x[p+1:].strip()
+cues=[]; cur=[]; start=None; end=None
+for ws,we,tok in words:
+    plain=clean(cur+[tok]).replace("\n"," ")
+    if cur and (len(plain)>84 or we-start>5.5 or ws-end>0.8):
+        cues.append((start,max(end,start+0.8),clean(cur))); cur=[]; start=None
+    if not cur:start=ws
+    cur.append(tok); end=we
+    if re.search(r"[.!?]$",tok) and end-start>=1.2:
+        cues.append((start,max(end,start+0.8),clean(cur))); cur=[]; start=None; end=None
+if cur:cues.append((start,max(end,start+0.8),clean(cur)))
+out=Path(output_path); out.parent.mkdir(parents=True,exist_ok=True)
+with out.open("w",encoding="utf-8") as f:
+    for i,(a,b,text) in enumerate(cues,1):f.write(f"{i}\n{ts(a)} --> {ts(b)}\n{text}\n\n")
+print(f"LANGUAGE={info.language}")
+print(f"WORD_COUNT={len(words)}")
+print(f"CUE_COUNT={len(cues)}")
+PY
+
+test -s "$host_srt"
+echo "SRT_BYTES=$(stat -c %s "$host_srt")"
+echo "SRT_SHA256=$(sha256sum "$host_srt" | awk '{print $1}')"
+echo SRT_GZIP_BASE64_BEGIN
+gzip -9 -c "$host_srt" | base64 -w0
+echo
+echo SRT_GZIP_BASE64_END
