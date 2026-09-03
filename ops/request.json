@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-exact-backup-restore-20260902-2318",
-  "operation": "dashboard-deploy",
+  "request_id": "dashboard-restore-verify-20260902-2320",
+  "operation": "dashboard-predeploy-backup-inspect",
   "target": "compute-02"
 }
