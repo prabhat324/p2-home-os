@@ -20,8 +20,13 @@ file "$host_audio" | grep -qiE 'WAVE audio|RIFF'
 
 docker inspect "$container" >/dev/null
 image="$(docker inspect -f '{{.Config.Image}}' "$container")"
-[[ -n "$image" ]] || { echo "Unable to resolve Osho worker image" >&2; exit 3; }
-docker run --rm --gpus all --volumes-from "$container" -i --entrypoint python3 "$image" - "$container_audio" "$container_srt" <<'PY'
+data_src="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$container")"
+models_src="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/models"}}{{.Source}}{{end}}{{end}}' "$container")"
+[[ -n "$image" && -n "$data_src" && -n "$models_src" ]] || { echo "Unable to resolve Osho image or mounts" >&2; exit 3; }
+docker run --rm --gpus all \
+  -v "$data_src:/data" \
+  -v "$models_src:/models" \
+  -i --entrypoint python3 "$image" - "$container_audio" "$container_srt" <<'PY'
 import re, sys
 from pathlib import Path
 from faster_whisper import WhisperModel
