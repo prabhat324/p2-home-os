@@ -131,6 +131,10 @@ case "${operation}" in
     [[ "${target}" == "compute-02" ]] || { echo "dashboard-predeploy-backup-inspect is restricted to compute-02" >&2; exit 2; }
     playbook="playbooks/dashboard-predeploy-backup-inspect.yml"
     ;;
+  media-post-inspect)
+    [[ "${target}" == "compute-01" ]] || { echo "media-post-inspect is restricted to compute-01" >&2; exit 2; }
+    playbook="playbooks/media-post-inspect.yml"
+    ;;
   transcribe-srt)
     [[ "${target}" == "compute-01" ]] || { echo "transcribe-srt is restricted to compute-01" >&2; exit 2; }
     source_drive_file_id="$(jq -er '.source_drive_file_id' "${REQUEST_FILE}")"
