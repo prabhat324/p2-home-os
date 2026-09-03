@@ -1,5 +1,5 @@
 {
-  "request_id": "wasaga-media-edit-activecheck-20260903-1618",
-  "operation": "media-post-start",
+  "request_id": "wasaga-media-gpu-status-20260903-1649",
+  "operation": "media-post-status",
   "target": "compute-01"
 }
