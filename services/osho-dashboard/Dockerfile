@@ -21,10 +21,11 @@ ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/storage_server.py /app/storage_server.py
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/power_server.py /app/power_server.py
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/live_power_server.py /app/live_power_server.py
-ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/reviewmuse_server.py /app/reviewmuse_server.py
-ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/static/analytics.html /app/static/analytics.html
+# Local analytics.html is maintained in app/static so dashboard navigation stays consistent.
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/static/storage01.js /app/static/storage01.js
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/static/powergrid.js /app/static/powergrid.js
+# Local override adds the dedicated /power route while preserving the production power widget.
+COPY app/static/powergrid.js /app/static/powergrid.js
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/f15a496e91170a288c5dbdf38a5bf24d58cbce45/services/osho-dashboard/app/static/tst902.html /app/static/tst902.html
 
 EXPOSE 8787
