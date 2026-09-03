@@ -131,6 +131,12 @@ case "${operation}" in
     [[ "${target}" == "compute-02" ]] || { echo "dashboard-predeploy-backup-inspect is restricted to compute-02" >&2; exit 2; }
     playbook="playbooks/dashboard-predeploy-backup-inspect.yml"
     ;;
+  transcribe-srt)
+    [[ "${target}" == "compute-01" ]] || { echo "transcribe-srt is restricted to compute-01" >&2; exit 2; }
+    source_drive_file_id="$(jq -er '.source_drive_file_id' "${REQUEST_FILE}")"
+    [[ "${source_drive_file_id}" =~ ^[A-Za-z0-9_-]{20,100}$ ]] || { echo "Invalid source_drive_file_id" >&2; exit 2; }
+    playbook="playbooks/transcribe-srt.yml"
+    ;;
   *)
     exec bash "${ROOT_DIR}/ops/run-request.sh" "${REQUEST_FILE}"
     ;;
