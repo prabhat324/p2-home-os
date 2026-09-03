@@ -1,0 +1,143 @@
+---
+- name: Start non-destructive Wasaga Beach review edit
+  hosts: compute-01
+  gather_facts: false
+  vars:
+    job_root: /srv/media-production/inbox/wasaga-report-2026
+    work_root: /srv/media-production/work/wasaga-report-2026
+    output_root: /srv/media-production/output/wasaga-report-2026
+  tasks:
+    - name: Create job directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ work_root }}"
+        - "{{ output_root }}"
+
+    - name: Copy media pipeline files
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../services/media-post/{{ item }}"
+        dest: "{{ work_root }}/{{ item }}"
+        mode: "0644"
+      loop:
+        - Dockerfile
+        - requirements.txt
+        - pipeline.py
+        - project.json
+
+    - name: Install background edit script
+      ansible.builtin.copy:
+        dest: "{{ work_root }}/run-review-edit.sh"
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          job=/srv/media-production/inbox/wasaga-report-2026
+          work=/srv/media-production/work/wasaga-report-2026
+          out=/srv/media-production/output/wasaga-report-2026
+          master="$job/master.mp4"
+          srt="$job/captions.srt"
+          log="$out/edit.log"
+          exec >>"$log" 2>&1
+          echo "STARTED=$(date -Is)"
+          echo "MASTER_SHA256=$(sha256sum "$master" | awk '{print $1}')"
+          mkdir -p "$out" "$work"
+
+          if [[ ! -s "$srt" ]]; then
+            echo "STAGE=audio-extract"
+            ffmpeg -y -hide_banner -loglevel warning -i "$master" -vn -ac 1 -ar 16000 -c:a pcm_s16le "$work/master.wav"
+            echo "STAGE=transcription"
+            container=osho-worker
+            image=$(docker inspect "$container" | jq -r '.[0].Config.Image')
+            models_src=$(docker inspect "$container" | jq -r '.[0].Mounts[] | select(.Destination=="/models") | .Source')
+            docker run --rm --gpus all -v "$models_src:/models" -v "$work:/input" -v "$job:/output" -i --entrypoint python3 "$image" - /input/master.wav /output/captions.srt <<'PY'
+          import re, sys
+          from pathlib import Path
+          from faster_whisper import WhisperModel
+          audio_path, output_path = sys.argv[1], sys.argv[2]
+          model=WhisperModel("medium",device="cuda",compute_type="int8_float16",download_root="/models")
+          segments,info=model.transcribe(audio_path,language="en",beam_size=5,vad_filter=True,word_timestamps=True,condition_on_previous_text=True)
+          words=[]
+          for seg in segments:
+              for w in seg.words or []:
+                  token=w.word.strip()
+                  if token and w.start is not None and w.end is not None:
+                      words.append((float(w.start),float(w.end),token))
+          def ts(sec):
+              n=max(0,round(sec*1000)); h,n=divmod(n,3600000); m,n=divmod(n,60000); s,ms=divmod(n,1000)
+              return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+          def clean(tokens):
+              text=re.sub(r"\s+([,.;:!?])",r"\1"," ".join(tokens))
+              if len(text)<=42: return text
+              points=[i for i,ch in enumerate(text) if ch==" "]
+              point=min(points,key=lambda i:abs(i-len(text)/2)) if points else -1
+              return text if point<1 else text[:point].strip()+"\n"+text[point+1:].strip()
+          cues=[]; cur=[]; start=None; end=None
+          for ws,we,token in words:
+              plain=clean(cur+[token]).replace("\n"," ")
+              if cur and (len(plain)>84 or we-start>5.5 or ws-end>0.8):
+                  cues.append((start,max(end,start+0.8),clean(cur))); cur=[]; start=None
+              if not cur: start=ws
+              cur.append(token); end=we
+              if re.search(r"[.!?]$",token) and end-start>=1.2:
+                  cues.append((start,max(end,start+0.8),clean(cur))); cur=[]; start=None; end=None
+          if cur: cues.append((start,max(end,start+0.8),clean(cur)))
+          with Path(output_path).open("w",encoding="utf-8") as fh:
+              for i,(a,b,text) in enumerate(cues,1):
+                  fh.write(f"{i}\n{ts(a)} --> {ts(b)}\n{text}\n\n")
+          print(f"LANGUAGE={info.language} WORDS={len(words)} CUES={len(cues)}")
+          PY
+          fi
+
+          echo "STAGE=graphics"
+          docker build -t psquare/media-post:0.1 "$work"
+          docker run --rm --gpus all -v /srv/media-production:/work psquare/media-post:0.1             --project /app/project.json             --master /work/inbox/wasaga-report-2026/master.mp4             --captions /work/inbox/wasaga-report-2026/captions.srt             --assets /work/inbox/wasaga-report-2026             --output /work/output/wasaga-report-2026
+
+          echo "STAGE=review-render"
+          python3 - "$work/project.json" "$out" "$master" <<'PY'
+          import json, subprocess, sys
+          from pathlib import Path
+          project=Path(sys.argv[1]); out=Path(sys.argv[2]); master=Path(sys.argv[3])
+          cfg=json.loads(project.read_text())
+          cmd=["ffmpeg","-y","-hide_banner","-loglevel","warning","-i",str(master)]
+          for e in cfg["events"]:
+              cmd += ["-loop","1","-i",str(out/"cards"/(e["id"]+".png"))]
+          chain=["[0:v]scale=1920:1080:flags=lanczos,setsar=1[v0]"]
+          previous="v0"
+          for i,e in enumerate(cfg["events"],1):
+              h,m,s=e["start"].split(":"); start=int(h)*3600+int(m)*60+float(s); end=start+float(e["duration"])
+              current=f"v{i}"
+              chain.append(f"[{previous}][{i}:v]overlay=0:0:enable='between(t,{start:.3f},{end:.3f})'[{current}]")
+              previous=current
+          cmd += ["-filter_complex",";".join(chain),"-map",f"[{previous}]","-map","0:a:0","-c:v","h264_nvenc","-preset","p5","-rc","vbr","-cq","18","-b:v","14M","-maxrate","22M","-bufsize","44M","-c:a","aac","-b:a","256k","-movflags","+faststart","-shortest",str(out/"Wasaga_Report_review_v1.mp4")]
+          subprocess.run(cmd,check=True)
+          PY
+          sha256sum "$out/Wasaga_Report_review_v1.mp4" > "$out/Wasaga_Report_review_v1.mp4.sha256"
+          echo "COMPLETED=$(date -Is)"
+          echo "OUTPUT=$out/Wasaga_Report_review_v1.mp4"
+
+    - name: Check for an existing edit process
+      ansible.builtin.shell: |
+        pgrep -af '/srv/media-production/work/wasaga-report-2026/run-review-edit.sh' || true
+      register: existing
+      changed_when: false
+
+    - name: Start edit job in background
+      ansible.builtin.shell: |
+        nohup "{{ work_root }}/run-review-edit.sh" >/dev/null 2>&1 &
+        echo $! > "{{ output_root }}/edit.pid"
+        echo "EDIT_PID=$!"
+      args:
+        executable: /bin/bash
+      register: launched
+      when: existing.stdout | trim == ""
+
+    - name: Return launch state
+      ansible.builtin.debug:
+        msg:
+          - "EXISTING={{ existing.stdout_lines }}"
+          - "LAUNCHED={{ launched.stdout_lines | default([]) }}"
+          - "LOG={{ output_root }}/edit.log"
+          - "OUTPUT={{ output_root }}/Wasaga_Report_review_v1.mp4"
