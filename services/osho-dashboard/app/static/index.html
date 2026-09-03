@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#07111f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>P² Home Command Center</title>
 <style>
 :root{color-scheme:dark;--bg:#07111f;--panel:#0d1828;--panel2:#111f31;--line:#21324a;--text:#f4f7fb;--muted:#91a0b6;--green:#28d98b;--yellow:#f4c95d;--red:#ff6b78;--blue:#5aa7ff;--purple:#a66cff;--shadow:0 18px 50px rgba(0,0,0,.24)}
@@ -17,9 +20,309 @@
 .mavrick-metric b{display:block;margin-top:5px;font-size:14px;overflow-wrap:anywhere}
 .mavrick-foot{display:flex;justify-content:space-between;gap:12px;margin-top:12px;color:var(--muted);font-size:11px}
 @media(max-width:820px){.mavrick-card{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kiosk-button{position:fixed;z-index:9999;right:max(14px,env(safe-area-inset-right));bottom:max(14px,env(safe-area-inset-bottom));border:1px solid rgba(90,167,255,.48);background:rgba(9,23,39,.92);color:#eaf3ff;border-radius:11px;padding:10px 13px;font:700 12px/1 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:0 10px 28px rgba(0,0,0,.28);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);cursor:pointer;touch-action:manipulation}.kiosk-button:active{transform:scale(.98)}body.kiosk-mode{overscroll-behavior:none;-webkit-overflow-scrolling:touch}body.kiosk-mode .kiosk-button{opacity:.34}body.kiosk-mode .kiosk-button:focus,body.kiosk-mode .kiosk-button:hover,body.kiosk-mode .kiosk-button:active{opacity:1}@media(max-width:820px){.kiosk-button{right:max(10px,env(safe-area-inset-right));bottom:max(10px,env(safe-area-inset-bottom));padding:9px 11px;font-size:11px}}
+</style>
+<style id="p2-neo-style">
+
+/* pSquare Neo Dashboard — visual layer, 2026-08-25 */
+:root{
+  --neo-bg:#050914;
+  --neo-panel:#0b1220;
+  --neo-panel-2:#0d1626;
+  --neo-panel-3:#111b2d;
+  --neo-line:rgba(130,154,194,.16);
+  --neo-line-strong:rgba(151,122,255,.28);
+  --neo-text:#f7f9ff;
+  --neo-muted:#8390a8;
+  --neo-purple:#8b5cf6;
+  --neo-purple-2:#6d42e8;
+  --neo-blue:#2f9cff;
+  --neo-cyan:#16d7ff;
+  --neo-green:#2ee59d;
+  --neo-yellow:#ffc83d;
+  --neo-red:#ff667a;
+  --neo-shadow:0 22px 70px rgba(0,0,0,.28);
+}
+*{scrollbar-color:#2a3750 #090f19}
+body.neo-ui{
+  min-height:100vh;
+  background:
+    radial-gradient(circle at 86% -8%,rgba(77,93,255,.13),transparent 28%),
+    radial-gradient(circle at 62% 18%,rgba(32,212,255,.055),transparent 26%),
+    radial-gradient(circle at 13% 5%,rgba(139,92,246,.09),transparent 24%),
+    var(--neo-bg);
+  color:var(--neo-text);
+  font:14px/1.45 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+.neo-ui .shell{grid-template-columns:248px minmax(0,1fr)}
+.neo-ui .sidebar{
+  z-index:20;
+  width:248px;
+  padding:22px 14px 18px;
+  border-right:1px solid rgba(137,157,194,.12);
+  background:linear-gradient(180deg,rgba(7,13,24,.98),rgba(5,10,18,.98));
+  box-shadow:18px 0 55px rgba(0,0,0,.16);
+}
+.neo-ui .brand{
+  display:flex;align-items:center;gap:11px;
+  margin:0 7px 23px;padding:0;
+  font-size:22px;font-weight:800;letter-spacing:-.03em;color:#fff;
+}
+.neo-brandmark{
+  width:36px;height:36px;border-radius:10px;display:grid;place-items:center;
+  background:linear-gradient(145deg,#286bff,#814cff);
+  box-shadow:0 8px 25px rgba(77,82,255,.35),inset 0 1px 0 rgba(255,255,255,.25);
+  font-weight:900;font-size:22px;color:#07101f;
+}
+.neo-brandmark span{color:white;transform:translateY(-1px)}
+.neo-ui .nav{gap:4px}
+.neo-ui .nav a{
+  position:relative;display:flex;align-items:center;min-height:43px;
+  color:#a5b0c4;padding:10px 12px;border-radius:10px;
+  transition:background .18s ease,color .18s ease,transform .18s ease,border-color .18s ease;
+  border:1px solid transparent;
+}
+.neo-ui .nav a:hover{background:rgba(255,255,255,.035);color:#fff;transform:translateX(2px)}
+.neo-ui .nav a.active{
+  color:white;border-color:rgba(153,123,255,.24);
+  background:linear-gradient(90deg,#6f39e9,#7046e4 58%,#5630c7);
+  box-shadow:0 8px 25px rgba(102,56,220,.25),inset 0 1px 0 rgba(255,255,255,.12);
+}
+.nav-pill{
+  margin-left:auto;padding:2px 6px;border-radius:999px;font-size:9px;font-weight:800;
+  letter-spacing:.02em;background:rgba(46,229,157,.11);color:var(--neo-green);
+  border:1px solid rgba(46,229,157,.16)
+}
+.nav-pill.paused{background:rgba(139,92,246,.12);color:#bd9cff;border-color:rgba(139,92,246,.2)}
+.neo-ui .side-status{
+  margin:18px 4px 0;padding:13px 12px 11px;border:1px solid var(--neo-line);
+  border-radius:12px;background:linear-gradient(180deg,rgba(13,24,40,.82),rgba(9,17,29,.9));
+  box-shadow:none;
+}
+.neo-ui .okdot{background:var(--neo-green);box-shadow:0 0 0 3px rgba(46,229,157,.08),0 0 18px rgba(46,229,157,.42)}
+.neo-side-wave{height:30px;margin-top:7px;overflow:hidden;opacity:.85}
+.neo-side-wave svg{width:100%;height:100%}
+.neo-ui .main{padding:25px 27px 38px;max-width:1880px;width:100%;margin:0 auto}
+.neo-ui .topbar{
+  min-height:55px;margin-bottom:18px;display:flex;align-items:flex-start;justify-content:space-between;gap:20px;
+}
+.neo-ui .title h1{font-size:26px;line-height:1.15;letter-spacing:-.035em}
+.neo-ui .title p{margin-top:5px;color:#919db1;font-size:12px}
+.neo-ui .topstats{display:none!important}
+.neo-top-actions{display:flex;align-items:center;gap:10px;margin-left:auto}
+.neo-date{text-align:right;color:#9ba6b9;font-size:11px;line-height:1.45;margin-right:4px}
+.neo-date b{display:block;color:#dce4f1;font-size:12px}
+.neo-icon-btn{
+  width:38px;height:38px;border-radius:50%;display:grid;place-items:center;
+  border:1px solid var(--neo-line);background:#0b1321;color:#c8d2e2;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.03);font-size:16px
+}
+.neo-avatar{
+  display:flex;align-items:center;gap:9px;margin-left:3px;padding-left:12px;border-left:1px solid var(--neo-line)
+}
+.neo-avatar-dot{
+  width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:900;
+  background:linear-gradient(145deg,#17365c,#6f4ae6);border:2px solid rgba(255,255,255,.18);font-size:12px
+}
+.neo-avatar-copy{font-size:10px;color:var(--neo-muted);line-height:1.3}
+.neo-avatar-copy b{display:block;color:#fff;font-size:12px}
+
+.neo-overview{display:grid;gap:14px;margin-bottom:14px}
+.neo-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.neo-kpi-card,.neo-panel{
+  position:relative;overflow:hidden;
+  border:1px solid var(--neo-line);
+  background:linear-gradient(145deg,rgba(15,24,40,.96),rgba(9,16,28,.96));
+  border-radius:13px;box-shadow:var(--neo-shadow);
+}
+.neo-kpi-card{min-height:160px;padding:18px 18px 16px}
+.neo-kpi-card:before{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(110deg,rgba(255,255,255,.025),transparent 30%,transparent 75%,rgba(139,92,246,.025))
+}
+.neo-kpi-label{font-size:12px;color:#a7b1c3;margin-bottom:10px}
+.neo-kpi-value{font-size:31px;font-weight:800;line-height:1;letter-spacing:-.045em}
+.neo-kpi-meta{margin-top:10px;color:#8f9db2;font-size:11px}
+.neo-kpi-meta.good{color:var(--neo-green)}.neo-kpi-meta.warn{color:var(--neo-yellow)}
+.neo-kpi-art{position:absolute;right:12px;bottom:8px;width:112px;height:88px;opacity:.95;pointer-events:none}
+.neo-kpi-card.services .neo-kpi-art:before,
+.neo-kpi-card.services .neo-kpi-art:after{
+  content:"";position:absolute;left:20px;width:63px;height:19px;border-radius:6px;
+  background:linear-gradient(180deg,#8f6bff,#5136cd);
+  box-shadow:0 0 22px rgba(116,78,255,.34),inset 0 1px 0 rgba(255,255,255,.28)
+}
+.neo-kpi-card.services .neo-kpi-art:before{top:20px;box-shadow:0 27px 0 #6a46e0,0 54px 0 #4a31b2,0 0 22px rgba(116,78,255,.34)}
+.neo-kpi-card.services .neo-kpi-art:after{width:9px;height:9px;border-radius:50%;left:67px;top:25px;background:var(--neo-cyan);box-shadow:0 27px 0 var(--neo-cyan),0 54px 0 var(--neo-cyan),0 0 15px var(--neo-cyan)}
+.neo-radar{position:absolute;inset:5px 8px 3px 22px;border:1px solid rgba(46,229,157,.45);border-radius:50%;box-shadow:inset 0 0 25px rgba(46,229,157,.05)}
+.neo-radar:before,.neo-radar:after{content:"";position:absolute;border:1px solid rgba(46,229,157,.27);border-radius:50%;inset:18%}
+.neo-radar:after{inset:36%}
+.neo-radar-beam{position:absolute;width:45%;height:1px;left:50%;top:50%;transform-origin:left center;background:linear-gradient(90deg,var(--neo-green),transparent);animation:neoSpin 3.5s linear infinite}
+.neo-radar-dot{position:absolute;width:7px;height:7px;border-radius:50%;background:var(--neo-green);box-shadow:0 0 14px var(--neo-green)}
+.neo-radar-dot.d1{left:63%;top:26%}.neo-radar-dot.d2{left:31%;top:63%}.neo-radar-dot.d3{left:72%;top:70%}
+.neo-sparkline{position:absolute;inset:13px 8px 8px 0}
+.neo-sparkline svg{width:100%;height:100%;overflow:visible}
+.neo-ring{
+  position:absolute;right:20px;bottom:19px;width:76px;height:76px;border-radius:50%;
+  background:conic-gradient(var(--neo-purple) var(--neo-ring,41%),#202844 0);
+  box-shadow:0 0 24px rgba(139,92,246,.15)
+}
+.neo-ring:after{content:"";position:absolute;inset:9px;background:#0c1524;border-radius:50%}
+.neo-lightning{
+  position:absolute;right:32px;bottom:18px;font-size:60px;color:var(--neo-yellow);
+  filter:drop-shadow(0 0 14px rgba(255,200,61,.54));animation:neoPulse 1.8s ease-in-out infinite
+}
+.neo-main-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(340px,.95fr);gap:12px}
+.neo-panel{padding:18px}
+.neo-panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:15px}
+.neo-panel-title{font-size:14px;font-weight:800}
+.neo-panel-action{font-size:10px;color:#a678ff}
+.neo-system-content{display:grid;grid-template-columns:minmax(265px,.85fr) minmax(260px,1.15fr);gap:20px;align-items:center}
+.neo-system-list{display:grid;gap:6px}
+.neo-system-row{
+  display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:9px;align-items:center;
+  padding:6px 7px;border-radius:8px;transition:background .15s
+}
+.neo-system-row:hover{background:rgba(255,255,255,.025)}
+.neo-system-icon{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;background:#131f31;color:#99a9c0;font-size:10px}
+.neo-system-name{font-size:11px;color:#dbe2ed}.neo-system-name small{display:block;font-size:9px;color:#6f7d92;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.neo-status{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--neo-green)}
+.neo-status.offline{color:var(--neo-red)}
+.neo-status i{width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 9px currentColor}
+.neo-network-viz{position:relative;height:225px;display:grid;place-items:center}
+.neo-world{
+  position:absolute;inset:10px;border-radius:50%;
+  background:
+    radial-gradient(circle at 50% 50%,rgba(108,66,232,.18),transparent 29%),
+    radial-gradient(ellipse at 44% 45%,transparent 48%,rgba(115,91,255,.28) 49%,transparent 50%),
+    repeating-radial-gradient(circle at 50% 50%,rgba(147,124,255,.08) 0 1px,transparent 1px 23px);
+  opacity:.9
+}
+.neo-orbit{position:absolute;border:1px solid rgba(133,92,246,.24);border-radius:50%;animation:neoOrbit 11s linear infinite}
+.neo-orbit.o1{width:72%;height:34%;transform:rotate(14deg)}.neo-orbit.o2{width:62%;height:48%;transform:rotate(-28deg);animation-duration:14s}.neo-orbit.o3{width:50%;height:62%;transform:rotate(66deg);animation-duration:16s}
+.neo-core{width:22px;height:22px;border-radius:50%;background:#774dff;box-shadow:0 0 0 8px rgba(119,77,255,.09),0 0 35px #744bff;z-index:2}
+.neo-node-dot{position:absolute;width:8px;height:8px;border-radius:50%;background:#a371ff;box-shadow:0 0 13px #8e5cff;z-index:3;animation:neoPulse 2s ease-in-out infinite}
+.neo-node-dot.n1{left:22%;top:38%}.neo-node-dot.n2{left:67%;top:27%;animation-delay:.4s}.neo-node-dot.n3{left:71%;top:67%;animation-delay:.8s}.neo-node-dot.n4{left:35%;top:72%;animation-delay:1.2s}
+.neo-health-line{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);font-size:10px;color:var(--neo-green);white-space:nowrap}
+
+.neo-activity-list{display:grid;gap:3px}
+.neo-activity{
+  display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:10px;align-items:center;
+  min-height:48px;padding:6px 0;position:relative
+}
+.neo-activity:not(:last-child):after{content:"";position:absolute;left:16px;top:38px;bottom:-9px;width:1px;background:linear-gradient(var(--neo-line-strong),transparent)}
+.neo-activity-icon{width:31px;height:31px;border-radius:50%;display:grid;place-items:center;border:1px solid currentColor;background:rgba(255,255,255,.025);font-size:13px;box-shadow:0 0 18px color-mix(in srgb,currentColor 18%,transparent)}
+.neo-activity-icon.green{color:var(--neo-green)}.neo-activity-icon.blue{color:var(--neo-blue)}.neo-activity-icon.purple{color:#a470ff}.neo-activity-icon.yellow{color:var(--neo-yellow)}
+.neo-activity-copy b{font-size:10px}.neo-activity-copy span{display:block;margin-top:2px;color:#7f8ca1;font-size:9px}
+.neo-activity time{font-size:9px;color:#66758a;white-space:nowrap}
+
+.neo-performance-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr) minmax(300px,.75fr);gap:12px}
+.neo-chart-wrap{height:210px;position:relative;margin-top:5px}
+.neo-chart-wrap:before{
+  content:"";position:absolute;inset:0;background:repeating-linear-gradient(to bottom,transparent 0 49px,rgba(110,130,165,.09) 50px)
+}
+#neoCpuChart{width:100%;height:100%;overflow:visible}
+.neo-chart-legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;font-size:9px;color:#7c899d}.neo-chart-legend i{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:4px}
+.neo-fabric{display:grid;place-items:center;min-height:210px;position:relative}
+.neo-fabric-ring{width:144px;height:144px;border-radius:50%;border:1px solid rgba(38,215,255,.32);position:relative;box-shadow:inset 0 0 30px rgba(47,156,255,.08),0 0 35px rgba(47,156,255,.06)}
+.neo-fabric-ring:before,.neo-fabric-ring:after{content:"";position:absolute;border:1px solid rgba(47,156,255,.18);border-radius:50%;inset:18px}
+.neo-fabric-ring:after{inset:39px}
+.neo-fabric-core{position:absolute;inset:50% auto auto 50%;transform:translate(-50%,-50%);font-size:34px;filter:drop-shadow(0 0 14px #199cff)}
+.neo-fabric-lines{position:absolute;inset:50% -45px auto -45px;height:1px;background:linear-gradient(90deg,transparent,var(--neo-green),var(--neo-cyan),var(--neo-blue),transparent);box-shadow:0 7px 0 rgba(44,211,206,.2),0 -7px 0 rgba(79,131,255,.18);animation:neoFlow 2.2s linear infinite}
+.neo-fabric-count{text-align:center;margin-top:10px;color:#8fa0b6;font-size:10px}.neo-fabric-count b{color:var(--neo-cyan);font-size:17px}
+.neo-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.neo-action{
+  min-height:78px;border:1px solid var(--neo-line);border-radius:11px;background:linear-gradient(145deg,#101929,#0a121f);
+  display:grid;place-items:center;text-align:center;padding:10px;color:#cfd8e6;text-decoration:none;font-size:10px;transition:.18s
+}
+.neo-action:hover{transform:translateY(-2px);border-color:rgba(139,92,246,.36);background:#121d30}
+.neo-action strong{display:block;font-size:22px;margin-bottom:4px}
+.neo-health-card{margin-top:9px;display:grid;grid-template-columns:104px 1fr;gap:12px;align-items:center;padding-top:12px;border-top:1px solid var(--neo-line)}
+.health-orb{position:relative;width:90px;height:90px;display:grid;place-items:center}
+.health-orb:before{
+  content:"";position:absolute;inset:10px;border-radius:50%;border:2px solid var(--neo-green);
+  box-shadow:0 0 0 8px rgba(46,229,157,.05),0 0 25px rgba(46,229,157,.22);animation:neoPulse 2s ease-in-out infinite
+}
+#neoLottie{position:absolute;inset:-8px;opacity:.72}
+.health-check{position:relative;z-index:2;color:var(--neo-green);font-size:28px;font-weight:900}
+.neo-health-copy b{display:block;color:var(--neo-green);font-size:12px}.neo-health-copy span{display:block;color:#7f8ca0;font-size:9px;margin-top:4px}.neo-health-copy strong{display:block;color:var(--neo-green);font-size:16px;margin-top:6px}
+
+.neo-insight{
+  display:flex;align-items:center;gap:12px;min-height:52px;margin-top:12px;padding:11px 15px;
+  border:1px solid rgba(139,92,246,.20);border-radius:12px;background:linear-gradient(90deg,rgba(85,49,161,.14),rgba(8,16,28,.75));
+  box-shadow:var(--neo-shadow)
+}
+.neo-insight-star{width:29px;height:29px;border-radius:50%;display:grid;place-items:center;color:#bb89ff;background:rgba(139,92,246,.12);animation:neoPulse 2.4s ease-in-out infinite}
+.neo-insight-label{color:#ba86ff;font-size:10px;font-weight:800;white-space:nowrap}.neo-insight-text{font-size:10px;color:#cbd3df;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.neo-insight-meta{margin-left:auto;color:#6f7c91;font-size:9px;white-space:nowrap}
+
+.neo-ui .node,.neo-ui .section,.neo-ui .service,.neo-ui .stat-card,
+.neo-ui .rm-kpi,.neo-ui .rm-panel,.neo-ui .power-summary>div,.neo-ui .g50-card{
+  border-color:var(--neo-line)!important;
+  background:linear-gradient(145deg,rgba(15,24,40,.96),rgba(9,16,28,.96))!important;
+  box-shadow:0 13px 40px rgba(0,0,0,.18)!important;
+}
+.neo-ui .section{border-radius:13px;padding:17px;margin-bottom:13px}
+.neo-ui .section-head{margin-bottom:14px}.neo-ui .section h2{font-size:14px}.neo-ui .muted{color:#7e8ba0}
+.neo-ui .badge{background:rgba(46,229,157,.10);color:var(--neo-green);border:1px solid rgba(46,229,157,.16)}
+.neo-ui .badge.warn{background:rgba(255,200,61,.08);color:var(--neo-yellow);border-color:rgba(255,200,61,.16)}
+.neo-ui .badge.bad{background:rgba(255,102,122,.08);color:var(--neo-red);border-color:rgba(255,102,122,.18)}
+.neo-ui .bar{background:#1c2739}.neo-ui .bar i{background:linear-gradient(90deg,var(--neo-purple),var(--neo-blue))}
+.neo-ui .service:hover{border-color:rgba(139,92,246,.42)!important;box-shadow:0 15px 38px rgba(0,0,0,.24)!important}
+.neo-ui .ico{background:#121f32}
+.neo-ui .filter{background:#0d1625;border-color:var(--neo-line);color:#8a97ab}
+.neo-ui .filter.active{background:linear-gradient(90deg,#6535d7,#7548eb);border-color:rgba(151,122,255,.35)}
+.neo-ui .action-link{border-color:rgba(139,92,246,.32);background:rgba(139,92,246,.09);color:#c9b8ff}
+.neo-ui .alertbox{border-color:rgba(46,229,157,.2);background:rgba(46,229,157,.05)}
+.neo-ui .alertbox.bad{border-color:rgba(255,102,122,.23);background:rgba(255,102,122,.05)}
+.neo-ui .power-summary{grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.neo-ui .power-summary>div{padding:14px;border-radius:11px!important}.neo-ui .power-summary b{font-size:17px}.neo-ui .g50-card{border-radius:11px!important}
+.neo-ui .rm-kpi{border-radius:11px!important;padding:14px}.neo-ui .rm-kpi b{font-size:24px}.neo-ui .rm-panel{border-radius:11px!important}
+.neo-ui .kiosk-button{
+  background:rgba(10,18,30,.82);border-color:rgba(139,92,246,.28);color:#c9d2df;
+  box-shadow:0 10px 35px rgba(0,0,0,.3);backdrop-filter:blur(18px)
+}
+
+/* Overview intentionally uses the new executive summary in place of duplicate legacy cards. */
+body.page-overview #nodeGrid,body.page-overview #cardsSection,body.page-overview #oshoSection{display:none!important}
+body.page-overview #mavrickSection{margin-top:12px}
+
+/* Monitoring and detail pages retain all original telemetry, with the new visual system. */
+body:not(.page-overview) .node{min-height:145px}
+body:not(.page-overview) .nodes{gap:12px}
+body:not(.page-overview) .service{min-height:68px}
+
+@keyframes neoSpin{to{transform:rotate(360deg)}}
+@keyframes neoPulse{0%,100%{opacity:.72;transform:scale(.96)}50%{opacity:1;transform:scale(1.04)}}
+@keyframes neoOrbit{from{filter:hue-rotate(0deg)}to{filter:hue-rotate(30deg)}}
+@keyframes neoFlow{0%{transform:translateX(-6px);opacity:.45}50%{opacity:1}100%{transform:translateX(6px);opacity:.45}}
+
+@media(max-width:1500px){
+  .neo-kpis{grid-template-columns:repeat(5,1fr)}
+  .neo-kpi-card{min-height:145px;padding:15px}
+  .neo-kpi-art{transform:scale(.86);transform-origin:right bottom}
+  .neo-performance-grid{grid-template-columns:1.15fr .85fr}.neo-performance-grid>.neo-panel:last-child{grid-column:1/-1}
+}
+@media(max-width:1180px){
+  .neo-ui .shell{grid-template-columns:205px 1fr}.neo-ui .sidebar{width:205px}
+  .neo-kpis{grid-template-columns:repeat(2,1fr)}.neo-kpi-card:last-child{grid-column:span 2}
+  .neo-main-grid{grid-template-columns:1fr}.neo-system-content{grid-template-columns:1fr 1fr}
+}
+@media(max-width:820px){
+  .neo-ui .shell{grid-template-columns:1fr}.neo-ui .sidebar{position:static;width:auto;height:auto;padding:12px}
+  .neo-ui .brand{margin-bottom:10px}.neo-ui .nav{grid-template-columns:repeat(3,1fr)}.neo-ui .nav a{font-size:10px;justify-content:center;padding:8px 5px}.nav-pill{display:none}
+  .neo-ui .main{padding:14px}.neo-top-actions{display:none}
+  .neo-kpis{grid-template-columns:1fr}.neo-kpi-card:last-child{grid-column:auto}.neo-kpi-card{min-height:126px}
+  .neo-main-grid,.neo-performance-grid{grid-template-columns:1fr}.neo-performance-grid>.neo-panel:last-child{grid-column:auto}
+  .neo-system-content{grid-template-columns:1fr}.neo-network-viz{height:180px}
+  .neo-insight{align-items:flex-start;flex-wrap:wrap}.neo-insight-text{white-space:normal;width:100%}.neo-insight-meta{margin-left:0}
+}
+@media(prefers-reduced-motion:reduce){
+  .neo-ui *{animation-duration:.001ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important}
+}
+
 </style>
 </head>
 <body>
+<button class="kiosk-button" id="kioskButton" type="button" aria-label="Enter full screen">⛶ Full Screen</button>
 <div class="shell">
 <aside class="sidebar">
 <div class="brand">P²</div>
@@ -27,11 +330,12 @@
 <a data-page="overview" href="/">⌂ Overview</a>
 <a data-page="media" href="/media">▣ Media</a>
 <a data-page="monitoring" href="/monitoring">⌁ Monitoring</a>
+<a data-page="power" href="/power">ϟ P2 Power</a>
 <a data-page="network" href="/network">▦ Network</a>
 <a data-page="storage" href="/storage">▤ Storage</a>
 <a data-page="services" href="/services">⌘ Services</a>
 <a data-page="osho" href="/osho">◈ Project Osho</a>
-<a data-page="youtube" href="/youtube-analyst">▶ YouTube Analyst</a>
+<a data-page="youtube" href="/youtube-analyst?nav=reviewmuse-rootfix-1">▶ YouTube Analyst</a>
 <a data-page="alerts" href="/alerts">△ Alerts</a>
 </nav>
 <div class="side-status"><div><span class="okdot"></span> <b id="overallLabel">Checking systems…</b></div><div class="muted" id="overallMeta" style="margin-top:6px">Live telemetry</div></div>
@@ -47,6 +351,29 @@
 <section class="section page-block" data-pages="media network services osho" id="servicesSection">
 <div class="section-head"><h2 id="serviceSectionTitle">Services</h2><div class="filters" id="filters"><button class="filter active" data-filter="all">All</button><button class="filter" data-filter="media">Media</button><button class="filter" data-filter="system">System</button><button class="filter" data-filter="network">Network</button><button class="filter" data-filter="osho">Osho</button></div></div>
 <div class="grid services" id="serviceGrid"></div>
+</section>
+
+<section class="section power-grid page-block" data-pages="overview power" id="powerGridSection">
+  <div class="section-head">
+    <div>
+      <h2>⚡ Power & Grid Cost</h2>
+      <div class="muted">G50 #1 + G50 #2 · Wasaga Distribution · Ontario Time-of-Use</div>
+    </div>
+    <span class="badge" id="powerGridBadge">Checking</span>
+  </div>
+  <div class="power-summary">
+    <div><span>Current TOU period</span><b id="powerTouPeriod">—</b></div>
+    <div><span>TOU energy rate</span><b id="powerTouRate">—</b></div>
+    <div><span>Incremental grid cost today</span><b id="powerCostToday">—</b></div>
+    <div><span>Grid cost this month</span><b id="powerCostMonth">—</b></div>
+  </div>
+  <div class="g50-list" id="g50List">
+    <div class="empty-note">Loading G50 telemetry…</div>
+  </div>
+  <div class="power-foot">
+    <span id="powerTariffDetail">Loading tariff details…</span>
+    <span id="powerUpdated">Waiting for telemetry</span>
+  </div>
 </section>
 
 <section class="grid cards page-block page-grid" data-pages="overview media monitoring storage alerts osho" id="cardsSection">
@@ -75,19 +402,20 @@
 <section class="section page-block" data-pages="overview osho" id="oshoSection">
 <div class="section-head"><h2>Project Osho</h2><span class="badge" id="oshoBadge">Loading</span></div>
 <div class="osho-kpis"><div class="kpi"><span>Published sources</span><b id="kPublished">—</b></div><div class="kpi"><span>Processing</span><b id="kProcessing">—</b></div><div class="kpi"><span>Ready</span><b id="kReady">—</b></div><div class="kpi"><span>Skipped</span><b id="kSkipped">—</b></div><div class="kpi"><span>Failed</span><b id="kFailed">—</b></div></div>
-<a class="action-link" href="/youtube-analyst">Open YouTube Analyst →</a>
+<a class="action-link" href="/youtube-analyst?nav=reviewmuse-rootfix-1">Open YouTube Analyst →</a>
 <div class="refresh" id="lastRefresh">Waiting for first refresh…</div>
 </section>
 
 <section class="section page-block" data-pages="network" id="networkNote"><h2>Network Services</h2><p class="muted">DNS, reverse proxy and uptime services for the homelab. Live reachability is shown above.</p></section>
 </main></div>
 <script>
-const PAGE_BY_PATH={'/':'overview','/media':'media','/monitoring':'monitoring','/network':'network','/storage':'storage','/services':'services','/osho':'osho','/alerts':'alerts'};
+const PAGE_BY_PATH={'/':'overview','/media':'media','/monitoring':'monitoring','/power':'power','/network':'network','/storage':'storage','/services':'services','/osho':'osho','/alerts':'alerts'};
 const PAGE=PAGE_BY_PATH[location.pathname]||'overview';
 const PAGE_META={
  overview:['P² Home Command Center','Live homelab health, services and Project Osho at a glance'],
  media:['Media','Streaming, photo and daily-use media services'],
  monitoring:['Monitoring','System, compute and storage-node health with live resource telemetry'],
+ power:['P2 Power','Live G50 power, energy and Ontario time-of-use grid cost'],
  network:['Network','DNS, proxy and availability infrastructure'],
  storage:['Storage','Disk capacity and storage health across the homelab'],
  services:['Services','All monitored applications and endpoints'],
@@ -164,8 +492,373 @@ function renderLists(){const core=nodeState['core-01']||{},c1=nodeState['compute
 function updateAlerts(){const alerts=[];for(const n of NODES){const s=nodeState[n.name]||{};if(!s.online)alerts.push(`${n.label} is offline`);else if(n.kind!=='qnap'){if((s.cpu||0)>95)alerts.push(`${n.label} CPU is ${Math.round(s.cpu)}%`);if((s.ram||0)>92)alerts.push(`${n.label} RAM is ${Math.round(s.ram)}%`);if((s.disk||0)>90)alerts.push(`${n.label} disk is ${Math.round(s.disk)}% used`);if((s.temp||0)>85)alerts.push(`${n.label} temperature is ${s.temp.toFixed(1)}°C`)}}for(const [name,v] of Object.entries(serviceState))if(v===false&&['Jellyfin','Home Assistant','Immich','Osho Dashboard','storage-01 QTS'].includes(name))alerts.push(`${name} is unreachable`);const box=document.getElementById('alertBox');if(alerts.length){box.className='alertbox bad';box.innerHTML=`<b>${alerts.length} item${alerts.length>1?'s':''} need attention</b><div class="muted" style="margin-top:5px">${alerts.slice(0,6).join('<br>')}</div>`;document.getElementById('overallLabel').textContent='Attention required';document.getElementById('overallMeta').textContent=alerts[0]}else{box.className='alertbox';box.innerHTML='<b>All Clear</b><div class="muted">No active alerts. Everything monitored is running smoothly.</div>';document.getElementById('overallLabel').textContent='All systems operational';document.getElementById('overallMeta').textContent='No active alerts'}}
 async function refresh(){await Promise.all(NODES.map(pollNode));document.getElementById('nodeGrid').innerHTML=NODES.map(nodeHTML).join('');await Promise.all([pollOsho(),pollMavrick()]);await Promise.all(SERVICES.map(probeService));renderServices();renderLists();updateAlerts();const onlineNodes=NODES.filter(n=>nodeState[n.name]?.online).length,upSvc=SERVICES.filter(s=>serviceState[s[0]]).length;document.getElementById('nodeCount').textContent=`${onlineNodes}/${NODES.length} online`;document.getElementById('serviceCount').textContent=`${upSvc}/${SERVICES.length} reachable`;document.getElementById('lastRefresh').textContent='Last refreshed '+new Date().toLocaleTimeString();}
 function tick(){document.getElementById('clock').textContent=new Date().toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}
+const kioskButton=document.getElementById('kioskButton');
+const currentFullscreen=()=>document.fullscreenElement||document.webkitFullscreenElement||null;
+function syncKioskButton(){const full=!!currentFullscreen(),fallback=document.body.classList.contains('kiosk-mode')&&!full;kioskButton.textContent=full?'✕ Exit Full Screen':fallback?'✕ Exit Kiosk View':'⛶ Full Screen';kioskButton.setAttribute('aria-label',full||fallback?'Exit full screen':'Enter full screen')}
+async function toggleKiosk(){
+ const root=document.documentElement,full=currentFullscreen();
+ if(full){const exit=document.exitFullscreen||document.webkitExitFullscreen;try{if(exit){const p=exit.call(document);if(p&&p.then)await p}}catch(e){}document.body.classList.remove('kiosk-mode');syncKioskButton();return;}
+ const request=root.requestFullscreen||root.webkitRequestFullscreen;
+ if(request){let entered=false;try{let p=request.call(root,{navigationUI:'hide'});if(p&&p.then)await p;entered=true}catch(e){try{let p=request.call(root);if(p&&p.then)await p;entered=true}catch(e2){}}
+  if(entered){document.body.classList.add('kiosk-mode')}else{document.body.classList.toggle('kiosk-mode');window.scrollTo(0,1)}
+ }else{document.body.classList.toggle('kiosk-mode');window.scrollTo(0,1)}
+ syncKioskButton();
+}
+kioskButton.addEventListener('click',toggleKiosk);
+document.addEventListener('fullscreenchange',()=>{if(!currentFullscreen())document.body.classList.remove('kiosk-mode');syncKioskButton()});
+document.addEventListener('webkitfullscreenchange',()=>{if(!currentFullscreen())document.body.classList.remove('kiosk-mode');syncKioskButton()});
+if(window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone===true)document.body.classList.add('kiosk-mode');
+syncKioskButton();
 document.getElementById('filters').addEventListener('click',e=>{if(!e.target.dataset.filter)return;setFilter(e.target.dataset.filter)});
 initPage();tick();setInterval(tick,1000);refresh();setInterval(refresh,15000);
+</script>
+<script src="/assets/powergrid.js?v=20260825-power3"></script>
+<script id="p2-neo-script">
+
+(() => {
+  'use strict';
+  const page = (typeof PAGE !== 'undefined' ? PAGE : 'overview');
+  document.body.classList.add('neo-ui', `page-${page}`);
+
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const $ = id => document.getElementById(id);
+  const nfmt = v => Number(v || 0).toLocaleString();
+  const pct = v => `${Math.round(Number(v || 0))}%`;
+
+  function upgradeChrome(){
+    const brand = document.querySelector('.brand');
+    if (brand) brand.innerHTML = '<span class="neo-brandmark"><span>p</span></span><span>pSquare</span>';
+
+    const labels = {
+      overview:'⌂&nbsp;&nbsp; Overview',
+      media:'▣&nbsp;&nbsp; Media',
+      monitoring:'◫&nbsp;&nbsp; Infrastructure',
+      network:'⌁&nbsp;&nbsp; Network',
+      devices:'⌂&nbsp;&nbsp; House Devices',
+      storage:'▤&nbsp;&nbsp; Storage',
+      services:'⌘&nbsp;&nbsp; Services',
+      osho:'◈&nbsp;&nbsp; Project Osho',
+      reviewmuse:'✦&nbsp;&nbsp; ReviewMuse',
+      youtube:'▶&nbsp;&nbsp; YouTube Analyst',
+      alerts:'△&nbsp;&nbsp; Alerts'
+    };
+    document.querySelectorAll('.nav a').forEach(a => {
+      const key = a.dataset.page;
+      if (labels[key]) a.innerHTML = labels[key];
+    });
+
+    const monitor = document.querySelector('.nav a[data-page="monitoring"]');
+    if (monitor && !document.querySelector('.nav a[data-neo-power]')) {
+      const p = document.createElement('a');
+      p.href = '/#powerGridSection'; p.dataset.neoPower = '1';
+      p.innerHTML = '⚡&nbsp;&nbsp; P2 Power';
+      monitor.insertAdjacentElement('afterend', p);
+      p.addEventListener('click', () => setTimeout(() => $('powerGridSection')?.scrollIntoView({behavior:'smooth',block:'start'}), 100));
+    }
+
+    const rm = document.querySelector('.nav a[data-page="reviewmuse"]');
+    if (rm && !rm.querySelector('.nav-pill')) rm.insertAdjacentHTML('beforeend','<span class="nav-pill">Live</span>');
+    const osho = document.querySelector('.nav a[data-page="osho"]');
+    if (osho && !osho.querySelector('.nav-pill')) osho.insertAdjacentHTML('beforeend','<span class="nav-pill paused">Paused</span>');
+
+    const side = document.querySelector('.side-status');
+    if (side && !side.querySelector('.neo-side-wave')) {
+      side.insertAdjacentHTML('beforeend', `<div class="neo-side-wave">
+        <svg viewBox="0 0 180 30" preserveAspectRatio="none" aria-hidden="true">
+          <polyline points="0,20 16,20 22,11 28,25 34,20 53,20 59,15 64,20 72,20 78,4 84,26 90,20 110,20 116,14 121,21 128,20 139,20 145,9 151,24 157,20 180,20"
+            fill="none" stroke="#2ee59d" stroke-width="1.5"/>
+        </svg></div>`);
+    }
+
+    const top = document.querySelector('.topbar');
+    if (top && !top.querySelector('.neo-top-actions')) {
+      top.insertAdjacentHTML('beforeend', `<div class="neo-top-actions">
+        <div class="neo-date"><b id="neoClock">—</b><span id="neoDate">—</span></div>
+        <div class="neo-icon-btn" title="Theme">☾</div>
+        <a class="neo-icon-btn" href="/alerts" title="Alerts" style="text-decoration:none">♢</a>
+        <div class="neo-avatar"><div class="neo-avatar-dot">P</div><div class="neo-avatar-copy"><b>Prabhat</b>Admin</div></div>
+      </div>`);
+    }
+  }
+
+  function tickChrome(){
+    const d = new Date();
+    if ($('neoClock')) $('neoClock').textContent = d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    if ($('neoDate')) $('neoDate').textContent = d.toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'});
+  }
+
+  function overviewMarkup(){
+    return `
+    <section class="neo-overview" id="neoOverview">
+      <div class="neo-kpis">
+        <article class="neo-kpi-card services">
+          <div class="neo-kpi-label">Total Services</div><div class="neo-kpi-value" id="neoServices">—</div>
+          <div class="neo-kpi-meta" id="neoServicesMeta">Checking reachability</div><div class="neo-kpi-art"></div>
+        </article>
+        <article class="neo-kpi-card">
+          <div class="neo-kpi-label">Active Nodes</div><div class="neo-kpi-value" id="neoNodes">—</div>
+          <div class="neo-kpi-meta good" id="neoNodesMeta">Live telemetry</div>
+          <div class="neo-kpi-art"><div class="neo-radar"><i class="neo-radar-beam"></i><i class="neo-radar-dot d1"></i><i class="neo-radar-dot d2"></i><i class="neo-radar-dot d3"></i></div></div>
+        </article>
+        <article class="neo-kpi-card">
+          <div class="neo-kpi-label">CPU Load (Avg)</div><div class="neo-kpi-value" id="neoCpu">—</div>
+          <div class="neo-kpi-meta good" id="neoCpuMeta">Across compute nodes</div>
+          <div class="neo-kpi-art neo-sparkline"><svg viewBox="0 0 120 70" preserveAspectRatio="none"><path id="neoCpuSpark" d="M0 54 C18 40,26 58,39 42 S63 33,74 45 S98 55,120 29" fill="none" stroke="#2ee59d" stroke-width="2"/><path d="M0 54 C18 40,26 58,39 42 S63 33,74 45 S98 55,120 29 L120 70 L0 70Z" fill="url(#neoGreenFade)"/><defs><linearGradient id="neoGreenFade" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#2ee59d" stop-opacity=".22"/><stop offset="1" stop-color="#2ee59d" stop-opacity="0"/></linearGradient></defs></svg></div>
+        </article>
+        <article class="neo-kpi-card">
+          <div class="neo-kpi-label">RAM Usage</div><div class="neo-kpi-value" id="neoRam">—</div>
+          <div class="neo-kpi-meta" id="neoRamMeta">Average across compute</div><div class="neo-ring" id="neoRamRing"></div>
+        </article>
+        <article class="neo-kpi-card">
+          <div class="neo-kpi-label">Power Usage</div><div class="neo-kpi-value" id="neoPower">—</div>
+          <div class="neo-kpi-meta warn" id="neoPowerMeta">G50 live metering</div><div class="neo-lightning">ϟ</div>
+        </article>
+      </div>
+
+      <div class="neo-main-grid">
+        <article class="neo-panel">
+          <div class="neo-panel-head"><div class="neo-panel-title">System Status</div><a class="neo-panel-action" href="/monitoring">Infrastructure →</a></div>
+          <div class="neo-system-content">
+            <div class="neo-system-list" id="neoSystemList"><div class="muted">Waiting for node telemetry…</div></div>
+            <div class="neo-network-viz">
+              <div class="neo-world"></div><div class="neo-orbit o1"></div><div class="neo-orbit o2"></div><div class="neo-orbit o3"></div>
+              <div class="neo-core"></div><i class="neo-node-dot n1"></i><i class="neo-node-dot n2"></i><i class="neo-node-dot n3"></i><i class="neo-node-dot n4"></i>
+              <div class="neo-health-line" id="neoHealthLine">Synchronizing monitored systems…</div>
+            </div>
+          </div>
+        </article>
+        <article class="neo-panel">
+          <div class="neo-panel-head"><div class="neo-panel-title">Recent Activity</div><a class="neo-panel-action" href="/alerts">View all</a></div>
+          <div class="neo-activity-list" id="neoActivity"></div>
+        </article>
+      </div>
+
+      <div class="neo-performance-grid">
+        <article class="neo-panel">
+          <div class="neo-panel-head"><div><div class="neo-panel-title">CPU Usage</div><div class="muted" style="font-size:9px;margin-top:2px">Rolling live samples</div></div><span class="badge">Live</span></div>
+          <div class="neo-chart-wrap"><svg id="neoCpuChart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg></div>
+          <div class="neo-chart-legend"><span><i style="background:#a35cff"></i>compute-01</span><span><i style="background:#2f9cff"></i>compute-02</span><span><i style="background:#2ee59d"></i>compute-03</span><span><i style="background:#ffc83d"></i>compute-04</span></div>
+        </article>
+        <article class="neo-panel">
+          <div class="neo-panel-head"><div><div class="neo-panel-title">Service Fabric</div><div class="muted" style="font-size:9px;margin-top:2px">Monitored app reachability</div></div><span class="badge" id="neoFabricBadge">Live</span></div>
+          <div class="neo-fabric"><div><div class="neo-fabric-ring"><div class="neo-fabric-lines"></div><div class="neo-fabric-core">◎</div></div><div class="neo-fabric-count"><b id="neoFabricCount">—</b><br>reachable endpoints</div></div></div>
+        </article>
+        <article class="neo-panel">
+          <div class="neo-panel-head"><div class="neo-panel-title">Quick Access</div></div>
+          <div class="neo-actions">
+            <a class="neo-action" href="http://192.168.0.203:8123" target="_blank"><span><strong>⌂</strong>Home Assistant</span></a>
+            <a class="neo-action" href="http://192.168.0.203:3001" target="_blank"><span><strong>●</strong>Uptime</span></a>
+            <a class="neo-action" href="/storage"><span><strong>▤</strong>Storage</span></a>
+            <a class="neo-action" href="/reviewmuse"><span><strong>✦</strong>ReviewMuse</span></a>
+          </div>
+          <div class="neo-health-card">
+            <div class="health-orb"><div id="neoLottie"></div><div class="health-check">✓</div></div>
+            <div class="neo-health-copy"><b id="neoHealthTitle">System health</b><span id="neoHealthText">Evaluating monitored nodes and services</span><strong id="neoHealthPct">—</strong></div>
+          </div>
+        </article>
+      </div>
+
+      <div class="neo-insight">
+        <div class="neo-insight-star">✦</div><div class="neo-insight-label">ReviewMuse AI Insight</div>
+        <div class="neo-insight-text" id="neoInsightText">Connecting to ReviewMuse production metrics…</div>
+        <div class="neo-insight-meta" id="neoInsightMeta">Live production data</div>
+      </div>
+    </section>`;
+  }
+
+  function installOverview(){
+    if (page !== 'overview' || $('neoOverview')) return;
+    const top = document.querySelector('.topbar');
+    if (!top) return;
+    top.insertAdjacentHTML('afterend', overviewMarkup());
+    loadLottie();
+  }
+
+  let powerData = null, reviewData = null, lastPower = 0, lastReview = 0, lastHist = 0;
+  const history = {'compute-01':[],'compute-02':[],'compute-03':[],'compute-04':[]};
+
+  async function getPower(){
+    if (Date.now() - lastPower < 14000) return;
+    lastPower = Date.now();
+    try {
+      const r = await fetch('/api/power/g50',{cache:'no-store'});
+      if (r.ok) powerData = await r.json();
+    } catch(e) {}
+  }
+  async function getReview(){
+    if (Date.now() - lastReview < 28000) return;
+    lastReview = Date.now();
+    try {
+      const r = await fetch('/api/reviewmuse/summary',{cache:'no-store'});
+      if (r.ok) reviewData = await r.json();
+    } catch(e) {}
+  }
+
+  function sampleHistory(){
+    if (Date.now() - lastHist < 4500) return;
+    lastHist = Date.now();
+    Object.keys(history).forEach(name => {
+      const val = Number((typeof nodeState !== 'undefined' && nodeState[name]?.cpu) || 0);
+      if (typeof nodeState !== 'undefined' && nodeState[name]?.online) {
+        history[name].push(Math.max(0,Math.min(100,val)));
+        if (history[name].length > 42) history[name].shift();
+      }
+    });
+  }
+
+  function linePoints(arr){
+    const vals = arr.length ? arr : [0];
+    const step = vals.length > 1 ? 600/(vals.length-1) : 600;
+    return vals.map((v,i) => `${(i*step).toFixed(1)},${(190-(v*1.72)).toFixed(1)}`).join(' ');
+  }
+  function drawChart(){
+    const svg = $('neoCpuChart'); if (!svg) return;
+    const colors = {'compute-01':'#a35cff','compute-02':'#2f9cff','compute-03':'#2ee59d','compute-04':'#ffc83d'};
+    const grid = [25,50,75,100].map(v => `<line x1="0" y1="${190-v*1.72}" x2="600" y2="${190-v*1.72}" stroke="rgba(130,150,185,.10)" stroke-width="1"/><text x="3" y="${184-v*1.72}" fill="#5f6d82" font-size="9">${v}%</text>`).join('');
+    const lines = Object.keys(history).map(name => `<polyline points="${linePoints(history[name])}" fill="none" stroke="${colors[name]}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/>`).join('');
+    svg.innerHTML = grid + lines;
+  }
+
+  function statusRows(){
+    if (typeof NODES === 'undefined' || typeof nodeState === 'undefined') return '';
+    return NODES.map(node => {
+      const s = nodeState[node.name] || {};
+      const online = !!s.online;
+      const detail = node.kind === 'qnap' ? (node.model || node.role) : (node.role || '');
+      return `<div class="neo-system-row">
+        <div class="neo-system-icon">${node.kind === 'qnap' ? '▤' : '▱'}</div>
+        <div class="neo-system-name">${esc(node.label)}<small>${esc(detail)}</small></div>
+        <div class="neo-status ${online?'':'offline'}"><i></i>${online?'Online':'Offline'}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function activityRows(onlineNodes, upSvc){
+    const rows = [];
+    rows.push(['green','✓','Infrastructure telemetry',`${onlineNodes}/${typeof NODES!=='undefined'?NODES.length:0} monitored nodes online`]);
+    if (powerData?.totals) rows.push(['yellow','ϟ','Power metering',`${Math.round(Number(powerData.totals.live_watts||0))} W live · ${powerData.totals.metered_devices||0}/2 G50 metered`]);
+    const demo = reviewData?.demo || {}, out = reviewData?.outreach || {};
+    if (reviewData) rows.push(['purple','✦','ReviewMuse production',`${nfmt(demo.human_clicks)} human demo clicks · ${nfmt(out.replies)} replies`]);
+    const mav = $('mavrickBadge')?.textContent || 'Checking';
+    rows.push(['blue','◉','Mavrick',`Service state: ${mav}`]);
+    const osho = $('oshoState')?.textContent || 'Checking';
+    rows.push(['purple','◈','Project Osho',`${osho}`]);
+    return rows.slice(0,5).map((r,i)=>`<div class="neo-activity">
+      <div class="neo-activity-icon ${r[0]}">${r[1]}</div><div class="neo-activity-copy"><b>${r[2]}</b><span>${esc(r[3])}</span></div>
+      <time>${i===0?'now':'live'}</time></div>`).join('');
+  }
+
+  function updateReviewInsight(){
+    const el = $('neoInsightText'); if (!el || !reviewData) return;
+    const o = reviewData.outreach || {}, d = reviewData.demo || {}, s = reviewData.site || {};
+    if (Number(d.human_clicks||0) > 0 || Number(o.replies||0) > 0) {
+      el.textContent = `${nfmt(o.sent_total)} outreach emails · ${nfmt(d.human_clicks)} confirmed human demo clicks · ${nfmt(o.replies)} replies · ${nfmt(s.human_visitors)} human site visitors`;
+    } else {
+      el.textContent = `${nfmt(o.sent_total)} outreach emails sent. Human demo clicks and replies are still at ${nfmt(d.human_clicks)} / ${nfmt(o.replies)}.`;
+    }
+    if ($('neoInsightMeta')) $('neoInsightMeta').textContent = 'Updated ' + new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+  }
+
+  async function updateOverview(){
+    if (page !== 'overview' || !$('neoOverview')) return;
+    getPower(); getReview(); sampleHistory();
+
+    const nodes = typeof NODES !== 'undefined' ? NODES : [];
+    const services = typeof SERVICES !== 'undefined' ? SERVICES : [];
+    const ns = typeof nodeState !== 'undefined' ? nodeState : {};
+    const ss = typeof serviceState !== 'undefined' ? serviceState : {};
+    const compute = nodes.filter(x => x.kind !== 'qnap' && ns[x.name]?.online);
+    const onlineNodes = nodes.filter(x => ns[x.name]?.online).length;
+    const upSvc = services.filter(x => ss[x[0]] === true).length;
+    const avgCpu = compute.length ? compute.reduce((a,x)=>a+Number(ns[x.name]?.cpu||0),0)/compute.length : 0;
+    const avgRam = compute.length ? compute.reduce((a,x)=>a+Number(ns[x.name]?.ram||0),0)/compute.length : 0;
+
+    if ($('neoServices')) $('neoServices').textContent = services.length || '—';
+    if ($('neoServicesMeta')) {
+      $('neoServicesMeta').textContent = `${upSvc}/${services.length} reachable`;
+      $('neoServicesMeta').className = 'neo-kpi-meta ' + (upSvc === services.length ? 'good' : 'warn');
+    }
+    if ($('neoNodes')) $('neoNodes').textContent = onlineNodes || '0';
+    if ($('neoNodesMeta')) $('neoNodesMeta').textContent = `${onlineNodes}/${nodes.length} online`;
+    if ($('neoCpu')) $('neoCpu').textContent = pct(avgCpu);
+    if ($('neoCpuMeta')) {
+      $('neoCpuMeta').textContent = avgCpu < 70 ? 'Good' : avgCpu < 90 ? 'Elevated' : 'High';
+      $('neoCpuMeta').className = 'neo-kpi-meta ' + (avgCpu < 70 ? 'good' : 'warn');
+    }
+    if ($('neoRam')) $('neoRam').textContent = pct(avgRam);
+    if ($('neoRamRing')) $('neoRamRing').style.setProperty('--neo-ring',`${Math.max(0,Math.min(100,avgRam))}%`);
+
+    if (powerData?.totals && $('neoPower')) {
+      $('neoPower').textContent = `${Math.round(Number(powerData.totals.live_watts||0))} W`;
+      const cost = Number(powerData.totals.bill_cost_today_cad||0);
+      const label = powerData.tariff?.label || 'TOU';
+      $('neoPowerMeta').textContent = `$${cost.toFixed(3)} today · ${label}`;
+    }
+
+    if ($('neoSystemList')) $('neoSystemList').innerHTML = statusRows();
+    if ($('neoHealthLine')) $('neoHealthLine').textContent = onlineNodes === nodes.length ? '✓ All monitored infrastructure nodes are operational' : `${onlineNodes}/${nodes.length} infrastructure nodes online`;
+    if ($('neoActivity')) $('neoActivity').innerHTML = activityRows(onlineNodes,upSvc);
+
+    const totalHealth = nodes.length + services.length;
+    const health = totalHealth ? Math.round(100*(onlineNodes+upSvc)/totalHealth) : 0;
+    if ($('neoHealthPct')) $('neoHealthPct').textContent = `${health}%`;
+    if ($('neoHealthTitle')) $('neoHealthTitle').textContent = health === 100 ? 'All systems are healthy' : health >= 85 ? 'System health is good' : 'Attention recommended';
+    if ($('neoHealthText')) $('neoHealthText').textContent = `${onlineNodes}/${nodes.length} nodes · ${upSvc}/${services.length} services reachable`;
+    if ($('neoFabricCount')) $('neoFabricCount').textContent = `${upSvc}/${services.length}`;
+    if ($('neoFabricBadge')) {
+      $('neoFabricBadge').textContent = upSvc === services.length ? 'Healthy' : `${services.length-upSvc} unavailable`;
+      $('neoFabricBadge').className = 'badge' + (upSvc === services.length ? '' : ' warn');
+    }
+
+    updateReviewInsight();
+    drawChart();
+  }
+
+  function loadLottie(){
+    if (!$('neoLottie')) return;
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie.min.js';
+    script.async = true;
+    script.onload = () => {
+      try {
+        const animationData = {
+          v:"5.9.0",fr:60,ip:0,op:120,w:160,h:160,nm:"pSquare health pulse",ddd:0,assets:[],
+          layers:[{
+            ddd:0,ind:1,ty:4,nm:"Pulse Ring",sr:1,
+            ks:{
+              o:{a:1,k:[{t:0,s:[65]},{t:60,s:[18]},{t:120,s:[65]}]},
+              r:{a:0,k:0},p:{a:0,k:[80,80,0]},a:{a:0,k:[0,0,0]},
+              s:{a:1,k:[{t:0,s:[72,72,100]},{t:60,s:[112,112,100]},{t:120,s:[72,72,100]}]}
+            },
+            ao:0,
+            shapes:[
+              {ty:"el",d:1,s:{a:0,k:[92,92]},p:{a:0,k:[0,0]},nm:"Ellipse"},
+              {ty:"st",c:{a:0,k:[0.18,0.90,0.62,1]},o:{a:0,k:100},w:{a:0,k:4},lc:2,lj:2,nm:"Stroke"},
+              {ty:"tr",p:{a:0,k:[0,0]},a:{a:0,k:[0,0]},s:{a:0,k:[100,100]},r:{a:0,k:0},o:{a:0,k:100},sk:{a:0,k:0},sa:{a:0,k:0},nm:"Transform"}
+            ],ip:0,op:120,st:0,bm:0
+          }]
+        };
+        window.lottie.loadAnimation({container:$('neoLottie'),renderer:'svg',loop:true,autoplay:true,animationData});
+      } catch(e) {}
+    };
+    document.head.appendChild(script);
+  }
+
+  function reinforcePowerAnchor(){
+    if (location.hash === '#powerGridSection') setTimeout(()=>$('powerGridSection')?.scrollIntoView({behavior:'smooth',block:'start'}),250);
+  }
+
+  upgradeChrome();
+  installOverview();
+  tickChrome();
+  setInterval(tickChrome,1000);
+  if (page === 'overview') {
+    updateOverview();
+    setInterval(updateOverview,2000);
+    reinforcePowerAnchor();
+  }
+})();
+
 </script>
 </body>
 </html>
