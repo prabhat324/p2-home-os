@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-storage-deep-diagnose-20260902-2330",
-  "operation": "dashboard-storage-diagnose",
+  "request_id": "storage01-same-origin-status-fix-20260902-2334",
+  "operation": "dashboard-deploy",
   "target": "compute-02"
 }
