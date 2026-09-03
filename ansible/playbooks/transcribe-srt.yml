@@ -45,7 +45,28 @@
     - name: Generate word-timed SRT with the existing medium Whisper model
       ansible.builtin.shell: |
         set -euo pipefail
-        /usr/bin/python3 - '{{ transcription_host_audio }}' '{{ transcription_host_srt }}' <<'PY'
+        python_bin=""
+        python_path=""
+        for candidate in \
+          /srv/compose/osho-worker/.venv/bin/python \
+          /srv/compose/osho-worker/venv/bin/python \
+          /srv/osho/venv/bin/python \
+          /usr/bin/python3; do
+          if [ -x "$candidate" ] && "$candidate" -c 'import faster_whisper' >/dev/null 2>&1; then
+            python_bin="$candidate"
+            break
+          fi
+        done
+        if [ -z "$python_bin" ]; then
+          package_dir="$(find /home/psquare/.local/lib -type d -path '*/site-packages/faster_whisper' -print -quit 2>/dev/null || true)"
+          if [ -n "$package_dir" ]; then
+            python_bin=/usr/bin/python3
+            python_path="$(dirname "$package_dir")"
+          fi
+        fi
+        [ -n "$python_bin" ] || { echo "FASTER_WHISPER_RUNTIME_NOT_FOUND" >&2; exit 4; }
+        echo "WHISPER_PYTHON=$python_bin"
+        PYTHONPATH="$python_path${PYTHONPATH:+:$PYTHONPATH}" "$python_bin" - '{{ transcription_host_audio }}' '{{ transcription_host_srt }}' <<'PY'
         import re
         import sys
         from pathlib import Path
