@@ -1,0 +1,165 @@
+---
+- name: Generate an audio-verified SRT on compute-01
+  hosts: compute-01
+  gather_facts: false
+  become: true
+  vars:
+    transcription_request_id: "{{ lookup('file', '../../ops/request.json') | from_json | json_query('request_id') }}"
+    transcription_source_id: "{{ lookup('file', '../../ops/request.json') | from_json | json_query('source_drive_file_id') }}"
+    transcription_root: "/srv/osho/manual-transcripts/{{ transcription_request_id }}"
+    transcription_host_audio: "{{ transcription_root }}/input.wav"
+    transcription_host_srt: "{{ transcription_root }}/Video2_Audio_Verified_Captions.srt"
+    transcription_container_audio: "/data/manual-transcripts/{{ transcription_request_id }}/input.wav"
+    transcription_container_srt: "/data/manual-transcripts/{{ transcription_request_id }}/Video2_Audio_Verified_Captions.srt"
+  tasks:
+    - name: Validate the fixed Google Drive file identifier
+      ansible.builtin.assert:
+        that:
+          - transcription_source_id is match('^[A-Za-z0-9_-]{20,100}$')
+        fail_msg: "Invalid source_drive_file_id"
+
+    - name: Create isolated transcription directory
+      ansible.builtin.file:
+        path: "{{ transcription_root }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Download the exact shared WAV
+      ansible.builtin.get_url:
+        url: "https://drive.usercontent.google.com/download?id={{ transcription_source_id }}&export=download&confirm=t"
+        dest: "{{ transcription_host_audio }}"
+        mode: "0600"
+        timeout: 180
+        force: true
+      register: audio_download
+
+    - name: Verify downloaded audio is a WAV and has expected size
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test "$(stat -c %s '{{ transcription_host_audio }}')" -gt 1000000
+        file '{{ transcription_host_audio }}' | grep -qiE 'WAVE audio|RIFF'
+        echo "AUDIO_BYTES=$(stat -c %s '{{ transcription_host_audio }}')"
+        sha256sum '{{ transcription_host_audio }}'
+      args:
+        executable: /bin/bash
+      register: audio_check
+      changed_when: false
+
+    - name: Generate word-timed SRT with the existing medium Whisper model
+      ansible.builtin.shell: |
+        set -euo pipefail
+        docker exec -i osho-worker python3 - '{{ transcription_container_audio }}' '{{ transcription_container_srt }}' <<'PY'
+        import re
+        import sys
+        from pathlib import Path
+        from faster_whisper import WhisperModel
+
+        audio_path, output_path = sys.argv[1], sys.argv[2]
+        model = WhisperModel("medium", device="cuda", compute_type="int8_float16", download_root="/models")
+        segments, info = model.transcribe(
+            audio_path,
+            language="en",
+            beam_size=5,
+            vad_filter=True,
+            word_timestamps=True,
+            condition_on_previous_text=True,
+        )
+
+        words = []
+        for segment in segments:
+            for word in (segment.words or []):
+                token = word.word.strip()
+                if token and word.start is not None and word.end is not None:
+                    words.append((float(word.start), float(word.end), token))
+
+        def fmt(seconds):
+            milliseconds = max(0, round(seconds * 1000))
+            hours, milliseconds = divmod(milliseconds, 3600000)
+            minutes, milliseconds = divmod(milliseconds, 60000)
+            secs, milliseconds = divmod(milliseconds, 1000)
+            return f"{hours:02d}:{minutes:02d}:{secs:02d},{milliseconds:03d}"
+
+        cues = []
+        current = []
+        start = end = None
+
+        def render(tokens):
+            text = " ".join(tokens)
+            text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+            text = re.sub(r"([($])\s+", r"\1", text)
+            if len(text) <= 42:
+                return text
+            split = min(range(1, len(text)), key=lambda i: abs(i - len(text) / 2) if text[i] == " " else 9999)
+            if text[split] != " ":
+                split = text.rfind(" ", 0, 42)
+            if split <= 0:
+                return text
+            return text[:split].strip() + "\n" + text[split + 1:].strip()
+
+        def flush():
+            nonlocal current, start, end
+            if current:
+                cues.append((start, max(end, start + 0.8), render(current)))
+            current = []
+            start = end = None
+
+        for ws, we, token in words:
+            proposed = render(current + [token]).replace("\n", " ")
+            pause = (ws - end) if end is not None else 0
+            duration = (we - start) if start is not None else 0
+            if current and (len(proposed) > 84 or duration > 5.5 or pause > 0.8):
+                flush()
+            if not current:
+                start = ws
+            current.append(token)
+            end = we
+            if re.search(r"[.!?]$", token) and (end - start) >= 1.2:
+                flush()
+        flush()
+
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with out.open("w", encoding="utf-8") as f:
+            for index, (cs, ce, text) in enumerate(cues, 1):
+                f.write(f"{index}\n{fmt(cs)} --> {fmt(ce)}\n{text}\n\n")
+
+        print(f"LANGUAGE={info.language}")
+        print(f"LANGUAGE_PROBABILITY={info.language_probability:.6f}")
+        print(f"WORD_COUNT={len(words)}")
+        print(f"CUE_COUNT={len(cues)}")
+        print(f"SRT_PATH={output_path}")
+        PY
+      args:
+        executable: /bin/bash
+      register: transcription
+      changed_when: true
+
+    - name: Verify and emit compressed SRT for retrieval
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test -s '{{ transcription_host_srt }}'
+        grep -q -- '-->' '{{ transcription_host_srt }}'
+        echo "SRT_BYTES=$(stat -c %s '{{ transcription_host_srt }}')"
+        echo "SRT_SHA256=$(sha256sum '{{ transcription_host_srt }}' | awk '{print $1}')"
+        echo "SRT_GZIP_BASE64_BEGIN"
+        gzip -9 -c '{{ transcription_host_srt }}' | base64 -w0
+        echo
+        echo "SRT_GZIP_BASE64_END"
+      args:
+        executable: /bin/bash
+      register: srt_payload
+      changed_when: false
+
+    - name: Show audio verification
+      ansible.builtin.debug:
+        msg: "{{ audio_check.stdout_lines }}"
+
+    - name: Show transcription summary
+      ansible.builtin.debug:
+        msg: "{{ transcription.stdout_lines }}"
+
+    - name: Return SRT payload
+      ansible.builtin.debug:
+        msg: "{{ srt_payload.stdout_lines }}"
