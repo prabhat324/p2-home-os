@@ -1,0 +1,23 @@
+---
+- name: Inspect pre-deployment dashboard backup
+  hosts: compute-02
+  gather_facts: false
+  tasks:
+    - name: Compare backup with current dashboard files
+      ansible.builtin.shell: |
+        set -eu
+        base=/srv/compose/osho-dashboard
+        backup="$base/backups/20260903-025737-git-helper"
+        test -d "$backup"
+        for item in .dockerignore Dockerfile requirements.txt app/main.py app/static/index.html; do
+          printf '%s\n' "FILE=$item"
+          sha256sum "$backup/$item" "$base/$item"
+          wc -c "$backup/$item" "$base/$item"
+        done
+      args:
+        executable: /bin/bash
+      register: comparison
+      changed_when: false
+    - name: Show backup comparison
+      ansible.builtin.debug:
+        var: comparison.stdout_lines
