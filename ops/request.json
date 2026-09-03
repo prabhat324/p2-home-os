@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-predeploy-backup-export-20260902-2312",
-  "operation": "dashboard-predeploy-backup-export",
+  "request_id": "dashboard-exact-backup-restore-20260902-2318",
+  "operation": "dashboard-deploy",
   "target": "compute-02"
 }
