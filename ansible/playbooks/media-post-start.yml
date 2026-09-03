@@ -4,8 +4,8 @@
   gather_facts: false
   vars:
     job_root: /srv/media-production/inbox/wasaga-report-2026
-    work_root: /home/psquare/media-production/wasaga-report-2026/work
-    output_root: /home/psquare/media-production/wasaga-report-2026/output
+    work_root: /var/tmp/p2-media/wasaga-report-2026/work
+    output_root: /var/tmp/p2-media/wasaga-report-2026/output
   tasks:
     - name: Create job directories
       ansible.builtin.file:
@@ -35,8 +35,8 @@
           #!/usr/bin/env bash
           set -euo pipefail
           job=/srv/media-production/inbox/wasaga-report-2026
-          work=/home/psquare/media-production/wasaga-report-2026/work
-          out=/home/psquare/media-production/wasaga-report-2026/output
+          work=/var/tmp/p2-media/wasaga-report-2026/work
+          out=/var/tmp/p2-media/wasaga-report-2026/output
           master="$job/master.mp4"
           srt="$work/captions.srt"
           log="$out/edit.log"
@@ -120,7 +120,7 @@
 
     - name: Check for an existing edit process
       ansible.builtin.shell: |
-        pgrep -af '/home/psquare/media-production/wasaga-report-2026/work/run-review-edit.sh' || true
+        pgrep -af '/var/tmp/p2-media/wasaga-report-2026/work/run-review-edit.sh' || true
       register: existing
       changed_when: false
 
