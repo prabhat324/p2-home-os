@@ -3,20 +3,21 @@
   hosts: compute-02
   gather_facts: false
   tasks:
-    - name: Query dashboard version and core-01 filesystem proxy
+    - name: Query storage-01 through dashboard and directly
       ansible.builtin.shell: |
         set -o pipefail
         base='http://127.0.0.1:8787'
         echo '=== HEALTH ==='
         curl -fsS "${base}/health"
         echo
-        echo '=== CORE-01 FILESYSTEMS ==='
-        curl -fsS "${base}/api/glances/core-01/api/4/fs" | python3 -c '
-        import json,sys
-        rows=json.load(sys.stdin)
-        for x in rows if isinstance(rows,list) else []:
-            print("|".join(str(x.get(k,"")) for k in ("mnt_point","device_name","fs_type","size","used","free","percent")))
-        '
+        echo '=== STORAGE API ==='
+        curl -fsS "${base}/api/storage/storage-01" | python3 -m json.tool
+        echo '=== DIRECT QTS ==='
+        curl -sS -o /dev/null --connect-timeout 3 --max-time 5 -w 'HTTP=%{http_code} CONNECT=%{time_connect}\n' http://192.168.0.53:8080/
+        echo '=== ICMP ==='
+        ping -c 1 -W 2 192.168.0.53 || true
+        echo '=== SNMP SECRET ==='
+        if [ -s /srv/compose/osho-dashboard/data/storage-01-snmp-community ]; then echo present; else echo missing; fi
       args:
         executable: /bin/bash
       register: result
