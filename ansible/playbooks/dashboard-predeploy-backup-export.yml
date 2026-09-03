@@ -1,0 +1,23 @@
+---
+- name: Export exact pre-deployment dashboard backup
+  hosts: compute-02
+  gather_facts: false
+  tasks:
+    - name: Read backed-up Dockerfile
+      ansible.builtin.slurp:
+        src: /srv/compose/osho-dashboard/backups/20260903-025737-git-helper/Dockerfile
+      register: dockerfile_backup
+    - name: Read backed-up requirements
+      ansible.builtin.slurp:
+        src: /srv/compose/osho-dashboard/backups/20260903-025737-git-helper/requirements.txt
+      register: requirements_backup
+    - name: Read backed-up dashboard page
+      ansible.builtin.slurp:
+        src: /srv/compose/osho-dashboard/backups/20260903-025737-git-helper/app/static/index.html
+      register: index_backup
+    - name: Emit recovery payload
+      ansible.builtin.debug:
+        msg:
+          dockerfile_b64: "{{ dockerfile_backup.content }}"
+          requirements_b64: "{{ requirements_backup.content }}"
+          index_b64: "{{ index_backup.content }}"
