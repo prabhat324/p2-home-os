@@ -2,15 +2,12 @@
 - name: Generate an audio-verified SRT on compute-01
   hosts: compute-01
   gather_facts: false
-  become: true
   vars:
     transcription_request_id: "{{ lookup('file', '../../ops/request.json') | from_json | json_query('request_id') }}"
     transcription_source_id: "{{ lookup('file', '../../ops/request.json') | from_json | json_query('source_drive_file_id') }}"
-    transcription_root: "/srv/osho/manual-transcripts/{{ transcription_request_id }}"
+    transcription_root: "/tmp/p2ops-transcripts/{{ transcription_request_id }}"
     transcription_host_audio: "{{ transcription_root }}/input.wav"
     transcription_host_srt: "{{ transcription_root }}/Video2_Audio_Verified_Captions.srt"
-    transcription_container_audio: "/data/manual-transcripts/{{ transcription_request_id }}/input.wav"
-    transcription_container_srt: "/data/manual-transcripts/{{ transcription_request_id }}/Video2_Audio_Verified_Captions.srt"
   tasks:
     - name: Validate the fixed Google Drive file identifier
       ansible.builtin.assert:
@@ -22,8 +19,6 @@
       ansible.builtin.file:
         path: "{{ transcription_root }}"
         state: directory
-        owner: root
-        group: root
         mode: "0700"
 
     - name: Download the exact shared WAV
@@ -50,14 +45,14 @@
     - name: Generate word-timed SRT with the existing medium Whisper model
       ansible.builtin.shell: |
         set -euo pipefail
-        docker exec -i osho-worker python3 - '{{ transcription_container_audio }}' '{{ transcription_container_srt }}' <<'PY'
+        /usr/bin/python3 - '{{ transcription_host_audio }}' '{{ transcription_host_srt }}' <<'PY'
         import re
         import sys
         from pathlib import Path
         from faster_whisper import WhisperModel
 
         audio_path, output_path = sys.argv[1], sys.argv[2]
-        model = WhisperModel("medium", device="cuda", compute_type="int8_float16", download_root="/models")
+        model = WhisperModel("medium", device="cuda", compute_type="int8_float16", download_root="/srv/osho/models")
         segments, info = model.transcribe(
             audio_path,
             language="en",
