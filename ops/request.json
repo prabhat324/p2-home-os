@@ -1,5 +1,5 @@
 {
-  "request_id": "wasaga-media-edit-start-20260903-1546",
-  "operation": "media-post-start",
+  "request_id": "wasaga-media-status-20260903-1548",
+  "operation": "media-post-inspect",
   "target": "compute-01"
 }
