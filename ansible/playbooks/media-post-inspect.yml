@@ -1,0 +1,35 @@
+---
+- name: Inspect Wasaga Beach media master and editing readiness
+  hosts: compute-01
+  gather_facts: false
+  vars:
+    media_root: /srv/media-production
+    job_root: /srv/media-production/inbox/wasaga-report-2026
+    master_path: /srv/media-production/inbox/wasaga-report-2026/master.mp4
+  tasks:
+    - name: Inspect source, tools, disk and GPU without changing media
+      ansible.builtin.shell: |
+        set -euo pipefail
+        echo "HOST=$(hostname)"
+        stat -c 'MASTER_BYTES=%s MASTER_MTIME=%y MASTER_MODE=%a MASTER_OWNER=%U:%G' "{{ master_path }}"
+        sha256sum "{{ master_path }}" | awk '{print "MASTER_SHA256="$1}'
+        ffprobe -v error -show_entries format=duration,size,bit_rate:stream=index,codec_type,codec_name,width,height,r_frame_rate,sample_rate,channels -of json "{{ master_path }}"
+        echo "CAPTION_FILES_BEGIN"
+        find "{{ job_root }}" -maxdepth 2 -type f \( -iname '*.srt' -o -iname '*.vtt' -o -iname '*.ass' \) -printf '%p %s bytes\n' | sort
+        echo "CAPTION_FILES_END"
+        echo "MEDIA_FILES_BEGIN"
+        find "{{ job_root }}" -maxdepth 3 -type f -printf '%p %s bytes\n' | sort
+        echo "MEDIA_FILES_END"
+        df -h "{{ media_root }}"
+        command -v ffmpeg
+        ffmpeg -hide_banner -encoders 2>/dev/null | grep -E 'h264_nvenc|hevc_nvenc|prores_ks' || true
+        nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,utilization.gpu --format=csv,noheader || true
+        docker ps --format 'CONTAINER={{.Names}} IMAGE={{.Image}} STATUS={{.Status}}' || true
+      args:
+        executable: /bin/bash
+      register: inspection
+      changed_when: false
+
+    - name: Return inspection report
+      ansible.builtin.debug:
+        msg: "{{ inspection.stdout_lines }}"
