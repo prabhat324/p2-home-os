@@ -126,7 +126,7 @@
 
     - name: Start edit job in background
       ansible.builtin.shell: |
-        nohup "{{ work_root }}/run-review-edit.sh" >/dev/null 2>&1 &
+        nohup sg docker -c "{{ work_root }}/run-review-edit.sh" >/dev/null 2>&1 &
         echo $! > "{{ output_root }}/edit.pid"
         echo "EDIT_PID=$!"
       args:
