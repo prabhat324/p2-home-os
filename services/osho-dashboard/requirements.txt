@@ -1,2 +1,4 @@
 fastapi==0.116.1
 uvicorn==0.35.0
+PyChromecast==14.0.10
+piper-tts==1.7.0
