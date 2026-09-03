@@ -1,5 +1,5 @@
 {
-  "request_id": "storage01-ip-deploy-20260902-2235",
-  "operation": "dashboard-deploy",
+  "request_id": "dashboard-predeploy-backup-inspect-20260902-2307",
+  "operation": "dashboard-predeploy-backup-inspect",
   "target": "compute-02"
 }
