@@ -131,6 +131,10 @@ case "${operation}" in
     [[ "${target}" == "compute-02" ]] || { echo "dashboard-predeploy-backup-inspect is restricted to compute-02" >&2; exit 2; }
     playbook="playbooks/dashboard-predeploy-backup-inspect.yml"
     ;;
+  media-post-start)
+    [[ "${target}" == "compute-01" ]] || { echo "media-post-start is restricted to compute-01" >&2; exit 2; }
+    playbook="playbooks/media-post-start.yml"
+    ;;
   media-post-inspect)
     [[ "${target}" == "compute-01" ]] || { echo "media-post-inspect is restricted to compute-01" >&2; exit 2; }
     playbook="playbooks/media-post-inspect.yml"
