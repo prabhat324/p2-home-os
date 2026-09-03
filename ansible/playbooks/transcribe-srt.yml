@@ -94,7 +94,7 @@
             return text[:split].strip() + "\n" + text[split + 1:].strip()
 
         def flush():
-            nonlocal current, start, end
+            global current, start, end
             if current:
                 cues.append((start, max(end, start + 0.8), render(current)))
             current = []
