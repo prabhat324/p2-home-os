@@ -1,5 +1,6 @@
 {
-  "request_id": "storage01-same-origin-status-fix-20260902-2334",
-  "operation": "dashboard-deploy",
-  "target": "compute-02"
+  "request_id": "video2-srt-20260903-1458",
+  "operation": "transcribe-srt",
+  "target": "compute-01",
+  "source_drive_file_id": "1d6b1UNjcs3CnVWPxqzhXWh7ApnGzjkuN"
 }
