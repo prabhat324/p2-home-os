@@ -93,7 +93,7 @@
 
           echo "STAGE=graphics"
           docker build -t psquare/media-post:0.1 "$work"
-          docker run --rm --gpus all -v /srv/media-production:/work psquare/media-post:0.1             --project /app/project.json             --master /work/inbox/wasaga-report-2026/master.mp4             --captions /jobwork/captions.srt             --assets /work/inbox/wasaga-report-2026             --output /jobout
+          docker run --rm --gpus all -v /srv/media-production:/work -v "$work:/jobwork" -v "$out:/jobout" psquare/media-post:0.1 --project /app/project.json --master /work/inbox/wasaga-report-2026/master.mp4 --captions /jobwork/captions.srt --assets /work/inbox/wasaga-report-2026 --output /jobout
 
           echo "STAGE=review-render"
           python3 - "$work/project.json" "$out" "$master" <<'PY'
