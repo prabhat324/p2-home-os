@@ -19,21 +19,9 @@ test "$(stat -c %s "$host_audio")" -gt 1000000
 file "$host_audio" | grep -qiE 'WAVE audio|RIFF'
 
 docker inspect "$container" >/dev/null
-was_running="$(docker inspect -f '{{.State.Running}}' "$container")"
-cleanup_container() {
-  if [[ "$was_running" != "true" ]]; then
-    docker stop -t 20 "$container" >/dev/null 2>&1 || true
-  fi
-}
-trap cleanup_container EXIT
-if [[ "$was_running" != "true" ]]; then
-  docker start "$container" >/dev/null
-  for _ in {1..30}; do
-    [[ "$(docker inspect -f '{{.State.Running}}' "$container")" == "true" ]] && break
-    sleep 1
-  done
-fi
-docker exec -i "$container" python3 - "$container_audio" "$container_srt" <<'PY'
+image="$(docker inspect -f '{{.Config.Image}}' "$container")"
+[[ -n "$image" ]] || { echo "Unable to resolve Osho worker image" >&2; exit 3; }
+docker run --rm --gpus all --volumes-from "$container" -i --entrypoint python3 "$image" - "$container_audio" "$container_srt" <<'PY'
 import re, sys
 from pathlib import Path
 from faster_whisper import WhisperModel
