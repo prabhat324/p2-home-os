@@ -25,6 +25,11 @@
         ffmpeg -hide_banner -encoders 2>/dev/null | grep -E 'h264_nvenc|hevc_nvenc|prores_ks' || true
         nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,utilization.gpu --format=csv,noheader || true
         docker ps --no-trunc || true
+        echo EDIT_STATUS_BEGIN
+        pgrep -af '[r]un-review-edit.sh' || true
+        test -f /var/tmp/p2-media/wasaga-report-2026/output/edit.log && tail -n 60 /var/tmp/p2-media/wasaga-report-2026/output/edit.log || true
+        find /var/tmp/p2-media/wasaga-report-2026/output -maxdepth 2 -type f -printf '%p %s bytes\\n' 2>/dev/null | sort || true
+        echo EDIT_STATUS_END
       args:
         executable: /bin/bash
       register: inspection
