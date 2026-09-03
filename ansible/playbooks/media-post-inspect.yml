@@ -15,7 +15,8 @@
         sha256sum "{{ master_path }}" | awk '{print "MASTER_SHA256="$1}'
         ffprobe -v error -show_entries format=duration,size,bit_rate:stream=index,codec_type,codec_name,width,height,r_frame_rate,sample_rate,channels -of json "{{ master_path }}"
         echo "CAPTION_FILES_BEGIN"
-        find "{{ job_root }}" -maxdepth 2 -type f \( -iname '*.srt' -o -iname '*.vtt' -o -iname '*.ass' \) -printf '%p %s bytes\n' | sort
+        find "{{ job_root }}" -maxdepth 2 -type f         docker ps --no-trunc || true
+( -iname '*.srt' -o -iname '*.vtt' -o -iname '*.ass' \) -printf '%p %s bytes\n' | sort
         echo "CAPTION_FILES_END"
         echo "MEDIA_FILES_BEGIN"
         find "{{ job_root }}" -maxdepth 3 -type f -printf '%p %s bytes\n' | sort
