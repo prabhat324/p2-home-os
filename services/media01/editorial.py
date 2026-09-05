@@ -74,8 +74,7 @@ def fact_card(e,path):
 def source_card(e,path):
     from PIL import Image,ImageDraw
     paper=e['kind']=='newspaper';bg='#EFE9DC' if paper else '#F4F5F2';ink='#151515';im=Image.new('RGB',(3840,2160),bg);d=ImageDraw.Draw(im);label=font(size=42);headline=font(size=92);body=font(size=48)
-    d.rectangle((250,180,3590,1960),outline='#292929',width=5)
-    kicker='SOURCE / ARTICLE' if paper else 'PRIMARY SOURCE / DOCUMENT';d.text((390,300),kicker,font=label,fill='#555555');d.line((390,380,3450,380),fill='#777777',width=3);y=500
+    d.rectangle((250,180,3590,1960),outline='#292929',width=5);kicker='SOURCE / ARTICLE' if paper else 'PRIMARY SOURCE / DOCUMENT';d.text((390,300),kicker,font=label,fill='#555555');d.line((390,380,3450,380),fill='#777777',width=3);y=500
     for ln in wrap(e.get('title',''),45)[:4]:d.text((390,y),ln,font=headline,fill=ink);y+=130
     excerpt=e.get('excerpt') or e.get('subtitle') or ''
     if excerpt:
@@ -106,7 +105,7 @@ def render(source,out,t):
         else:args+=['-ss',e['start'],'-i',source]
         vf='scale=3840:2160:force_original_aspect_ratio=decrease,pad=3840:2160:(ow-iw)/2:(oh-ih)/2'
         if kind=='zoom':
-            n=max(1,round(length*fps)-1);amount=e.get('scale',1.04)-1;vf+=f",zoompan=z='1+{amount}*pow(sin(PI*on/{n}),2)':x='iw/2-iw/zoom/2':y='ih/2-iw/zoom/2':d=1:s=3840x2160:fps={fps}"
+            n=max(1,round(length*fps)-1);amount=e.get('scale',1.04)-1;vf+=f",zoompan=z='1+{amount}*pow(sin(PI*on/{n}),2)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=3840x2160:fps={fps}"
         args+=['-t',length,'-an','-vf',vf,'-r',fps,'-c:v','h264_nvenc','-preset','p6','-cq','16','-pix_fmt','yuv420p',p];run(args)
     listing=out/'parts.txt';listing.write_text(''.join(f"file '{p.name}'\n" for p in chunks));run(['ffmpeg','-nostdin','-y','-v','error','-f','concat','-safe','0','-i',listing,'-i',source,'-map','0:v','-map','1:a:0','-c','copy','-t',duration,out/'timeline.partial.mp4']);(out/'timeline.partial.mp4').replace(out/'timeline.mp4')
 
