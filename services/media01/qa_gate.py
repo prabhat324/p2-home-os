@@ -34,6 +34,32 @@ def loudness(path):
     return json.loads(blocks[-1]) if blocks else {}
 
 
+def repeated_sequences(path, seconds=5):
+    cmd = ["ffmpeg", "-v", "error", "-i", str(path), "-vf", "fps=1,scale=9:8,format=gray", "-f", "rawvideo", "-"]
+    p = subprocess.run(cmd, capture_output=True, check=False)
+    frame_size = 9 * 8
+    frames = [p.stdout[i:i + frame_size] for i in range(0, len(p.stdout) - frame_size + 1, frame_size)]
+    hashes = []
+    for frame in frames:
+        value = 0
+        bit = 0
+        for y in range(8):
+            row = frame[y * 9:(y + 1) * 9]
+            for x in range(8):
+                value |= (1 if row[x] > row[x + 1] else 0) << bit
+                bit += 1
+        hashes.append(value)
+    seen, repeats = {}, []
+    for i in range(0, max(0, len(hashes) - seconds + 1)):
+        signature = tuple(hashes[i:i + seconds])
+        previous = seen.get(signature)
+        if previous is not None and i - previous >= seconds + 5:
+            repeats.append({"first_second": previous, "repeat_second": i, "seconds": seconds})
+        else:
+            seen[signature] = i
+    return repeats[:20]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("video", type=Path)
@@ -74,6 +100,9 @@ def main():
     freeze_events = re.findall(r"freeze_duration: ([0-9.]+)", freeze)
     if freeze_events:
         failures.append(f"Detected {len(freeze_events)} freeze event(s) >= 2s")
+    repeats = repeated_sequences(args.video, int(cfg["qa_gates"]["fail_on_probable_repeated_sequence_seconds"]))
+    if repeats:
+        failures.append(f"Detected {len(repeats)} probable non-consecutive repeated sequence(s)")
     audio = loudness(args.video) if audios else {}
     if audio:
         measured = float(audio.get("input_i", -99))
@@ -89,7 +118,7 @@ def main():
         "profile": cfg["profile"], "file": str(args.video),
         "status": "PASS" if not failures else "FAIL",
         "failures": failures, "warnings": warnings,
-        "probe": info, "loudness": audio,
+        "probe": info, "loudness": audio, "probable_repeated_sequences": repeats,
         "manual_gates": [
             "Full timeline review completed",
             "No cropped faces, text, or source material",
