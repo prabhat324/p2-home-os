@@ -47,7 +47,7 @@ def creative_gate(r,manifest,timeline,review,assignments=None):
     if assignments:cmd+=['--assignments',assignments]
     try:r.run(cmd,'CREATIVE_QA',timeout=240);return True,read(report,{})
     except RuntimeError:
-        q=read(report,{}) or {};r.state('CREATIVE_REVIEW_REQUIRED',creative_qa=q,failures=q.get('failures',[]));return False,q
+        q=read(report,{}) or {};r.state('CREATIVE_REVIEW_REQUIRED',creative_qa=q,failures=q.get('failures',[]),asset_requests=(read(timeline,{}) or {}).get('asset_requests',[]));return False,q
 
 def finish_review(r,source,output,review,work,duration,cfg,manifest_path,manifest,timeline,assignments=None):
     passed,repairs=qa_with_repairs(r,source,output,review,work,duration,cfg)
@@ -58,8 +58,19 @@ def finish_review(r,source,output,review,work,duration,cfg,manifest_path,manifes
     qa=read(review/'qa-report.json',{}) or {}
     r.state('REVIEW_REQUIRED',qa='PASS',creative_qa='PASS',review=str(output),benchmark_only=manifest.get('purpose')=='benchmark',timings=str(work/'timings.json'),manual_review_required=True,auto_repair_attempts=len(repairs),auto_repairs=repairs,visual_baseline=qa.get('visual_baseline'),production_mode=mode_for(manifest))
 
+def resolve_assets(r,manifest_path,manifest,work):
+    if mode_for(manifest)=='podcast' or not manifest.get('visual_assets'):return manifest_path,manifest
+    resolved=work/'project.resolved.json';report=work/'asset-fetch-report.json'
+    try:
+        r.run([sys.executable,APP/'asset_fetcher.py','--manifest',manifest_path,'--cache-dir',work/'assets','--output-manifest',resolved,'--report',report],'FETCHING_ASSETS',timeout=1800)
+    except RuntimeError as e:
+        r.state('BLOCKED_FOR_REVIEW',reason='Sourced visual asset acquisition failed',asset_report=read(report,{}) or {},error=str(e));return None,None
+    data=read(resolved,{}) or {}
+    if not data:r.state('BLOCKED_FOR_REVIEW',reason='Resolved project manifest is empty after asset acquisition');return None,None
+    return resolved,data
+
 def build_timeline(r,job,manifest_path,manifest,analysis,work,review,duration):
-    explicit=job/'timeline.json';auto=work/'timeline.auto.json';mode=mode_for(manifest)
+    explicit=job/'timeline.json';auto=work/'timeline.auto.json'
     if explicit.exists():return explicit
     report=analysis/'content-report.json';transcript=analysis/'transcript.json'
     r.run([sys.executable,APP/'creative_planner.py','--manifest',manifest_path,'--report',report,'--transcript',transcript,'--duration',duration,'--output',auto],'PLANNING_CREATIVE',timeout=180)
@@ -94,18 +105,19 @@ def review_job(job):
                 report=read(analysis/'content-report.json',{}) or {}
                 if report.get('probable_repeated_spoken_sections'):
                     r.run([sys.executable,APP/'editorial.py','evidence',source,review],'BUILDING_REVIEW_EVIDENCE',timeout=600);r.state('BLOCKED_FOR_REVIEW',reason='Probable repeated speech requires editorial evidence review',analysis=str(analysis));return
-            timeline=build_timeline(r,job,manifest_path,manifest,analysis,work,review,duration)
+            render_manifest_path,render_manifest=resolve_assets(r,manifest_path,manifest,work)
+            if render_manifest_path is None:return
+            timeline=build_timeline(r,job,render_manifest_path,render_manifest,analysis,work,review,duration)
             assignments=None;subtitle_ass=None
-            if mode_for(manifest)=='podcast' and manifest.get('podcast_captions',{}).get('enabled',True):
+            if mode_for(render_manifest)=='podcast' and render_manifest.get('podcast_captions',{}).get('enabled',True):
                 subtitle_ass=review/'speaker-captions.ass';assignments=review/'speaker-assignments.json'
-                r.run([sys.executable,APP/'podcast_captions.py',source,'--transcript',analysis/'transcript.json','--manifest',manifest_path,'--ass',subtitle_ass,'--assignments',assignments],'ANALYZING_SPEAKERS',duration,timeout=7200)
-            # A stale QA-only retry is safe only when the output was produced by this exact recipe.
+                r.run([sys.executable,APP/'podcast_captions.py',source,'--transcript',analysis/'transcript.json','--manifest',render_manifest_path,'--ass',subtitle_ass,'--assignments',assignments],'ANALYZING_SPEAKERS',duration,timeout=7200)
             if previous.get('recipe_key')==key and previous.get('state') in {'QA_FAILED','QA_REVIEW_REQUIRED','CREATIVE_REVIEW_REQUIRED'} and output.exists():
-                finish_review(r,source,output,review,work,duration,cfg,manifest_path,manifest,timeline,assignments);return
+                finish_review(r,source,output,review,work,duration,cfg,render_manifest_path,render_manifest,timeline,assignments);return
             if output.exists() and previous.get('recipe_key')!=key:output.replace(review/f'review-4k.previous-{int(time.time())}.mp4')
             r.run([sys.executable,APP/'editorial.py','handoff',source,review,'--timeline',timeline],'BUILDING_HANDOFF',timeout=180)
             render_source=source
-            if mode_for(manifest)!='podcast' and read(timeline,{}).get('events'):
+            if mode_for(render_manifest)!='podcast' and read(timeline,{}).get('events'):
                 r.run([sys.executable,APP/'editorial.py','render',source,work,'--timeline',timeline],'RENDERING_TIMELINE',duration);render_source=work/'timeline.mp4'
             audio_report=work/'audio-measure.json';a=read(audio_report,{}) or {}
             if a.get('recipe_key')!=key:
@@ -114,11 +126,9 @@ def review_job(job):
                 if not blocks:raise RuntimeError('Audio measurement missing')
                 a=json.loads(blocks[-1]);a['recipe_key']=key;atomic(audio_report,a)
             af='loudnorm=I=-14:TP=-2.0:LRA=11:linear=false:'+':'.join(f'{dst}={a[src]}' for dst,src in [('measured_I','input_i'),('measured_TP','input_tp'),('measured_LRA','input_lra'),('measured_thresh','input_thresh'),('offset','target_offset')])
-            partial=review/'review-4k.partial.mp4';cmd=['ffmpeg','-hide_banner','-y','-hwaccel','cuda','-hwaccel_output_format','cuda','-i',render_source,'-map','0:v:0','-map','0:a:0']
-            filters=[]
+            partial=review/'review-4k.partial.mp4';cmd=['ffmpeg','-hide_banner','-y','-hwaccel','cuda','-hwaccel_output_format','cuda','-i',render_source,'-map','0:v:0','-map','0:a:0'];filters=[]
             if (v['width'],v['height'])!=(3840,2160):filters.append('scale_cuda=3840:2160:force_original_aspect_ratio=decrease:force_divisible_by=2,pad_cuda=3840:2160:(ow-iw)/2:(oh-ih)/2')
             if subtitle_ass:
-                # libass is a CPU filter. Download from CUDA only at the final caption stage.
                 if filters:filters+=['hwdownload','format=nv12']
                 else:cmd=['ffmpeg','-hide_banner','-y','-i',render_source,'-map','0:v:0','-map','0:a:0']
                 filters.append("ass='"+str(subtitle_ass).replace("'","\\'")+"'")
@@ -126,7 +136,7 @@ def review_job(job):
             cmd+=['-c:v','h264_nvenc','-preset','p7','-tune','hq','-rc','vbr','-cq','17','-b:v','35M','-maxrate','55M','-bufsize','110M','-profile:v','high','-fps_mode','passthrough','-color_range','tv','-colorspace','bt709','-color_trc','bt709','-color_primaries','bt709','-af',af,'-c:a','aac','-b:a','320k','-ar','48000','-ac','2','-movflags','+faststart',partial]
             r.run(cmd,'RENDERING',duration);actual=float(probe(partial)['format']['duration'])
             if abs(actual-duration)>0.25:raise RuntimeError(f'Duration changed: {duration} -> {actual}')
-            partial.replace(output);finish_review(r,source,output,review,work,duration,cfg,manifest_path,manifest,timeline,assignments)
+            partial.replace(output);finish_review(r,source,output,review,work,duration,cfg,render_manifest_path,render_manifest,timeline,assignments)
         except ValueError as e:r.state('FAILED_FINAL',error=str(e))
         except Exception as e:
             attempt=base['attempt'];r.state('FAILED_FINAL' if attempt>=max_runtime else 'RETRY_PENDING',error=str(e),retry_after=time.time()+min(1800,60*2**attempt))
