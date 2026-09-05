@@ -49,7 +49,7 @@
         that:
           - acceptance.state == 'REVIEW_REQUIRED'
           - acceptance.qa == 'PASS'
-        fail_msg: "{{ acceptance }}"
+        fail_msg: "{{ acceptance | to_json }}"
 
     - name: Verify final technical format
       ansible.builtin.command:
