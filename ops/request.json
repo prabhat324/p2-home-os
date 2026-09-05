@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-postadmin-status-20260905-1030",
-  "operation": "media01-status",
+  "request_id": "media01-dedup-diagnose-20260905-1032",
+  "operation": "media01-recover-worker",
   "target": "media-01"
 }
