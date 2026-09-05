@@ -4,7 +4,7 @@ from unittest.mock import patch
 from runtime import atomic,read
 from content_analyzer import caption_chunks
 from editorial import validate
-from qa_gate import new_events,repeat_event_present_in_source
+from qa_gate import new_events,repeat_event_present_in_source,intentional_static_spans,filter_intentional_freezes,filter_intentional_repeats
 from auto_repair import classify_failures
 from creative_planner import build as build_plan,normalize_text
 from creative_qa import read as creative_read
@@ -43,9 +43,18 @@ class Contracts(unittest.TestCase):
   hashes=[0xffffffffffffffff]*60;a=[0x0,0x1,0x3,0x7,0xf];b=[0x0,0x1,0x3,0x7,0x1f]
   hashes[10:15]=a;hashes[30:35]=b;event={'first_second':10,'repeat_second':30,'seconds':5}
   self.assertTrue(repeat_event_present_in_source(event,hashes,5,1.5));self.assertFalse(repeat_event_present_in_source({'first_second':10,'repeat_second':45,'seconds':5},hashes,5,1.5))
+ def test_intentional_static_spans_require_approved_still_treatments(self):
+  timeline={'events':[{'start':10,'end':20,'kind':'graph','approved':True},{'start':30,'end':40,'kind':'zoom','approved':True},{'start':50,'end':60,'kind':'fact_card','approved':False}]}
+  self.assertEqual(intentional_static_spans(timeline),[{'start':10.0,'end':20.0,'kind':'graph'}])
+ def test_static_timeline_freeze_is_exempt_but_outside_freeze_still_fails(self):
+  spans=[{'start':10.0,'end':20.0,'kind':'graph'}];events=[{'start':10.2,'duration':9.7},{'start':40.0,'duration':3.0}]
+  remaining,intentional=filter_intentional_freezes(events,spans,1.0);self.assertEqual(remaining,[events[1]]);self.assertEqual(len(intentional),1);self.assertEqual(intentional[0]['timeline_kind'],'graph')
+ def test_repeat_exemption_requires_both_windows_inside_same_static_event(self):
+  spans=[{'start':100.0,'end':130.0,'kind':'graph'}];events=[{'first_second':101,'repeat_second':120,'seconds':5},{'first_second':101,'repeat_second':140,'seconds':5}]
+  remaining,intentional=filter_intentional_repeats(events,spans,5,1.0);self.assertEqual(remaining,[events[1]]);self.assertEqual(len(intentional),1)
  def test_failure_classifier_preserves_non_audio_review_flags(self):
   audio,other=classify_failures(['True peak -0.6 dBTP exceeds -1.0 dBTP','Detected 1 new freeze event(s) introduced after source']);self.assertEqual(len(audio),1);self.assertEqual(len(other),1)
- def test_qa_logic_version_exists_for_safe_rechecks(self):self.assertGreaterEqual(w.QA_LOGIC_VERSION,2)
+ def test_qa_logic_version_exists_for_safe_rechecks(self):self.assertGreaterEqual(w.QA_LOGIC_VERSION,4)
  def test_podcast_plan_has_no_cutaways(self):
   plan=build_plan({'mode':'podcast'},{},{},120);self.assertEqual(plan['events'],[]);self.assertFalse(plan['creative_policy']['cutaways']);self.assertTrue(plan['creative_policy']['speaker_captions'])
  def test_explainer_plan_is_not_empty(self):
