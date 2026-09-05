@@ -1,144 +1,72 @@
 ---
-- name: Remove confirmed duplicate and resume BeSquare processing
+- name: Recover and verify media-01 worker
   hosts: media-01
   gather_facts: false
-  vars:
-    root: /srv/media-production
-    jobdir: /srv/media-production/inbox/besquare-demo-01
-    original: /srv/media-production/inbox/besquare-demo-01/master.mp4
-    corrected: /srv/media-production/inbox/besquare-demo-01/master-dedup-v2.mp4
-    partial: /srv/media-production/inbox/besquare-demo-01/master-dedup-v2.partial.mp4
-    planfile: /srv/media-production/review/besquare-demo-01/duplicate-resolution.json
   tasks:
-    - name: Read and validate duplicate resolution plan
-      ansible.builtin.shell: |
-        set -euo pipefail
-        python3 - <<'PY'
-        import json,pathlib
-        p=pathlib.Path('/srv/media-production/review/besquare-demo-01/duplicate-resolution.json')
-        d=json.loads(p.read_text())
-        assert d['matched_words'] >= 12, d
-        assert 944.0 <= float(d['cut_start']) <= 945.0, d
-        assert 952.0 <= float(d['cut_end']) <= 953.0, d
-        assert 7.0 <= float(d['cut_duration']) <= 10.0, d
-        print(json.dumps(d))
-        PY
-      args:
-        executable: /bin/bash
-      register: plan
-      changed_when: false
-
-    - name: Wait for performance benchmark render to release encoder
-      ansible.builtin.shell: |
-        python3 - <<'PY'
-        import json,pathlib
-        p=pathlib.Path('/srv/media-production/logs/performance-4k-v2.status.json')
-        print(json.loads(p.read_text()).get('state','UNKNOWN') if p.exists() else 'ABSENT')
-        PY
-      args:
-        executable: /bin/bash
-      register: perf_state
-      until: perf_state.stdout != 'RENDERING'
-      retries: 18
-      delay: 10
-      changed_when: false
-
-    - name: Preserve original project manifest
-      ansible.builtin.shell: |
-        set -euo pipefail
-        test -f {{ jobdir }}/project.pre-dedup.json || cp {{ jobdir }}/project.json {{ jobdir }}/project.pre-dedup.json
-      args:
-        executable: /bin/bash
-      changed_when: true
-
-    - name: Render corrected derivative with only second duplicate removed
-      ansible.builtin.shell: |
-        set -euo pipefail
-        cut_start=$(python3 -c "import json;print(json.load(open('{{ planfile }}'))['cut_start'])")
-        cut_end=$(python3 -c "import json;print(json.load(open('{{ planfile }}'))['cut_end'])")
-        rm -f {{ partial }}
-        ffmpeg -nostdin -y -hide_banner -loglevel warning -i {{ original }} \
-          -filter_complex "[0:v]trim=0:${cut_start},setpts=PTS-STARTPTS[v0];[0:a]atrim=0:${cut_start},asetpts=PTS-STARTPTS[a0];[0:v]trim=start=${cut_end},setpts=PTS-STARTPTS[v1];[0:a]atrim=start=${cut_end},asetpts=PTS-STARTPTS[a1];[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]" \
-          -map "[v]" -map "[a]" \
-          -c:v h264_nvenc -preset p1 -tune hq -rc vbr -cq 14 -b:v 55M -maxrate 80M -bufsize 160M -profile:v high \
-          -color_range tv -colorspace bt709 -color_trc bt709 -color_primaries bt709 -pix_fmt yuv420p \
-          -c:a aac -b:a 320k -ar 48000 -ac 2 -movflags +faststart {{ partial }}
-        mv {{ partial }} {{ corrected }}
-      args:
-        executable: /bin/bash
-      async: 480
-      poll: 5
-      changed_when: true
-
-    - name: Verify corrected duration and streams
-      ansible.builtin.shell: |
-        set -euo pipefail
-        python3 - <<'PY'
-        import json,subprocess,pathlib
-        root=pathlib.Path('/srv/media-production')
-        plan=json.loads((root/'review/besquare-demo-01/duplicate-resolution.json').read_text())
-        def probe(p):
-          return json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-show_format','-of','json',str(p)],text=True))
-        a=probe(root/'inbox/besquare-demo-01/master.mp4')
-        b=probe(root/'inbox/besquare-demo-01/master-dedup-v2.mp4')
-        old=float(a['format']['duration']); new=float(b['format']['duration']); removed=old-new
-        v=next(x for x in b['streams'] if x['codec_type']=='video')
-        aud=[x for x in b['streams'] if x['codec_type']=='audio']
-        result={'old_duration':old,'new_duration':new,'removed':removed,'expected':plan['cut_duration'],'width':v['width'],'height':v['height'],'audio_streams':len(aud),'size':int(b['format']['size'])}
-        if abs(removed-float(plan['cut_duration']))>0.35: raise SystemExit('duration verification failed: '+json.dumps(result))
-        if (v['width'],v['height'])!=(3840,2160) or len(aud)!=1: raise SystemExit('stream verification failed: '+json.dumps(result))
-        if result['size'] < 500_000_000: raise SystemExit('output unexpectedly small: '+json.dumps(result))
-        print(json.dumps(result))
-        PY
-      args:
-        executable: /bin/bash
-      register: verification
-      changed_when: false
-
-    - name: Point project manifest at corrected derivative
-      ansible.builtin.shell: |
-        set -euo pipefail
-        python3 - <<'PY'
-        import json,pathlib,os,tempfile
-        job=pathlib.Path('/srv/media-production/inbox/besquare-demo-01')
-        p=job/'project.json'; d=json.loads(p.read_text())
-        plan=json.loads(pathlib.Path('/srv/media-production/review/besquare-demo-01/duplicate-resolution.json').read_text())
-        d['source']='master-dedup-v2.mp4'
-        d['duplicate_resolution']={'removed_second_copy':True,'cut_start':plan['cut_start'],'cut_end':plan['cut_end'],'cut_duration':plan['cut_duration'],'matched_words':plan['matched_words'],'original_preserved':'master.mp4'}
-        tmp=job/'project.json.tmp'; tmp.write_text(json.dumps(d,indent=2)+'\n'); os.replace(tmp,p)
-        print(json.dumps(d))
-        PY
-      args:
-        executable: /bin/bash
-      register: manifest
-      changed_when: true
-
-    - name: Restart worker so changed recipe is picked up immediately
+    - name: Verify corrected worker is deployed
       ansible.builtin.command:
-        argv: [pkill, -KILL, -f, /home/p2ops/media01/media_worker.py --watch]
-      changed_when: true
-      failed_when: false
+        argv:
+          - grep
+          - -n
+          - Content analyzer failed
+          - /home/p2ops/media01/media_worker.py
+      register: worker_fix
+      changed_when: false
 
-    - name: Allow worker to restart and begin corrected job
+    - name: Prepare writable model cache
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: p2ops
+        group: mediaops
+        mode: "2775"
+      loop:
+        - /srv/media-production/work/.cache
+        - /srv/media-production/work/.cache/huggingface
+
+    - name: Terminate current worker as failed so systemd restarts it
+      ansible.builtin.command:
+        argv:
+          - pkill
+          - -KILL
+          - -f
+          - /home/p2ops/media01/media_worker.py --watch
+      changed_when: true
+
+    - name: Clear stale demo processing lock after stopped worker
+      ansible.builtin.file:
+        path: /srv/media-production/work/besquare-demo-01/.processing
+        state: absent
+
+    - name: Allow worker to start retry
       ansible.builtin.pause:
         seconds: 20
 
-    - name: Read corrected job status
-      ansible.builtin.slurp:
-        src: /srv/media-production/logs/besquare-demo-01.status.json
-      register: demo_status
-
-    - name: Verify worker service
+    - name: Read worker service state
       ansible.builtin.command:
         argv: [systemctl, is-active, media01-worker.service]
       register: service_state
       changed_when: false
 
-    - name: Report repair
+    - name: Verify replacement worker process
+      ansible.builtin.command:
+        argv:
+          - pgrep
+          - -a
+          - -f
+          - /home/p2ops/media01/media_worker.py --watch
+      register: worker_process
+      changed_when: false
+
+    - name: Read demo status
+      ansible.builtin.slurp:
+        src: /srv/media-production/logs/besquare-demo-01.status.json
+      register: demo_status
+
+    - name: Report recovery state
       ansible.builtin.debug:
         msg:
-          plan: "{{ plan.stdout | from_json }}"
-          verification: "{{ verification.stdout | from_json }}"
-          manifest: "{{ manifest.stdout | from_json }}"
+          worker_fix: "{{ worker_fix.stdout }}"
           service: "{{ service_state.stdout }}"
+          process: "{{ worker_process.stdout }}"
           job: "{{ demo_status.content | b64decode | from_json }}"
