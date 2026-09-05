@@ -74,19 +74,28 @@ def classify(video,cues,cfg):
         if cues[i-1]['side']==cues[i+1]['side']!=cues[i]['side'] and cues[i]['speaker_confidence']<0.16:cues[i]['side']=cues[i-1]['side']
     return cues
 
-def bgr_to_ass(hexcolor):
-    s=hexcolor.lstrip('#')
-    if len(s)!=6:return '&H00FFFFFF'
-    r,g,b=s[0:2],s[2:4],s[4:6];return f'&H00{b}{g}{r}'
+def ass_color(hexcolor,alpha='00'):
+    s=str(hexcolor).lstrip('#')
+    if len(s)!=6:s='FFFFFF'
+    a=str(alpha).upper().replace('0X','').replace('&H','')[-2:].zfill(2)
+    r,g,b=s[0:2],s[2:4],s[4:6]
+    return f'&H{a}{b}{g}{r}'
 
 def write_ass(path,cues,cfg,width=3840,height=2160):
     left=cfg.get('left',{});right=cfg.get('right',{});lname=left.get('name','Woman');rname=right.get('name','Man')
-    lcolor=bgr_to_ass(left.get('color','#7DFF95'));rcolor=bgr_to_ass(right.get('color','#83D9FF'))
-    font=cfg.get('font','DejaVu Sans');size=int(cfg.get('font_size',78));margin=int(cfg.get('margin_v',115));outline=float(cfg.get('outline',2.2));shadow=float(cfg.get('shadow',3.2))
-    header=f"""[Script Info]\nScriptType: v4.00+\nPlayResX: {width}\nPlayResY: {height}\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Left,{font},{size},{lcolor},{lcolor},&H7A000000,&H50000000,0,0,0,0,100,100,0,0,1,{outline},{shadow},2,220,220,{margin},1\nStyle: Right,{font},{size},{rcolor},{rcolor},&H7A000000,&H50000000,0,0,0,0,100,100,0,0,1,{outline},{shadow},2,220,220,{margin},1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"""
+    text_default=cfg.get('text_color','#FFFFFF')
+    ltext=ass_color(left.get('text_color',text_default));rtext=ass_color(right.get('text_color',text_default))
+    lshadow=left.get('shadow_color',left.get('color','#8EF2A0'));rshadow=right.get('shadow_color',right.get('color','#8FD6FF'))
+    shadow_alpha=cfg.get('shadow_alpha','28');outline_alpha=cfg.get('outline_alpha','58')
+    lback=ass_color(lshadow,shadow_alpha);rback=ass_color(rshadow,shadow_alpha)
+    loutline=ass_color(lshadow,outline_alpha);routline=ass_color(rshadow,outline_alpha)
+    font=cfg.get('font','DejaVu Sans');size=int(cfg.get('font_size',72));margin=int(cfg.get('margin_v',50));outline=float(cfg.get('outline',2.8));shadow=float(cfg.get('shadow',4.0));show_names=bool(cfg.get('show_speaker_names',False))
+    header=f"""[Script Info]\nScriptType: v4.00+\nPlayResX: {width}\nPlayResY: {height}\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Left,{font},{size},{ltext},{ltext},{loutline},{lback},0,0,0,0,100,100,0,0,1,{outline},{shadow},2,220,220,{margin},1\nStyle: Right,{font},{size},{rtext},{rtext},{routline},{rback},0,0,0,0,100,100,0,0,1,{outline},{shadow},2,220,220,{margin},1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"""
     rows=[]
     for cue in cues:
-        is_left=cue['side']=='left';name=lname if is_left else rname;style='Left' if is_left else 'Right';text='{\\fs52\\b1}'+ass_escape(name).upper()+'{\\r'+style+'}\\N'+ass_escape(cue['text'])
+        is_left=cue['side']=='left';name=lname if is_left else rname;style='Left' if is_left else 'Right'
+        text=ass_escape(cue['text'])
+        if show_names:text='{\\fs48\\b1}'+ass_escape(name).upper()+'{\\r'+style+'}\\N'+text
         rows.append(f"Dialogue: 0,{ass_time(cue['start'])},{ass_time(cue['end'])},{style},{ass_escape(name)},0,0,0,,{text}")
     path.write_text(header+'\n'.join(rows)+'\n')
 
