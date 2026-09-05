@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-worker-recovery-20260905-r2",
-  "operation": "media01-recover-worker",
+  "request_id": "media01-work-cache-stage-20260905",
+  "operation": "media01-stage",
   "target": "media-01"
 }
