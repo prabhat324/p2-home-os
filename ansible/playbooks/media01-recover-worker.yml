@@ -1,79 +1,144 @@
 ---
-- name: Diagnose confirmed duplicate in BeSquare source
+- name: Remove confirmed duplicate and resume BeSquare processing
   hosts: media-01
   gather_facts: false
+  vars:
+    root: /srv/media-production
+    jobdir: /srv/media-production/inbox/besquare-demo-01
+    original: /srv/media-production/inbox/besquare-demo-01/master.mp4
+    corrected: /srv/media-production/inbox/besquare-demo-01/master-dedup-v2.mp4
+    partial: /srv/media-production/inbox/besquare-demo-01/master-dedup-v2.partial.mp4
+    planfile: /srv/media-production/review/besquare-demo-01/duplicate-resolution.json
   tasks:
-    - name: Derive exact repeated spoken interval from word timestamps
+    - name: Read and validate duplicate resolution plan
       ansible.builtin.shell: |
         set -euo pipefail
-        /home/p2ops/media01/venv-v2/bin/python - <<'PY'
-        import json,re,pathlib
-        root=pathlib.Path('/srv/media-production')
-        analysis=root/'review/besquare-demo-01/analysis'
-        transcript=json.loads((analysis/'transcript.json').read_text())
-        report=json.loads((analysis/'content-report.json').read_text())
-        dup=report.get('probable_repeated_spoken_sections',[])
-        if len(dup)!=1:
-            raise SystemExit(f'expected exactly one duplicate, found {len(dup)}')
-        d=dup[0]
-        rows=[]
-        for seg in transcript.get('segments',[]):
-            for w in seg.get('words',[]):
-                toks=re.findall(r"[a-z0-9']+",str(w.get('word','')).lower())
-                if toks:
-                    rows.append({'token':toks[0],'start':float(w['start']),'end':float(w['end'])})
-        phrase=d['phrase'].split()
-        n=len(phrase)
-        hits=[i for i in range(len(rows)-n+1) if [x['token'] for x in rows[i:i+n]]==phrase]
-        if len(hits)<2:
-            raise SystemExit(f'could not find two exact word-timestamp matches: {hits}')
-        ia=min(hits,key=lambda i:abs(rows[i]['start']-float(d['first_second'])))
-        later=[i for i in hits if rows[i]['start']>rows[ia]['start']+10]
-        if not later:
-            raise SystemExit('no later duplicate match found')
-        ib=min(later,key=lambda i:abs(rows[i]['start']-float(d['repeat_second'])))
-        left=0
-        while ia-left-1>=0 and ib-left-1>=0 and rows[ia-left-1]['token']==rows[ib-left-1]['token']:
-            if rows[ib-left-1]['start']-rows[ia-left-1]['start']<10: break
-            left+=1
-        right=n
-        while ia+right<len(rows) and ib+right<len(rows) and rows[ia+right]['token']==rows[ib+right]['token']:
-            if rows[ib+right]['start']-rows[ia+right]['start']<10: break
-            right+=1
-        a0,a1=ia-left,ia+right-1
-        b0,b1=ib-left,ib+right-1
-        matched=right+left
-        start1,end1=rows[a0]['start'],rows[a1]['end']
-        start2,end2=rows[b0]['start'],rows[b1]['end']
-        if b0>0 and rows[b0]['start']>rows[b0-1]['end']:
-            cut_start=(rows[b0-1]['end']+rows[b0]['start'])/2
-        else:
-            cut_start=start2
-        if b1+1<len(rows) and rows[b1+1]['start']>rows[b1]['end']:
-            cut_end=(rows[b1]['end']+rows[b1+1]['start'])/2
-        else:
-            cut_end=end2
-        plan={
-          'human_confirmation':'User previously reported the same approximately 10-second video repeating near 15:40 and explicitly authorized repair on 2026-09-05.',
-          'analyzer_anchor':d,
-          'matched_words':matched,
-          'first_interval':{'start':round(start1,3),'end':round(end1,3),'duration':round(end1-start1,3)},
-          'repeat_interval':{'start':round(start2,3),'end':round(end2,3),'duration':round(end2-start2,3)},
-          'cut_start':round(cut_start,3),'cut_end':round(cut_end,3),'cut_duration':round(cut_end-cut_start,3),
-          'first_context':' '.join(x['token'] for x in rows[max(0,a0-8):min(len(rows),a1+9)]),
-          'repeat_context':' '.join(x['token'] for x in rows[max(0,b0-8):min(len(rows),b1+9)])
-        }
-        if matched < 12 or not 3.0 <= plan['cut_duration'] <= 20.0 or cut_start <= end1:
-            raise SystemExit('duplicate plan failed safety bounds: '+json.dumps(plan))
-        out=root/'review/besquare-demo-01/duplicate-resolution.json'
-        out.write_text(json.dumps(plan,indent=2))
-        print(json.dumps(plan))
+        python3 - <<'PY'
+        import json,pathlib
+        p=pathlib.Path('/srv/media-production/review/besquare-demo-01/duplicate-resolution.json')
+        d=json.loads(p.read_text())
+        assert d['matched_words'] >= 12, d
+        assert 944.0 <= float(d['cut_start']) <= 945.0, d
+        assert 952.0 <= float(d['cut_end']) <= 953.0, d
+        assert 7.0 <= float(d['cut_duration']) <= 10.0, d
+        print(json.dumps(d))
         PY
       args:
         executable: /bin/bash
-      register: duplicate_plan
+      register: plan
       changed_when: false
 
-    - name: Report duplicate diagnosis
+    - name: Wait for performance benchmark render to release encoder
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        import json,pathlib
+        p=pathlib.Path('/srv/media-production/logs/performance-4k-v2.status.json')
+        print(json.loads(p.read_text()).get('state','UNKNOWN') if p.exists() else 'ABSENT')
+        PY
+      args:
+        executable: /bin/bash
+      register: perf_state
+      until: perf_state.stdout != 'RENDERING'
+      retries: 18
+      delay: 10
+      changed_when: false
+
+    - name: Preserve original project manifest
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test -f {{ jobdir }}/project.pre-dedup.json || cp {{ jobdir }}/project.json {{ jobdir }}/project.pre-dedup.json
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Render corrected derivative with only second duplicate removed
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cut_start=$(python3 -c "import json;print(json.load(open('{{ planfile }}'))['cut_start'])")
+        cut_end=$(python3 -c "import json;print(json.load(open('{{ planfile }}'))['cut_end'])")
+        rm -f {{ partial }}
+        ffmpeg -nostdin -y -hide_banner -loglevel warning -i {{ original }} \
+          -filter_complex "[0:v]trim=0:${cut_start},setpts=PTS-STARTPTS[v0];[0:a]atrim=0:${cut_start},asetpts=PTS-STARTPTS[a0];[0:v]trim=start=${cut_end},setpts=PTS-STARTPTS[v1];[0:a]atrim=start=${cut_end},asetpts=PTS-STARTPTS[a1];[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]" \
+          -map "[v]" -map "[a]" \
+          -c:v h264_nvenc -preset p1 -tune hq -rc vbr -cq 14 -b:v 55M -maxrate 80M -bufsize 160M -profile:v high \
+          -color_range tv -colorspace bt709 -color_trc bt709 -color_primaries bt709 -pix_fmt yuv420p \
+          -c:a aac -b:a 320k -ar 48000 -ac 2 -movflags +faststart {{ partial }}
+        mv {{ partial }} {{ corrected }}
+      args:
+        executable: /bin/bash
+      async: 480
+      poll: 5
+      changed_when: true
+
+    - name: Verify corrected duration and streams
+      ansible.builtin.shell: |
+        set -euo pipefail
+        python3 - <<'PY'
+        import json,subprocess,pathlib
+        root=pathlib.Path('/srv/media-production')
+        plan=json.loads((root/'review/besquare-demo-01/duplicate-resolution.json').read_text())
+        def probe(p):
+          return json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-show_format','-of','json',str(p)],text=True))
+        a=probe(root/'inbox/besquare-demo-01/master.mp4')
+        b=probe(root/'inbox/besquare-demo-01/master-dedup-v2.mp4')
+        old=float(a['format']['duration']); new=float(b['format']['duration']); removed=old-new
+        v=next(x for x in b['streams'] if x['codec_type']=='video')
+        aud=[x for x in b['streams'] if x['codec_type']=='audio']
+        result={'old_duration':old,'new_duration':new,'removed':removed,'expected':plan['cut_duration'],'width':v['width'],'height':v['height'],'audio_streams':len(aud),'size':int(b['format']['size'])}
+        if abs(removed-float(plan['cut_duration']))>0.35: raise SystemExit('duration verification failed: '+json.dumps(result))
+        if (v['width'],v['height'])!=(3840,2160) or len(aud)!=1: raise SystemExit('stream verification failed: '+json.dumps(result))
+        if result['size'] < 500_000_000: raise SystemExit('output unexpectedly small: '+json.dumps(result))
+        print(json.dumps(result))
+        PY
+      args:
+        executable: /bin/bash
+      register: verification
+      changed_when: false
+
+    - name: Point project manifest at corrected derivative
+      ansible.builtin.shell: |
+        set -euo pipefail
+        python3 - <<'PY'
+        import json,pathlib,os,tempfile
+        job=pathlib.Path('/srv/media-production/inbox/besquare-demo-01')
+        p=job/'project.json'; d=json.loads(p.read_text())
+        plan=json.loads(pathlib.Path('/srv/media-production/review/besquare-demo-01/duplicate-resolution.json').read_text())
+        d['source']='master-dedup-v2.mp4'
+        d['duplicate_resolution']={'removed_second_copy':True,'cut_start':plan['cut_start'],'cut_end':plan['cut_end'],'cut_duration':plan['cut_duration'],'matched_words':plan['matched_words'],'original_preserved':'master.mp4'}
+        tmp=job/'project.json.tmp'; tmp.write_text(json.dumps(d,indent=2)+'\n'); os.replace(tmp,p)
+        print(json.dumps(d))
+        PY
+      args:
+        executable: /bin/bash
+      register: manifest
+      changed_when: true
+
+    - name: Restart worker so changed recipe is picked up immediately
+      ansible.builtin.command:
+        argv: [pkill, -KILL, -f, /home/p2ops/media01/media_worker.py --watch]
+      changed_when: true
+      failed_when: false
+
+    - name: Allow worker to restart and begin corrected job
+      ansible.builtin.pause:
+        seconds: 20
+
+    - name: Read corrected job status
+      ansible.builtin.slurp:
+        src: /srv/media-production/logs/besquare-demo-01.status.json
+      register: demo_status
+
+    - name: Verify worker service
+      ansible.builtin.command:
+        argv: [systemctl, is-active, media01-worker.service]
+      register: service_state
+      changed_when: false
+
+    - name: Report repair
       ansible.builtin.debug:
-        msg: "{{ duplicate_plan.stdout | from_json }}"
+        msg:
+          plan: "{{ plan.stdout | from_json }}"
+          verification: "{{ verification.stdout | from_json }}"
+          manifest: "{{ manifest.stdout | from_json }}"
+          service: "{{ service_state.stdout }}"
+          job: "{{ demo_status.content | b64decode | from_json }}"
