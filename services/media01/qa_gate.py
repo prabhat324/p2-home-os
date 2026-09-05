@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -29,14 +30,17 @@ def detect(path, vf):
 
 
 def loudness(path):
-    p = run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-af", "loudnorm=I=-14:TP=-1:LRA=11:print_format=json", "-f", "null", "-"])
+    p = run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-vn", "-af", "loudnorm=I=-14:TP=-1:LRA=11:print_format=json", "-f", "null", "-"])
+    if p.returncode: raise RuntimeError("Audio QA failed: " + p.stderr[-2000:])
     blocks = re.findall(r"\{\s*\"input_i\".*?\}", p.stderr, re.S)
-    return json.loads(blocks[-1]) if blocks else {}
+    if not blocks: raise RuntimeError("Audio QA produced no measurement")
+    return json.loads(blocks[-1])
 
 
 def repeated_sequences(path, seconds=5):
-    cmd = ["ffmpeg", "-v", "error", "-i", str(path), "-vf", "fps=1,scale=9:8,format=gray", "-f", "rawvideo", "-"]
+    cmd = ["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-vf", "blackdetect=d=0.75:pix_th=0.10,freezedetect=n=-50dB:d=2,fps=1,scale=9:8,format=gray", "-f", "rawvideo", "-"]
     p = subprocess.run(cmd, capture_output=True, check=False)
+    if p.returncode: raise RuntimeError("Video QA failed: " + p.stderr.decode(errors="replace")[-2000:])
     frame_size = 9 * 8
     frames = [p.stdout[i:i + frame_size] for i in range(0, len(p.stdout) - frame_size + 1, frame_size)]
     hashes = []
@@ -57,7 +61,7 @@ def repeated_sequences(path, seconds=5):
             repeats.append({"first_second": previous, "repeat_second": i, "seconds": seconds})
         else:
             seen[signature] = i
-    return repeats[:20]
+    return repeats[:20], p.stderr.decode(errors="replace")
 
 
 def main():
@@ -92,17 +96,12 @@ def main():
         if int(a.get("channels", 0)) != cfg["delivery"]["audio_channels"]:
             warnings.append(f"Audio has {a.get('channels')} channel(s), delivery target is stereo")
 
-    black = detect(args.video, "blackdetect=d=0.75:pix_th=0.10")
-    black_segments = re.findall(r"black_start:([0-9.]+).*?black_end:([0-9.]+).*?black_duration:([0-9.]+)", black)
-    if black_segments:
-        failures.append(f"Detected {len(black_segments)} black segment(s) >= 0.75s")
-    freeze = detect(args.video, "freezedetect=n=-50dB:d=2")
-    freeze_events = re.findall(r"freeze_duration: ([0-9.]+)", freeze)
-    if freeze_events:
-        failures.append(f"Detected {len(freeze_events)} freeze event(s) >= 2s")
-    repeats = repeated_sequences(args.video, int(cfg["qa_gates"]["fail_on_probable_repeated_sequence_seconds"]))
-    if repeats:
-        failures.append(f"Detected {len(repeats)} probable non-consecutive repeated sequence(s)")
+    repeats, detection_log = repeated_sequences(args.video, int(cfg["qa_gates"]["fail_on_probable_repeated_sequence_seconds"]))
+    black_segments = re.findall(r"black_start:([0-9.]+).*?black_end:([0-9.]+).*?black_duration:([0-9.]+)", detection_log)
+    if black_segments: failures.append(f"Detected {len(black_segments)} black segment(s) >= 0.75s")
+    freeze_events = re.findall(r"freeze_duration: ([0-9.]+)", detection_log)
+    if freeze_events: failures.append(f"Detected {len(freeze_events)} freeze event(s) >= 2s; review intentional stills")
+    if repeats: failures.append(f"Detected {len(repeats)} probable non-consecutive repeated sequence(s); review static scenes")
     audio = loudness(args.video) if audios else {}
     if audio:
         measured = float(audio.get("input_i", -99))
@@ -138,3 +137,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+

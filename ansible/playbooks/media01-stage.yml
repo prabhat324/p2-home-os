@@ -1,61 +1,99 @@
 ---
-- name: Stage media-01 quality engine
+- name: Deploy isolated media-01 production improvements
   hosts: media-01
   gather_facts: false
   tasks:
-    - name: Create user-owned application directory
-      ansible.builtin.file:
-        path: /home/p2ops/media01
-        state: directory
-        mode: "0755"
-
-    - name: Deploy media-01 application files
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../../services/media01/"
-        dest: /home/p2ops/media01/
-        mode: preserve
-
-    - name: Make scripts executable
-      ansible.builtin.file:
-        path: "{{ item }}"
-        mode: "0755"
-      loop:
-        - /home/p2ops/media01/qa_gate.py
-        - /home/p2ops/media01/content_analyzer.py
-        - /home/p2ops/media01/media_worker.py
-        - /home/p2ops/media01/bootstrap-root.sh
-
-    - name: Create isolated Python environment
-      ansible.builtin.command:
-        argv: [python3, -m, venv, /home/p2ops/media01/venv]
-      args:
-        creates: /home/p2ops/media01/venv/bin/python
-
-    - name: Upgrade packaging tools
-      ansible.builtin.command:
-        argv: [/home/p2ops/media01/venv/bin/python, -m, pip, install, --upgrade, pip, setuptools, wheel]
-      changed_when: true
-
-    - name: Install media analysis dependencies
-      ansible.builtin.command:
-        argv: [/home/p2ops/media01/venv/bin/python, -m, pip, install, -r, /home/p2ops/media01/requirements.txt]
-      changed_when: true
-
-    - name: Validate profile JSON
-      ansible.builtin.command:
-        argv: [/home/p2ops/media01/venv/bin/python, -m, json.tool, /home/p2ops/media01/quality-profile.json]
-      changed_when: false
-
-    - name: Verify FFmpeg and NVIDIA encoders
+    - name: Preserve existing application source
       ansible.builtin.shell: |
-        set -euo pipefail
-        ffmpeg -hide_banner -encoders 2>/dev/null | grep -E 'av1_nvenc|h264_nvenc|hevc_nvenc'
-        nvidia-smi --query-gpu=name,driver_version,memory.total,power.limit --format=csv,noheader
-      args:
-        executable: /bin/bash
-      register: readiness
+        set -eu
+        mkdir -p /home/p2ops/media01/rollback-v1
+        cp -n /home/p2ops/media01/*.py /home/p2ops/media01/rollback-v1/ || true
       changed_when: false
-
-    - name: Print media engine readiness
+    - name: Stage pinned environment requirements
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../services/media01/requirements-v2.txt"
+        dest: /home/p2ops/media01/requirements-v2.txt
+        mode: "0644"
+    - name: Build a separate Python environment
+      ansible.builtin.command:
+        argv: [python3, -m, venv, /home/p2ops/media01/venv-v2]
+        creates: /home/p2ops/media01/venv-v2/bin/python
+    - name: Install isolated dependencies
+      ansible.builtin.command:
+        argv: [/home/p2ops/media01/venv-v2/bin/python, -m, pip, install, -r, /home/p2ops/media01/requirements-v2.txt]
+    - name: Check dependency consistency and freeze actual versions
+      ansible.builtin.shell: |
+        set -eu
+        /home/p2ops/media01/venv-v2/bin/python -m pip check
+        /home/p2ops/media01/venv-v2/bin/python -m pip freeze > /home/p2ops/media01/requirements-v2.lock
+        /home/p2ops/media01/venv-v2/bin/python -c 'import cv2,opentimelineio,ctranslate2; print(cv2.__version__)'
+      changed_when: false
+    - name: Copy application support files atomically
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../services/media01/{{ item }}"
+        dest: "/home/p2ops/media01/{{ item }}"
+        mode: "0755"
+      loop: [runtime.py, editorial.py, backup.py, benchmark.py, test_pipeline.py, admin-complete.sh]
+    - name: Deploy updated analyzer and quality gate
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../services/media01/{{ item }}"
+        dest: "/home/p2ops/media01/{{ item }}"
+        mode: "0755"
+      loop: [content_analyzer.py, qa_gate.py, media_worker.py]
+    - name: Verify behavioral contracts
+      ansible.builtin.command:
+        argv: [/home/p2ops/media01/venv-v2/bin/python, /home/p2ops/media01/test_pipeline.py]
+      changed_when: false
+    - name: Stop old analysis children and request worker replacement
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        import os,signal,subprocess
+        rows=subprocess.check_output(['ps','-eo','pid=,uid=,args='],text=True).splitlines()
+        for row in rows:
+            parts=row.split(None,2)
+            if len(parts)<3:continue
+            pid,uid,args=parts
+            if int(uid)!=os.getuid():continue
+            if args.startswith('/home/p2ops/media01/venv/bin/python /home/p2ops/media01/content_analyzer.py'):
+                try:os.kill(int(pid),signal.SIGTERM)
+                except ProcessLookupError:pass
+        for row in rows:
+            parts=row.split(None,2)
+            if len(parts)<3:continue
+            pid,uid,args=parts
+            if int(uid)==os.getuid() and args.startswith('/home/p2ops/media01/venv/bin/python /home/p2ops/media01/media_worker.py --watch'):
+                try:os.kill(int(pid),signal.SIGKILL)
+                except ProcessLookupError:pass
+        PY
+      changed_when: true
+    - name: Verify worker restarts into the new environment
+      ansible.builtin.command:
+        argv: [pgrep, -a, -f, /home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch]
+      register: worker
+      until: worker.rc == 0
+      retries: 12
+      delay: 3
+      changed_when: false
+    - name: Prepare full-length benchmark job using untouched source
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        import json,pathlib
+        root=pathlib.Path('/srv/media-production')
+        job=root/'inbox/performance-4k-v2';job.mkdir(exist_ok=True)
+        src=job/'master.mp4'
+        if not src.exists(): src.symlink_to(root/'inbox/besquare-demo-01/master.mp4')
+        (job/'project.json').write_text(json.dumps({'ready':False,'purpose':'benchmark','content_analysis':False,'language':'en'}))
+        PY
+      changed_when: true
+    - name: Run bounded comparative performance benchmark
+      ansible.builtin.command:
+        argv: [/home/p2ops/media01/venv-v2/bin/python, /home/p2ops/media01/benchmark.py]
+      async: 600
+      poll: 0
+      register: benchmark
+    - name: Report deployment
       ansible.builtin.debug:
-        msg: "{{ readiness.stdout_lines }}"
+        msg:
+          worker: "{{ worker.stdout }}"
+          benchmark_async: "{{ benchmark.ansible_job_id }}"
+          admin_steps: /home/p2ops/media01/admin-complete.sh

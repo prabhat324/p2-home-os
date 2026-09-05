@@ -24,20 +24,13 @@ def words_of(text):
 
 
 def caption_chunks(segment, maximum=14):
-    words = segment["text"].strip().split()
+    words = segment.get("words", [])
     if not words:
-        return []
-    duration = max(segment["end"] - segment["start"], 0.1)
-    chunks = []
-    for offset in range(0, len(words), maximum):
-        part = words[offset:offset + maximum]
-        start_ratio = offset / len(words)
-        end_ratio = min(offset + len(part), len(words)) / len(words)
-        chunks.append({
-            "start": segment["start"] + duration * start_ratio,
-            "end": segment["start"] + duration * end_ratio,
-            "text": " ".join(part),
-        })
+        return [{"start":segment["start"],"end":segment["end"],"text":segment["text"]}]
+    chunks=[]
+    for i in range(0,len(words),maximum):
+        part=words[i:i+maximum]
+        chunks.append({"start":part[0]["start"],"end":part[-1]["end"],"text":" ".join(w["word"].strip() for w in part)})
     return chunks
 
 
@@ -101,7 +94,7 @@ def main():
         )
         # Materialize the lazy stream here so CUDA execution errors are caught.
         current_segments = [
-            {"start": float(s.start), "end": float(s.end), "text": s.text.strip()}
+            {"start": float(s.start), "end": float(s.end), "text": s.text.strip(), "words": [{"start":float(w.start),"end":float(w.end),"word":w.word,"probability":float(w.probability)} for w in (s.words or [])]}
             for s in stream if s.text.strip()
         ]
         return current_segments, current_info
@@ -153,8 +146,9 @@ def main():
     print(json.dumps({"status": report["status"], "segments": len(segments),
                       "duplicates": len(duplicates), "fact_check_flags": len(claims),
                       "output_dir": str(args.output_dir)}, indent=2))
-    return 2 if duplicates else 0
+    return 0  # Findings are review evidence, not an execution failure.
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

@@ -1,0 +1,13 @@
+faster-whisper==1.2.1
+ctranslate2==4.8.2
+nvidia-cublas-cu12==12.9.2.10
+nvidia-cudnn-cu12==9.25.1.1
+numpy==2.5.2
+opencv-python-headless==4.14.0.94
+Pillow==12.3.0
+PyYAML==6.0.3
+watchdog==6.0.0
+pyloudnorm==0.2.0
+soundfile==0.14.0
+scenedetect==0.7.1
+opentimelineio>=0.18,<1
