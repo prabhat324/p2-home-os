@@ -24,11 +24,11 @@
         - /srv/media-production/work/.cache
         - /srv/media-production/work/.cache/huggingface
 
-    - name: Ask current worker process to exit for systemd restart
+    - name: Terminate current worker as failed so systemd restarts it
       ansible.builtin.command:
         argv:
           - pkill
-          - -TERM
+          - -KILL
           - -f
           - /home/p2ops/media01/media_worker.py --watch
       changed_when: true
