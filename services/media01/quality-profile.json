@@ -1,63 +1,54 @@
 {
-  "profile": "besquare-youtube-4k-v1",
-  "delivery": {
+  "profile": "besquare-youtube-4k-v2",
+  "video": {
     "width": 3840,
     "height": 2160,
-    "aspect_ratio": "16:9",
+    "colorspace": "bt709",
     "pixel_format": "yuv420p",
-    "audio_sample_rate": 48000,
-    "audio_channels": 2,
-    "integrated_loudness_lufs": -14.0,
-    "loudness_tolerance_lu": 1.5,
-    "true_peak_max_dbtp": -1.0
+    "max_duration_drift_seconds": 0.25
+  },
+  "audio": {
+    "target_lufs": -14.0,
+    "target_true_peak_dbtp": -2.0,
+    "maximum_true_peak_dbtp": -1.0,
+    "sample_rate": 48000,
+    "channels": 2
+  },
+  "qa": {
+    "black_min_seconds": 0.75,
+    "freeze_min_seconds": 2.0,
+    "repeat_seconds": 5,
+    "source_event_tolerance_seconds": 1.5
   },
   "autonomy": {
     "max_auto_repair_attempts": 3,
     "auto_retry_runtime_failures": 3,
-    "audio_true_peak_repair_target_dbtp": -2.5,
-    "audio_true_peak_repair_floor_dbtp": -4.0,
-    "visual_baseline_tolerance_seconds": 1.5
+    "audio_repair_initial_true_peak_dbtp": -2.5,
+    "audio_repair_floor_true_peak_dbtp": -4.0
   },
-  "editing_rules": {
-    "preserve_full_frame_by_default": true,
-    "never_crop_text_or_faces": true,
-    "zoom_style": "slow_eased_motivated",
-    "abrupt_zoom_forbidden": true,
-    "minimum_zoom_duration_seconds": 1.25,
-    "maximum_zoom_scale": 1.08,
-    "minimum_caption_bottom_margin_px_4k": 150,
-    "caption_safe_width_percent": 82,
-    "caption_max_lines": 2,
-    "caption_words_per_line_target": 7,
-    "wall_or_subject_occlusion_overlays_forbidden": true,
-    "decorative_graphs_without_data_forbidden": true,
-    "repeated_footage_forbidden": true,
-    "list_visual_style": "restrained_word_throw_with_question_marks",
-    "talking_head_visual_refresh_seconds": 25,
-    "return_to_presenter_between_chapters": true,
-    "source_label_required_for_financial_graphics": true,
-    "concept_label": "CONCEPT — NOT FINAL APPROVAL",
-    "example_label": "EXAMPLE SYSTEM — NOT WASAGA DESIGN",
+  "creative": {
+    "default_mode": "explainer",
+    "talking_head_refresh_target_seconds": 25,
+    "explainer_max_uninterrupted_talking_head_seconds": 35,
+    "podcast_cutaways": false,
+    "creative_qa_required": true,
+    "unsourced_claim_graphics_prohibited": true
+  },
+  "captions": {
+    "safe_area": "bottom",
+    "maximum_lines": 2,
+    "maximum_words_per_line": 7,
+    "podcast_default_words_per_caption": 12,
+    "podcast_speaker_detection": "fixed-left-right-mouth-motion",
+    "speaker_assignment_manual_review_required_when_low_confidence": true
+  },
+  "editorial": {
+    "preserve_complete_frame": true,
+    "abrupt_zooms_prohibited": true,
+    "decorative_graphs_prohibited": true,
+    "source_labels_required": true,
     "political_neutrality_required": true,
-    "campaign_sign_montage_forbidden": true,
-    "candidate_interviews_publish_essentially_in_full": true,
-    "gotcha_editing_forbidden": true
-  },
-  "language_rules": {
-    "protected_terms": ["Wasaga Beach", "BeSquare by pSquare"],
-    "spellcheck_required": true,
-    "human_review_required_for_names_numbers_and_quotations": true
-  },
-  "qa_gates": {
-    "fail_on_resolution_below_4k": true,
-    "fail_on_missing_audio": true,
-    "fail_on_audio_sample_rate_mismatch": true,
-    "fail_on_black_segment_over_seconds": 0.75,
-    "fail_on_freeze_over_seconds": 2.0,
-    "fail_on_probable_repeated_sequence_seconds": 5,
-    "require_source_manifest_for_factual_graphics": true,
-    "require_current_fact_review_before_publish": true,
-    "require_contact_sheet_review": true,
-    "require_full_timeline_review": true
+    "candidate_interviews_essentially_complete": true,
+    "protected_terms": ["Wasaga Beach", "BeSquare by pSquare"]
   }
 }
