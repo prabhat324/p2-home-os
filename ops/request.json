@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-automation-status-20260905-1308",
-  "operation": "media01-status",
+  "request_id": "media01-creative-pipeline-deploy-20260905-1312",
+  "operation": "media01-recover-worker",
   "target": "media-01"
 }
