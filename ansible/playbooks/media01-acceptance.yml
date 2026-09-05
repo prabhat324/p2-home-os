@@ -1,0 +1,74 @@
+---
+- name: Validate media-01 4K production path
+  hosts: media-01
+  gather_facts: false
+  tasks:
+    - name: Compile Python services
+      ansible.builtin.command:
+        argv:
+          - /home/p2ops/media01/venv/bin/python
+          - -m
+          - py_compile
+          - /home/p2ops/media01/media_worker.py
+          - /home/p2ops/media01/qa_gate.py
+      changed_when: false
+
+    - name: Prepare acceptance job
+      ansible.builtin.file:
+        path: /srv/media-production/inbox/media01-acceptance
+        state: directory
+        mode: "2775"
+
+    - name: Generate controlled 4K source with NVENC
+      ansible.builtin.shell: |
+        set -euo pipefail
+        ffmpeg -y -hide_banner -loglevel error           -f lavfi -i 'testsrc2=size=3840x2160:rate=30:duration=8'           -f lavfi -i 'sine=frequency=440:sample_rate=48000:duration=8'           -c:v h264_nvenc -preset p7 -tune hq -rc vbr -cq 17 -b:v 35M           -pix_fmt yuv420p -c:a aac -b:a 320k -ar 48000 -ac 2           -af 'loudnorm=I=-14:TP=-1:LRA=11' -shortest           /srv/media-production/inbox/media01-acceptance/master-4k.mp4
+        printf '%s\n' '{"ready":true,"profile":"besquare-youtube-4k-v1","purpose":"acceptance-test"}'           > /srv/media-production/inbox/media01-acceptance/project.json
+      args:
+        executable: /bin/bash
+        creates: /srv/media-production/inbox/media01-acceptance/master-4k.mp4
+
+    - name: Run one worker cycle
+      ansible.builtin.command:
+        argv:
+          - /home/p2ops/media01/venv/bin/python
+          - /home/p2ops/media01/media_worker.py
+      changed_when: true
+
+    - name: Read acceptance status
+      ansible.builtin.slurp:
+        src: /srv/media-production/logs/media01-acceptance.status.json
+      register: status_file
+
+    - name: Parse acceptance status
+      ansible.builtin.set_fact:
+        acceptance: "{{ status_file.content | b64decode | from_json }}"
+
+    - name: Require QA pass and editorial review state
+      ansible.builtin.assert:
+        that:
+          - acceptance.state == 'REVIEW_REQUIRED'
+          - acceptance.qa == 'PASS'
+        fail_msg: "{{ acceptance }}"
+
+    - name: Verify final technical format
+      ansible.builtin.command:
+        argv:
+          - ffprobe
+          - -v
+          - error
+          - -select_streams
+          - v:0
+          - -show_entries
+          - stream=width,height,codec_name,pix_fmt
+          - -of
+          - default=noprint_wrappers=1
+          - /srv/media-production/review/media01-acceptance/review-4k.mp4
+      register: final_probe
+      changed_when: false
+
+    - name: Print acceptance result
+      ansible.builtin.debug:
+        msg:
+          - "{{ acceptance }}"
+          - "{{ final_probe.stdout_lines }}"
