@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-timeline-aware-qa-deploy-20260905-1716",
-  "operation": "media01-recover-worker",
+  "request_id": "media01-timeline-aware-qa-status-20260905-1722",
+  "operation": "media01-status",
   "target": "media-01"
 }
