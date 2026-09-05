@@ -10,7 +10,7 @@ os.environ.setdefault('XDG_CACHE_HOME',str(ROOT/'work/.cache'));os.environ.setde
 libs=glob.glob(str(Path(sys.prefix)/'lib/python*/site-packages/nvidia/*/lib'));os.environ['LD_LIBRARY_PATH']=':'.join(libs+[os.environ.get('LD_LIBRARY_PATH','')])
 EXT={'.mp4','.mov','.mxf','.mkv','.mts','.m2ts'}
 TERMINAL={'BLOCKED_FOR_REVIEW','REVIEW_REQUIRED','CREATIVE_REVIEW_REQUIRED','QA_REVIEW_REQUIRED','FAILED_FINAL','BLOCKED_STORAGE'}
-QA_LOGIC_VERSION=4
+QA_LOGIC_VERSION=5
 
 def probe(path):return json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-show_format','-of','json',str(path)],text=True,timeout=30))
 def recipe_key(source,manifest):
