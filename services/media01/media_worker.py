@@ -10,7 +10,7 @@ os.environ.setdefault('XDG_CACHE_HOME',str(ROOT/'work/.cache'));os.environ.setde
 libs=glob.glob(str(Path(sys.prefix)/'lib/python*/site-packages/nvidia/*/lib'));os.environ['LD_LIBRARY_PATH']=':'.join(libs+[os.environ.get('LD_LIBRARY_PATH','')])
 EXT={'.mp4','.mov','.mxf','.mkv','.mts','.m2ts'}
 TERMINAL={'BLOCKED_FOR_REVIEW','REVIEW_REQUIRED','CREATIVE_REVIEW_REQUIRED','QA_REVIEW_REQUIRED','FAILED_FINAL','BLOCKED_STORAGE'}
-QA_LOGIC_VERSION=3
+QA_LOGIC_VERSION=4
 
 def probe(path):return json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-show_format','-of','json',str(path)],text=True,timeout=30))
 def recipe_key(source,manifest):
@@ -28,18 +28,20 @@ def mode_for(manifest):
     if mode not in {'podcast','explainer','feature'}:raise ValueError(f'Unsupported production mode: {mode}')
     return 'explainer' if mode=='feature' else mode
 
-def qa_with_repairs(r,source,output,review,work,duration,cfg):
+def qa_with_repairs(r,source,output,review,work,duration,cfg,timeline=None):
     qa_report=review/'qa-report.json';result_path=work/'auto-repair-result.json';maximum=int(cfg.get('autonomy',{}).get('max_auto_repair_attempts',3));repairs=[]
     for index in range(maximum+1):
         try:
-            r.run([sys.executable,APP/'qa_gate.py',output,'--source',source,'--profile',APP/'quality-profile.json','--report',qa_report],'QA_RUNNING',duration);return True,repairs
+            cmd=[sys.executable,APP/'qa_gate.py',output,'--source',source,'--profile',APP/'quality-profile.json','--report',qa_report]
+            if timeline:cmd+=['--timeline',timeline]
+            r.run(cmd,'QA_RUNNING',duration);return True,repairs
         except RuntimeError:
             qa=read(qa_report,{}) or {}
             if not qa:raise
-            if index>=maximum:r.state('QA_REVIEW_REQUIRED',failures=qa.get('failures',[]),review=str(output),auto_repair_attempts=len(repairs),visual_baseline=qa.get('visual_baseline'));return False,repairs
+            if index>=maximum:r.state('QA_REVIEW_REQUIRED',failures=qa.get('failures',[]),review=str(output),auto_repair_attempts=len(repairs),visual_baseline=qa.get('visual_baseline'),intentional_static_treatments=qa.get('intentional_static_treatments'));return False,repairs
             result_path.unlink(missing_ok=True);r.run([sys.executable,APP/'auto_repair.py',output,'--qa-report',qa_report,'--profile',APP/'quality-profile.json','--attempt',index+1,'--result',result_path],'AUTO_REPAIRING',duration)
             result=read(result_path,{}) or {};repairs.append(result)
-            if not result.get('changed'):r.state('QA_REVIEW_REQUIRED',failures=qa.get('failures',[]),review=str(output),auto_repair_attempts=len(repairs),auto_repair=result,visual_baseline=qa.get('visual_baseline'));return False,repairs
+            if not result.get('changed'):r.state('QA_REVIEW_REQUIRED',failures=qa.get('failures',[]),review=str(output),auto_repair_attempts=len(repairs),auto_repair=result,visual_baseline=qa.get('visual_baseline'),intentional_static_treatments=qa.get('intentional_static_treatments'));return False,repairs
     return False,repairs
 
 def creative_gate(r,manifest,timeline,review,assignments=None):
@@ -50,13 +52,13 @@ def creative_gate(r,manifest,timeline,review,assignments=None):
         q=read(report,{}) or {};r.state('CREATIVE_REVIEW_REQUIRED',creative_qa=q,failures=q.get('failures',[]),asset_requests=(read(timeline,{}) or {}).get('asset_requests',[]));return False,q
 
 def finish_review(r,source,output,review,work,duration,cfg,manifest_path,manifest,timeline,assignments=None):
-    passed,repairs=qa_with_repairs(r,source,output,review,work,duration,cfg)
+    passed,repairs=qa_with_repairs(r,source,output,review,work,duration,cfg,timeline)
     if not passed:return
     creative_ok,creative=creative_gate(r,manifest_path,timeline,review,assignments)
     if not creative_ok:return
     r.run([sys.executable,APP/'editorial.py','proxy',output,review],'GENERATING_PROXY',duration)
     qa=read(review/'qa-report.json',{}) or {}
-    r.state('REVIEW_REQUIRED',qa='PASS',creative_qa='PASS',review=str(output),benchmark_only=manifest.get('purpose')=='benchmark',timings=str(work/'timings.json'),manual_review_required=True,auto_repair_attempts=len(repairs),auto_repairs=repairs,visual_baseline=qa.get('visual_baseline'),production_mode=mode_for(manifest))
+    r.state('REVIEW_REQUIRED',qa='PASS',creative_qa='PASS',review=str(output),benchmark_only=manifest.get('purpose')=='benchmark',timings=str(work/'timings.json'),manual_review_required=True,auto_repair_attempts=len(repairs),auto_repairs=repairs,visual_baseline=qa.get('visual_baseline'),intentional_static_treatments=qa.get('intentional_static_treatments'),production_mode=mode_for(manifest))
 
 def resolve_assets(r,manifest_path,manifest,work):
     if mode_for(manifest)=='podcast' or not manifest.get('visual_assets'):return manifest_path,manifest
