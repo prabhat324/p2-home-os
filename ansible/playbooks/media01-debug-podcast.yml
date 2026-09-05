@@ -1,0 +1,41 @@
+---
+- name: Diagnose media-01 podcast pipeline
+  hosts: media-01
+  gather_facts: false
+  tasks:
+    - name: Read current BeSquare status
+      ansible.builtin.shell: "cat /srv/media-production/logs/besquare-demo-01.status.json 2>/dev/null || true"
+      register: status
+      changed_when: false
+
+    - name: Read podcast command log tail
+      ansible.builtin.shell: "tail -n 160 /srv/media-production/work/besquare-demo-01/commands.log 2>/dev/null || true"
+      register: commands
+      changed_when: false
+
+    - name: Read speaker artifacts
+      ansible.builtin.shell: |
+        set -eu
+        ls -l /srv/media-production/review/besquare-demo-01/speaker-* 2>/dev/null || true
+        cat /srv/media-production/review/besquare-demo-01/speaker-assignments.json 2>/dev/null | head -120 || true
+      register: artifacts
+      changed_when: false
+
+    - name: Verify OpenCV runtime
+      ansible.builtin.shell: |
+        /home/p2ops/media01/venv-v2/bin/python - <<'PY'
+        import cv2
+        print('cv2',cv2.__version__)
+        print('haar',cv2.data.haarcascades)
+        print('ffmpeg',cv2.getBuildInformation().split('FFMPEG:')[1].splitlines()[0].strip() if 'FFMPEG:' in cv2.getBuildInformation() else 'unknown')
+        PY
+      register: cv
+      changed_when: false
+
+    - name: Report podcast diagnostic
+      ansible.builtin.debug:
+        msg:
+          status: "{{ status.stdout }}"
+          commands: "{{ commands.stdout }}"
+          artifacts: "{{ artifacts.stdout }}"
+          cv: "{{ cv.stdout }}"
