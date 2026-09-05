@@ -157,6 +157,10 @@ case "${operation}" in
     [[ "${target}" == "core-01" ]] || { echo "media01-enroll is restricted to core-01" >&2; exit 2; }
     playbook="playbooks/media01-enroll.yml"
     ;;
+  media01-stage)
+    [[ "${target}" == "media-01" ]] || { echo "media01-stage is restricted to media-01" >&2; exit 2; }
+    playbook="playbooks/media01-stage.yml"
+    ;;
   *)
     exec bash "${ROOT_DIR}/ops/run-request.sh" "${REQUEST_FILE}"
     ;;
