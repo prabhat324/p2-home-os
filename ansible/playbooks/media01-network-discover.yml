@@ -16,14 +16,12 @@
         echo 'HOSTNAME_LOOKUP_END'
 
         echo 'NEIGHBORS_BEGIN'
-        ip -4 neigh show 2>/dev/null | sort -V || cat /proc/net/arp 2>/dev/null || true
+        ip -4 neigh show 2>/dev/null | LC_ALL=C tr -cd '\11\12\15\40-\176' | sort -V || cat /proc/net/arp 2>/dev/null || true
         echo 'NEIGHBORS_END'
 
         echo 'LIVE_SSH_HOSTS_BEGIN'
-        for last in $(seq 1 254); do
-          ip="$subnet.$last"
-          timeout 0.4 bash -c "exec 3<>/dev/tcp/$ip/22; head -c 100 <&3" 2>/dev/null             | tr '\r\n' ' '             | awk -v ip="$ip" 'NF {print ip "|" $0}' || true
-        done
+        export subnet
+        seq 1 254 | xargs -P 64 -I{} bash -c 'ip="$subnet.{}"; timeout 0.5 bash -c "exec 3<>/dev/tcp/$ip/22" >/dev/null 2>&1 && echo "$ip" || true' | sort -V
         echo 'LIVE_SSH_HOSTS_END'
       args:
         executable: /bin/bash
