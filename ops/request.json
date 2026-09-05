@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-curated-wasaga-status-20260905-1712",
-  "operation": "media01-status",
+  "request_id": "media01-timeline-aware-qa-deploy-20260905-1716",
+  "operation": "media01-recover-worker",
   "target": "media-01"
 }
