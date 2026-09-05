@@ -54,3 +54,47 @@
           gpu: "{{ gpu_state.stdout }}"
           cache: "{{ cache_size.stdout }}"
           recent_log: "{{ recent_log.stdout_lines }}"
+
+    - name: Collect read-only hardware and software inventory
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        import subprocess,json
+        commands = {
+          "identity":"hostnamectl",
+          "cpu":"lscpu",
+          "memory":"free -h",
+          "disks":"lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS,MODEL,TRAN",
+          "space":"df -hT / /srv/media-production",
+          "gpu":"nvidia-smi -q",
+          "pci":"lspci",
+          "network":"ip -br link",
+          "software":"dpkg-query -W -f='${binary:Package} ${Version}\\n' ffmpeg mediainfo imagemagick sox rubberband-cli python3 docker.io docker-ce nvidia-container-toolkit nvtop htop tmux smartmontools nvme-cli sysstat lm-sensors ethtool iperf3",
+          "ffmpeg":"ffmpeg -hide_banner -version",
+          "filters":"ffmpeg -hide_banner -filters",
+          "python_packages":"/home/p2ops/media01/venv/bin/python -m pip list --format=json",
+          "service":"systemctl show media01-worker.service -p User -p Group -p ActiveState -p SubState -p NRestarts -p MemoryCurrent -p CPUUsageNSec",
+          "power":"powerprofilesctl get",
+          "thermal":"sensors",
+          "failed_services":"systemctl --failed --no-pager",
+          "app_hashes":"sha256sum /home/p2ops/media01/media_worker.py /home/p2ops/media01/qa_gate.py /home/p2ops/media01/content_analyzer.py",
+          "source_format":"ffprobe -v error -show_streams -show_format -of json /srv/media-production/inbox/besquare-demo-01/master.mp4"
+        }
+        result={}
+        for name,cmd in commands.items():
+          try:
+            p=subprocess.run(cmd,shell=True,capture_output=True,text=True,timeout=15)
+            out=p.stdout
+            if name=="filters":
+              out="\\n".join(x for x in out.splitlines() if any(k in x for k in ["cuda","npp","loudnorm","libvmaf","zscale","subtitles"]))
+            result[name]={"rc":p.returncode,"stdout":out,"stderr":p.stderr[-1500:]}
+          except Exception as e: result[name]={"error":str(e)}
+        print(json.dumps(result))
+        PY
+      args:
+        executable: /bin/bash
+      register: inventory_report
+      changed_when: false
+
+    - name: Print hardware and software inventory
+      ansible.builtin.debug:
+        msg: "{{ inventory_report.stdout | from_json }}"
