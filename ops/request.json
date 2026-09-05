@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-identity-discover-20260904",
+  "request_id": "media01-control-key-20260904",
   "operation": "media01-network-discover",
   "target": "core-01"
 }
