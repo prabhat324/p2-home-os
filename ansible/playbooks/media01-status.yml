@@ -45,6 +45,38 @@
       changed_when: false
       failed_when: false
 
+    - name: Diagnose unresolved QA freeze windows
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        import json,pathlib,re,subprocess
+        root=pathlib.Path('/srv/media-production')
+        status=json.loads((root/'logs/besquare-demo-01.status.json').read_text())
+        qa=root/'review/besquare-demo-01/qa-report.json'
+        source=pathlib.Path(status.get('source',''))
+        output=pathlib.Path(status.get('review',''))
+        result=[]
+        if qa.exists() and source.exists() and output.exists():
+          report=json.loads(qa.read_text())
+          events=((report.get('visual_baseline') or {}).get('new') or {}).get('freeze_events',[])
+          for event in events[:12]:
+            start=float(event.get('start',0));dur=float(event.get('duration',0));seek=max(0,start-3);length=max(8,dur+6)
+            row={'event':event,'window_start':seek,'window_length':length}
+            for label,path in [('source',source),('output',output)]:
+              cmd=['ffmpeg','-hide_banner','-nostats','-ss',str(seek),'-i',str(path),'-t',str(length),'-an','-vf','freezedetect=n=-50dB:d=2','-f','null','-']
+              p=subprocess.run(cmd,capture_output=True,text=True,timeout=45)
+              log=p.stderr
+              starts=[float(x) for x in re.findall(r'freeze_start: ([0-9.]+)',log)]
+              durations=[float(x) for x in re.findall(r'freeze_duration: ([0-9.]+)',log)]
+              row[label]={'rc':p.returncode,'freeze_starts':starts,'freeze_durations':durations}
+            result.append(row)
+        print(json.dumps(result))
+        PY
+      args:
+        executable: /bin/bash
+      register: qa_window_diagnostics
+      changed_when: false
+      failed_when: false
+
     - name: Report status
       ansible.builtin.debug:
         msg:
@@ -54,6 +86,7 @@
           gpu: "{{ gpu_state.stdout }}"
           cache: "{{ cache_size.stdout }}"
           recent_log: "{{ recent_log.stdout_lines }}"
+          qa_window_diagnostics: "{{ (qa_window_diagnostics.stdout | default('[]')) | from_json }}"
 
     - name: Collect read-only hardware and software inventory
       ansible.builtin.shell: |
