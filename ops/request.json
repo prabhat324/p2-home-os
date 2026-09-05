@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-production-focus-20260905-1345",
-  "operation": "media01-production-focus",
+  "request_id": "media01-readiness-status-20260905-1548",
+  "operation": "media01-status",
   "target": "media-01"
 }
