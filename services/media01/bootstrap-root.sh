@@ -29,4 +29,36 @@ install -d -o p2ops -g mediaops -m 2775 \
   /srv/media-production/assets \
   /srv/media-production/profiles
 
+cat >/etc/systemd/system/media01-worker.service <<'UNIT'
+[Unit]
+Description=media-01 automatic 4K review worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=p2ops
+Group=mediaops
+Environment=MEDIA01_ROOT=/srv/media-production
+ExecStart=/home/p2ops/media01/venv/bin/python /home/p2ops/media01/media_worker.py --watch
+Restart=on-failure
+RestartSec=10
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=4
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/srv/media-production /home/p2ops/media01
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+if [[ -x /home/p2ops/media01/venv/bin/python && -f /home/p2ops/media01/media_worker.py ]]; then
+  systemctl enable --now media01-worker.service
+fi
+
 echo "MEDIA01_ROOT_BOOTSTRAP=ready"
