@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-speaker-preflight-deploy-20260905-1337",
-  "operation": "media01-recover-worker",
+  "request_id": "media01-podcast-render-status-20260905-1341",
+  "operation": "media01-status",
   "target": "media-01"
 }
