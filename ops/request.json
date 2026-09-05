@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-source-aware-qa-deploy-20260905-1032",
-  "operation": "media01-recover-worker",
+  "request_id": "media01-post-fix-status-20260905-1036",
+  "operation": "media01-status",
   "target": "media-01"
 }
