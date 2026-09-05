@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-status-20260905-1315",
-  "operation": "media01-status",
+  "request_id": "media01-whisper-cuda-stage-20260905",
+  "operation": "media01-stage",
   "target": "media-01"
 }
