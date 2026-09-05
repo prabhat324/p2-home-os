@@ -1,0 +1,194 @@
+---
+- name: Render Raven podcast 60-second speaker-caption proof
+  hosts: media-01
+  gather_facts: false
+  vars:
+    source: /srv/media-production/inbox/raven-podcast-01/master.mp4
+    work: /srv/media-production/work/raven-podcast-01-preview
+    review: /srv/media-production/review/raven-podcast-01
+    clip: /srv/media-production/work/raven-podcast-01-preview/source-60s.mp4
+    manifest: /srv/media-production/work/raven-podcast-01-preview/preview-manifest.json
+    analysis: /srv/media-production/work/raven-podcast-01-preview/analysis
+    ass: /srv/media-production/review/raven-podcast-01/speaker-captions-60s.ass
+    assignments: /srv/media-production/review/raven-podcast-01/speaker-assignments-60s.json
+    output: /srv/media-production/review/raven-podcast-01/preview-60s-captioned.mp4
+  tasks:
+    - name: Verify uploaded Raven source exists
+      ansible.builtin.stat:
+        path: "{{ source }}"
+      register: raven_source
+      failed_when: not raven_source.stat.exists or raven_source.stat.size | int < 1048576
+
+    - name: Deploy current podcast captioner
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../services/media01/podcast_captions.py"
+        dest: /home/p2ops/media01/podcast_captions.py
+        mode: "0755"
+
+    - name: Verify captioner syntax
+      ansible.builtin.command:
+        argv:
+          - /home/p2ops/media01/venv-v2/bin/python
+          - -m
+          - py_compile
+          - /home/p2ops/media01/podcast_captions.py
+      changed_when: false
+
+    - name: Create isolated preview directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0775"
+      loop:
+        - "{{ work }}"
+        - "{{ review }}"
+        - "{{ analysis }}"
+
+    - name: Create exactly first 60 seconds without changing master
+      ansible.builtin.shell: |
+        set -euo pipefail
+        rm -f "{{ clip }}.partial"
+        ffmpeg -nostdin -hide_banner -loglevel error -y -i "{{ source }}" -t 60 \
+          -map 0:v:0 -map 0:a:0 -c copy -movflags +faststart "{{ clip }}.partial"
+        mv "{{ clip }}.partial" "{{ clip }}"
+        d="$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "{{ clip }}")"
+        python3 - "$d" <<'PY'
+        import sys
+        d=float(sys.argv[1])
+        if not 59.0 <= d <= 60.5: raise SystemExit(f'Preview duration out of range: {d}')
+        print(f'preview source duration={d:.3f}')
+        PY
+      args:
+        executable: /bin/bash
+      register: clip_result
+      changed_when: true
+
+    - name: Write caption proof manifest
+      ansible.builtin.copy:
+        dest: "{{ manifest }}"
+        mode: "0644"
+        content: |
+          {
+            "mode": "podcast",
+            "language": "en",
+            "podcast_captions": {
+              "enabled": true,
+              "show_speaker_names": false,
+              "words_per_caption": 8,
+              "font": "DejaVu Sans",
+              "font_size": 72,
+              "margin_v": 48,
+              "outline": 2.8,
+              "shadow": 4.0,
+              "shadow_alpha": "28",
+              "outline_alpha": "58",
+              "text_color": "#FFFFFF",
+              "analysis_fps": 5.0,
+              "analysis_width": 640,
+              "confidence_threshold": 0.055,
+              "speaker_hold_seconds": 2.5,
+              "left": {
+                "name": "Raven",
+                "text_color": "#FFFFFF",
+                "shadow_color": "#8EF2A0"
+              },
+              "right": {
+                "name": "Prabhat",
+                "text_color": "#FFFFFF",
+                "shadow_color": "#8FD6FF"
+              }
+            }
+          }
+
+    - name: Clear only old 60-second proof artifacts
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ analysis }}/transcript.json"
+        - "{{ analysis }}/content-report.json"
+        - "{{ ass }}"
+        - "{{ assignments }}"
+        - "{{ output }}"
+
+    - name: Transcribe first 60 seconds with GPU Whisper
+      ansible.builtin.command:
+        argv:
+          - /home/p2ops/media01/venv-v2/bin/python
+          - /home/p2ops/media01/content_analyzer.py
+          - "{{ clip }}"
+          - --output-dir
+          - "{{ analysis }}"
+          - --model
+          - large-v3-turbo
+          - --language
+          - en
+      register: transcription
+      changed_when: true
+
+    - name: Generate left-right speaker caption ASS
+      ansible.builtin.command:
+        argv:
+          - /home/p2ops/media01/venv-v2/bin/python
+          - /home/p2ops/media01/podcast_captions.py
+          - "{{ clip }}"
+          - --transcript
+          - "{{ analysis }}/transcript.json"
+          - --manifest
+          - "{{ manifest }}"
+          - --ass
+          - "{{ ass }}"
+          - --assignments
+          - "{{ assignments }}"
+      register: caption_generation
+      changed_when: true
+
+    - name: Burn captions into first-minute proof
+      ansible.builtin.shell: |
+        set -euo pipefail
+        rm -f "{{ output }}.partial.mp4"
+        ffmpeg -nostdin -hide_banner -loglevel error -y -i "{{ clip }}" \
+          -vf "ass='{{ ass }}'" \
+          -map 0:v:0 -map 0:a:0 \
+          -c:v h264_nvenc -preset p6 -tune hq -rc vbr -cq 18 -b:v 30M -maxrate 45M -bufsize 90M -profile:v high \
+          -c:a copy -movflags +faststart "{{ output }}.partial.mp4"
+        mv "{{ output }}.partial.mp4" "{{ output }}"
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Validate preview and summarize caption assignments
+      ansible.builtin.shell: |
+        set -euo pipefail
+        /home/p2ops/media01/venv-v2/bin/python - <<'PY'
+        import json,subprocess
+        from pathlib import Path
+        out=Path('{{ output }}'); ass=Path('{{ ass }}'); assignments=Path('{{ assignments }}')
+        if not out.exists() or out.stat().st_size < 1024*1024: raise SystemExit('Preview output missing or too small')
+        a=json.load(open(assignments)); cues=a.get('cues',[])
+        if not cues: raise SystemExit('No caption cues generated')
+        duration=float(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',str(out)],text=True).strip())
+        if not 59.0 <= duration <= 60.5: raise SystemExit(f'Output duration out of range: {duration}')
+        print(json.dumps({
+          'preview':str(out),
+          'duration_seconds':round(duration,3),
+          'size_mb':round(out.stat().st_size/1024/1024,1),
+          'captions':len(cues),
+          'raven_left':sum(c.get('side')=='left' for c in cues),
+          'prabhat_right':sum(c.get('side')=='right' for c in cues),
+          'low_confidence':sum(float(c.get('speaker_confidence',0))<0.055 for c in cues),
+          'caption_file':str(ass),
+          'speaker_assignments':str(assignments)
+        },indent=2))
+        PY
+      args:
+        executable: /bin/bash
+      register: proof_summary
+      changed_when: false
+
+    - name: Report Raven caption proof
+      ansible.builtin.debug:
+        msg:
+          clip: "{{ clip_result.stdout }}"
+          caption_generation: "{{ caption_generation.stdout }}"
+          proof: "{{ proof_summary.stdout }}"
