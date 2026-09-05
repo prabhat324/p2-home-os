@@ -10,6 +10,7 @@ os.environ.setdefault('XDG_CACHE_HOME',str(ROOT/'work/.cache'));os.environ.setde
 libs=glob.glob(str(Path(sys.prefix)/'lib/python*/site-packages/nvidia/*/lib'));os.environ['LD_LIBRARY_PATH']=':'.join(libs+[os.environ.get('LD_LIBRARY_PATH','')])
 EXT={'.mp4','.mov','.mxf','.mkv','.mts','.m2ts'}
 TERMINAL={'BLOCKED_FOR_REVIEW','REVIEW_REQUIRED','QA_REVIEW_REQUIRED','FAILED_FINAL','BLOCKED_STORAGE'}
+QA_LOGIC_VERSION=2
 
 def probe(path):return json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-show_format','-of','json',str(path)],text=True,timeout=30))
 def recipe_key(source,manifest):
@@ -54,13 +55,15 @@ def review_job(job):
     if manifest.get('ready') is not True:return
     source=source_for(job,manifest);key=recipe_key(source,manifest);previous=read(status,{}) or {}
     if previous.get('recipe_key')==key:
-        if previous.get('state') in TERMINAL:return
+        state=previous.get('state')
+        qa_logic_stale=state=='QA_REVIEW_REQUIRED' and int(previous.get('qa_logic_version',0) or 0)<QA_LOGIC_VERSION
+        if state in TERMINAL and not qa_logic_stale:return
         if previous.get('retry_after',0)>time.time():return
     work=ROOT/'work'/job.name;review=ROOT/'review'/job.name;work.mkdir(parents=True,exist_ok=True);review.mkdir(parents=True,exist_ok=True)
     with (work/'.lock').open('a+') as lock:
         try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:return
-        base={'job':job.name,'recipe_key':key,'source':str(source),'attempt':previous.get('attempt',0)+1 if previous.get('recipe_key')==key else 1};r=Runner(work,status,base)
+        base={'job':job.name,'recipe_key':key,'source':str(source),'attempt':previous.get('attempt',0)+1 if previous.get('recipe_key')==key else 1,'qa_logic_version':QA_LOGIC_VERSION};r=Runner(work,status,base)
         cfg=read(APP/'quality-profile.json',{}) or {};max_runtime=int(cfg.get('autonomy',{}).get('auto_retry_runtime_failures',3))
         try:
             output=review/'review-4k.mp4';info=probe(source);v=next(s for s in info['streams'] if s['codec_type']=='video');duration=float(info['format']['duration'])
@@ -78,7 +81,7 @@ def review_job(job):
                 report=read(analysis/'content-report.json',{}) or {}
                 if report.get('probable_repeated_spoken_sections'):
                     r.run([sys.executable,APP/'editorial.py','evidence',source,review],'BUILDING_REVIEW_EVIDENCE',timeout=600);r.state('BLOCKED_FOR_REVIEW',reason='Probable repeated speech requires editorial evidence review',analysis=str(analysis));return
-            if previous.get('recipe_key')==key and previous.get('state')=='QA_FAILED' and output.exists():
+            if previous.get('recipe_key')==key and previous.get('state') in {'QA_FAILED','QA_REVIEW_REQUIRED'} and output.exists():
                 finish_review(r,source,output,review,work,duration,cfg,manifest);return
             if output.exists() and previous.get('recipe_key')!=key:
                 archived=review/f'review-4k.previous-{int(time.time())}.mp4';output.replace(archived)
