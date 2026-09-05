@@ -1,0 +1,59 @@
+---
+- name: Stage media-01 quality engine
+  hosts: media-01
+  gather_facts: false
+  tasks:
+    - name: Create user-owned application directory
+      ansible.builtin.file:
+        path: /home/p2ops/media01
+        state: directory
+        mode: "0755"
+
+    - name: Deploy media-01 application files
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../services/media01/"
+        dest: /home/p2ops/media01/
+        mode: preserve
+
+    - name: Make scripts executable
+      ansible.builtin.file:
+        path: "{{ item }}"
+        mode: "0755"
+      loop:
+        - /home/p2ops/media01/qa_gate.py
+        - /home/p2ops/media01/bootstrap-root.sh
+
+    - name: Create isolated Python environment
+      ansible.builtin.command:
+        argv: [python3, -m, venv, /home/p2ops/media01/venv]
+      args:
+        creates: /home/p2ops/media01/venv/bin/python
+
+    - name: Upgrade packaging tools
+      ansible.builtin.command:
+        argv: [/home/p2ops/media01/venv/bin/python, -m, pip, install, --upgrade, pip, setuptools, wheel]
+      changed_when: true
+
+    - name: Install media analysis dependencies
+      ansible.builtin.command:
+        argv: [/home/p2ops/media01/venv/bin/python, -m, pip, install, -r, /home/p2ops/media01/requirements.txt]
+      changed_when: true
+
+    - name: Validate profile JSON
+      ansible.builtin.command:
+        argv: [/home/p2ops/media01/venv/bin/python, -m, json.tool, /home/p2ops/media01/quality-profile.json]
+      changed_when: false
+
+    - name: Verify FFmpeg and NVIDIA encoders
+      ansible.builtin.shell: |
+        set -euo pipefail
+        ffmpeg -hide_banner -encoders 2>/dev/null | grep -E 'av1_nvenc|h264_nvenc|hevc_nvenc'
+        nvidia-smi --query-gpu=name,driver_version,memory.total,power.limit --format=csv,noheader
+      args:
+        executable: /bin/bash
+      register: readiness
+      changed_when: false
+
+    - name: Print media engine readiness
+      ansible.builtin.debug:
+        msg: "{{ readiness.stdout_lines }}"
