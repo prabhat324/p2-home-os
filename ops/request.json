@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-autonomy-recover-20260905-1202",
-  "operation": "media01-recover-worker",
+  "request_id": "media01-autonomy-status-20260905-1204",
+  "operation": "media01-status",
   "target": "media-01"
 }
