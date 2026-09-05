@@ -1,5 +1,5 @@
 {
-  "request_id": "wasaga-media-gpu-status-20260903-1654",
-  "operation": "media-post-status",
-  "target": "compute-01"
+  "request_id": "media01-network-discover-20260904",
+  "operation": "media01-network-discover",
+  "target": "core-01"
 }
