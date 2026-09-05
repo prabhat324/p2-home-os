@@ -70,6 +70,28 @@ def new_events(output_events,source_events,keys,tolerance):
         if not matched:new.append(event)
     return new
 
+def freeze_event_present_in_source(event,source_events,tolerance=1.5,min_overlap_ratio=0.75):
+    """Match an edited-output freeze to a source freeze by timeline containment/overlap.
+
+    Creative boundaries can shorten a source freeze or make its detected start move.
+    Requiring equal start+duration therefore creates false positives. We only inherit
+    a freeze when most of the output freeze is covered by a source freeze at the same
+    timeline location, allowing a small detector boundary tolerance.
+    """
+    try:
+        start=float(event['start']);duration=float(event['duration']);end=start+duration
+    except Exception:return None
+    if duration<=0:return None
+    for base in source_events:
+        try:
+            bs=float(base['start']);bd=float(base['duration']);be=bs+bd
+        except Exception:continue
+        overlap=max(0.0,min(end,be)-max(start,bs))
+        ratio=overlap/duration
+        contained=start>=bs-tolerance and end<=be+tolerance
+        if contained and ratio>=min_overlap_ratio:return base
+    return None
+
 def repeat_event_present_in_source(event,source_hashes,seconds,tolerance,max_mean_hamming=8.0,max_frame_hamming=14):
     """Verify an output repeat against the source at the same timeline positions."""
     first=int(round(float(event.get('first_second',-1))));repeat=int(round(float(event.get('repeat_second',-1))))
@@ -83,11 +105,6 @@ def repeat_event_present_in_source(event,source_hashes,seconds,tolerance,max_mea
     return False
 
 def intentional_static_spans(timeline):
-    """Return approved static editorial intervals that are expected to look frozen.
-
-    Moving B-roll and zooms are deliberately excluded. A QA exemption therefore
-    requires an explicit approved timeline event whose renderer is a still frame.
-    """
     if not timeline:return []
     if isinstance(timeline,(str,Path)):
         try:data=json.loads(Path(timeline).read_text())
@@ -115,7 +132,6 @@ def filter_intentional_freezes(events,spans,pad=1.0):
     return remaining,intentional
 
 def filter_intentional_repeats(events,spans,seconds,pad=1.0):
-    """Ignore a repeat only when both compared windows live inside one approved still."""
     remaining=[];intentional=[]
     for event in events:
         try:first=float(event['first_second']);repeat=float(event['repeat_second']);length=float(event.get('seconds',seconds))
@@ -158,8 +174,13 @@ def main():
     if args.source:
         source_visual,source_hashes=visual_signals(args.source,repeat_seconds)
         tol=float(cfg.get('autonomy',{}).get('visual_baseline_tolerance_seconds',1.5))
+        overlap_ratio=float(cfg.get('autonomy',{}).get('source_freeze_min_overlap_ratio',0.75))
         new_black=new_events(output_visual['black_segments'],source_visual['black_segments'],['start','duration'],tol)
-        raw_new_freeze=new_events(output_visual['freeze_events'],source_visual['freeze_events'],['start','duration'],tol)
+        inherited_freezes=[];candidate_new_freezes=[]
+        for event in output_visual['freeze_events']:
+            source_event=freeze_event_present_in_source(event,source_visual['freeze_events'],tol,overlap_ratio)
+            if source_event:inherited_freezes.append({**event,'source_event':source_event})
+            else:candidate_new_freezes.append(event)
         candidate_new_repeats=new_events(output_visual['repeated_sequences'],source_visual['repeated_sequences'],['first_second','repeat_second'],tol)
         perceptually_inherited=[];raw_new_repeats=[]
         mean_hamming=float(cfg.get('autonomy',{}).get('visual_repeat_source_mean_hamming_max',8.0))
@@ -167,11 +188,11 @@ def main():
         for event in candidate_new_repeats:
             if repeat_event_present_in_source(event,source_hashes,repeat_seconds,tol,mean_hamming,frame_hamming):perceptually_inherited.append(event)
             else:raw_new_repeats.append(event)
-        new_freeze,intentional_freezes=filter_intentional_freezes(raw_new_freeze,static_spans,static_pad)
+        new_freeze,intentional_freezes=filter_intentional_freezes(candidate_new_freezes,static_spans,static_pad)
         new_repeats,intentional_repeats=filter_intentional_repeats(raw_new_repeats,static_spans,repeat_seconds,static_pad)
-        inherited={'black_segments':max(0,len(output_visual['black_segments'])-len(new_black)),'freeze_events':max(0,len(output_visual['freeze_events'])-len(raw_new_freeze)),'repeated_sequences':max(0,len(output_visual['repeated_sequences'])-len(raw_new_repeats))}
+        inherited={'black_segments':max(0,len(output_visual['black_segments'])-len(new_black)),'freeze_events':len(inherited_freezes),'repeated_sequences':max(0,len(output_visual['repeated_sequences'])-len(raw_new_repeats))}
         if inherited['black_segments']:warnings.append(f"{inherited['black_segments']} black segment(s) are inherited from the source")
-        if inherited['freeze_events']:warnings.append(f"{inherited['freeze_events']} freeze event(s) are inherited from the source")
+        if inherited_freezes:warnings.append(f"{len(inherited_freezes)} freeze event(s) verified as inherited by source timeline overlap")
         if inherited['repeated_sequences']:warnings.append(f"{inherited['repeated_sequences']} repeated visual sequence(s) are inherited from the source")
         if perceptually_inherited:warnings.append(f"{len(perceptually_inherited)} repeat pairing difference(s) verified against source timeline")
         if intentional_freezes:warnings.append(f"{len(intentional_freezes)} freeze event(s) correspond to approved intentional static timeline treatments")
@@ -179,7 +200,7 @@ def main():
         if new_black:failures.append(f'Detected {len(new_black)} new black segment(s) introduced after source')
         if new_freeze:failures.append(f'Detected {len(new_freeze)} new freeze event(s) introduced after source outside approved static treatments')
         if new_repeats:failures.append(f'Detected {len(new_repeats)} new probable repeated sequence(s) introduced after source outside approved static treatments')
-        baseline={'source':str(args.source),'tolerance_seconds':tol,'source_counts':{k:len(v) for k,v in source_visual.items()},'output_counts':{k:len(v) for k,v in output_visual.items()},'introduced_before_timeline_exemptions':{'black_segments':new_black,'freeze_events':raw_new_freeze,'repeated_sequences':raw_new_repeats},'new':{'black_segments':new_black,'freeze_events':new_freeze,'repeated_sequences':new_repeats},'perceptually_inherited_repeats':perceptually_inherited,'inherited_counts':inherited}
+        baseline={'source':str(args.source),'tolerance_seconds':tol,'source_freeze_min_overlap_ratio':overlap_ratio,'source_counts':{k:len(v) for k,v in source_visual.items()},'output_counts':{k:len(v) for k,v in output_visual.items()},'source_freeze_events':source_visual['freeze_events'],'inherited_freezes_by_overlap':inherited_freezes,'introduced_before_timeline_exemptions':{'black_segments':new_black,'freeze_events':candidate_new_freezes,'repeated_sequences':raw_new_repeats},'new':{'black_segments':new_black,'freeze_events':new_freeze,'repeated_sequences':new_repeats},'perceptually_inherited_repeats':perceptually_inherited,'inherited_counts':inherited}
     else:
         new_freeze,intentional_freezes=filter_intentional_freezes(output_visual['freeze_events'],static_spans,static_pad)
         new_repeats,intentional_repeats=filter_intentional_repeats(output_visual['repeated_sequences'],static_spans,repeat_seconds,static_pad)
