@@ -1,4 +1,6 @@
 faster-whisper>=1.2,<2
+nvidia-cublas-cu12>=12,<13
+nvidia-cudnn-cu12>=9,<10
 numpy>=2,<3
 opencv-python-headless>=4.12,<5
 Pillow>=11,<13

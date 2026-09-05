@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import glob
 import json
 import os
 import shutil
@@ -18,6 +19,13 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".mxf", ".mkv", ".mts", ".m2ts"}
 CACHE_ROOT = ROOT / "work" / ".cache"
 os.environ.setdefault("XDG_CACHE_HOME", str(CACHE_ROOT))
 os.environ.setdefault("HF_HOME", str(CACHE_ROOT / "huggingface"))
+
+# CUDA runtime wheels keep their shared libraries inside site-packages. Export
+# those directories before launching faster-whisper/ctranslate2.
+cuda_libs = glob.glob(str(APP / "venv/lib/python*/site-packages/nvidia/*/lib"))
+if cuda_libs:
+    inherited = os.environ.get("LD_LIBRARY_PATH", "")
+    os.environ["LD_LIBRARY_PATH"] = ":".join(cuda_libs + ([inherited] if inherited else []))
 
 
 def stamp():

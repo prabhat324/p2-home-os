@@ -94,11 +94,27 @@ def main():
         engine = {"device": "cpu", "compute_type": "int8", "gpu_error": str(gpu_error)}
         model = WhisperModel(args.model, device=engine["device"], compute_type=engine["compute_type"])
 
-    stream, info = model.transcribe(str(args.video), language=args.language, beam_size=5,
-                                    vad_filter=True, condition_on_previous_text=True,
-                                    word_timestamps=True)
-    segments = [{"start": float(s.start), "end": float(s.end), "text": s.text.strip()}
-                for s in stream if s.text.strip()]
+    def transcribe(current_model):
+        stream, current_info = current_model.transcribe(
+            str(args.video), language=args.language, beam_size=5, vad_filter=True,
+            condition_on_previous_text=True, word_timestamps=True
+        )
+        # Materialize the lazy stream here so CUDA execution errors are caught.
+        current_segments = [
+            {"start": float(s.start), "end": float(s.end), "text": s.text.strip()}
+            for s in stream if s.text.strip()
+        ]
+        return current_segments, current_info
+
+    try:
+        segments, info = transcribe(model)
+    except Exception as gpu_runtime_error:
+        if engine["device"] != "cuda":
+            raise
+        engine = {"device": "cpu", "compute_type": "int8",
+                  "gpu_runtime_error": str(gpu_runtime_error)}
+        model = WhisperModel(args.model, device="cpu", compute_type="int8")
+        segments, info = transcribe(model)
     transcript_text = "\n".join(f"[{srt_time(s['start'])[:-4]}] {s['text']}" for s in segments) + "\n"
     (args.output_dir / "transcript.txt").write_text(transcript_text)
     (args.output_dir / "transcript.json").write_text(json.dumps({
