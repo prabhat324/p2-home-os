@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-openmontage-preflight-20260905-1853",
-  "operation": "media01-status",
+  "request_id": "media01-openmontage-install-20260905-1905",
+  "operation": "media01-openmontage-install",
   "target": "media-01"
 }
