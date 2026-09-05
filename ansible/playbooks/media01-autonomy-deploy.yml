@@ -14,6 +14,7 @@
         - editorial.py
         - creative_planner.py
         - creative_qa.py
+        - asset_fetcher.py
         - podcast_captions.py
         - qa_gate.py
         - auto_repair.py
@@ -25,35 +26,6 @@
         dest: /home/p2ops/media01/quality-profile.json
         mode: "0644"
 
-    - name: Configure current BeSquare interview as two-person podcast
-      ansible.builtin.shell: |
-        set -eu
-        p=/srv/media-production/inbox/besquare-demo-01/project.json
-        if [ -f "$p" ]; then
-          python3 - "$p" <<'PY'
-        import json,sys,os
-        p=sys.argv[1]
-        with open(p) as f:d=json.load(f)
-        d['mode']='podcast'
-        d['podcast_captions']={
-          'enabled':True,
-          'caption_pipeline_version':2,
-          'left':{'name':'Raven','color':'#7DFF95'},
-          'right':{'name':'Prabhat','color':'#83D9FF'},
-          'font':'DejaVu Sans','font_size':78,'outline':2.2,'shadow':3.2,
-          'margin_v':115,'words_per_caption':12,
-          'analysis_fps':4.0,'analysis_width':640,
-          'confidence_threshold':0.055,'speaker_hold_seconds':2.5,
-          'left_roi':[0.08,0.10,0.47,0.67],
-          'right_roi':[0.53,0.10,0.92,0.67]
-        }
-        tmp=p+'.tmp'
-        with open(tmp,'w') as f:json.dump(d,f,indent=2)
-        os.replace(tmp,p)
-        PY
-        fi
-      changed_when: true
-
     - name: Verify autonomous worker contracts
       ansible.builtin.command:
         argv:
@@ -62,38 +34,30 @@
       register: contracts
       changed_when: false
 
-    - name: Verify FFmpeg ASS renderer is available
-      ansible.builtin.shell: "ffmpeg -hide_banner -filters 2>/dev/null | grep -qE '(^| )ass +V->V'"
-      changed_when: false
-
-    - name: Live preflight speaker-aware captions on current podcast
-      ansible.builtin.command:
-        argv:
-          - /home/p2ops/media01/venv-v2/bin/python
-          - /home/p2ops/media01/podcast_captions.py
-          - /srv/media-production/inbox/besquare-demo-01/master-dedup-v2.mp4
-          - --transcript
-          - /srv/media-production/review/besquare-demo-01/analysis/transcript.json
-          - --manifest
-          - /srv/media-production/inbox/besquare-demo-01/project.json
-          - --ass
-          - /srv/media-production/review/besquare-demo-01/speaker-captions.ass
-          - --assignments
-          - /srv/media-production/review/besquare-demo-01/speaker-assignments.json
-      register: speaker_preflight
-      changed_when: false
-
-    - name: Require both podcast speakers in live preflight
+    - name: Verify QA profile contract
       ansible.builtin.shell: |
+        set -eu
         /home/p2ops/media01/venv-v2/bin/python - <<'PY'
         import json
-        p='/srv/media-production/review/besquare-demo-01/speaker-assignments.json'
-        d=json.load(open(p));c=d.get('cues',[])
-        left=sum(x.get('side')=='left' for x in c);right=sum(x.get('side')=='right' for x in c)
-        print(json.dumps({'cues':len(c),'left':left,'right':right,'low_confidence':sum(float(x.get('speaker_confidence',0))<0.055 for x in c)}))
-        if len(c)<5 or left==0 or right==0:raise SystemExit(2)
+        p=json.load(open('/home/p2ops/media01/quality-profile.json'))
+        required=[
+          ('delivery','width'),('delivery','height'),
+          ('delivery','audio_sample_rate'),('delivery','audio_channels'),
+          ('delivery','integrated_loudness_lufs'),('delivery','loudness_tolerance_lu'),
+          ('delivery','true_peak_max_dbtp'),('qa_gates','fail_on_probable_repeated_sequence_seconds')
+        ]
+        missing=[f'{a}.{b}' for a,b in required if b not in p.get(a,{})]
+        if missing: raise SystemExit('Missing QA profile keys: '+', '.join(missing))
+        print('QA profile contract PASS')
         PY
-      register: speaker_validation
+      register: profile_contract
+      changed_when: false
+
+    - name: Verify FFmpeg creative and caption filters are available
+      ansible.builtin.shell: |
+        set -eu
+        ffmpeg -hide_banner -filters 2>/dev/null | grep -qE '(^| )ass +V->V'
+        ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_nvenc
       changed_when: false
 
     - name: Install user watchdog for worker self-recovery
@@ -107,13 +71,13 @@
         } | crontab -
       changed_when: true
 
-    - name: Force old worker to fail so systemd may restart it
+    - name: Stop old detached worker
       ansible.builtin.shell: "pkill -KILL -f '^/home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch$' || true"
       changed_when: true
 
     - name: Give systemd restart policy a chance
       ansible.builtin.pause:
-        seconds: 12
+        seconds: 8
 
     - name: Start worker directly when system service did not recover
       ansible.builtin.shell: |
@@ -130,20 +94,9 @@
       delay: 3
       changed_when: false
 
-    - name: Allow worker to claim updated podcast job
-      ansible.builtin.pause:
-        seconds: 15
-
-    - name: Read BeSquare state after autonomous restart
-      ansible.builtin.shell: "cat /srv/media-production/logs/besquare-demo-01.status.json 2>/dev/null || true"
-      register: besquare_status
-      changed_when: false
-
     - name: Report autonomous deployment
       ansible.builtin.debug:
         msg:
           tests: "{{ contracts.stdout }}"
-          speaker_preflight: "{{ speaker_preflight.stdout }}"
-          speaker_validation: "{{ speaker_validation.stdout }}"
+          profile_contract: "{{ profile_contract.stdout }}"
           worker: "{{ worker.stdout }}"
-          besquare_status: "{{ besquare_status.stdout }}"
