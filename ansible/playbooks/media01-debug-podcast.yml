@@ -1,2 +1,50 @@
 ---
-- import_playbook: media01-reprocess-wasaga.yml
+- name: Diagnose media-01 podcast and explainer planning pipeline
+  hosts: media-01
+  gather_facts: false
+  tasks:
+    - name: Read current BeSquare status
+      ansible.builtin.shell: "cat /srv/media-production/logs/besquare-demo-01.status.json 2>/dev/null || true"
+      register: status
+      changed_when: false
+
+    - name: Read podcast command log tail
+      ansible.builtin.shell: "tail -n 180 /srv/media-production/work/besquare-demo-01/commands.log 2>/dev/null || true"
+      register: commands
+      changed_when: false
+
+    - name: Read speaker artifacts
+      ansible.builtin.shell: |
+        set -eu
+        ls -l /srv/media-production/review/besquare-demo-01/speaker-* 2>/dev/null || true
+        cat /srv/media-production/review/besquare-demo-01/speaker-assignments.json 2>/dev/null | head -80 || true
+      register: artifacts
+      changed_when: false
+
+    - name: Build read-only explainer planning diagnostic
+      ansible.builtin.shell: |
+        set -eu
+        /home/p2ops/media01/venv-v2/bin/python - <<'PY'
+        import json,subprocess,sys
+        from pathlib import Path
+        sys.path.insert(0,'/home/p2ops/media01')
+        from creative_planner import build
+        job=Path('/srv/media-production/inbox/besquare-demo-01')
+        analysis=Path('/srv/media-production/review/besquare-demo-01/analysis')
+        manifest=json.load(open(job/'project.json'));manifest=dict(manifest);manifest['mode']='explainer';manifest.pop('podcast_captions',None)
+        report=json.load(open(analysis/'content-report.json'));transcript=json.load(open(analysis/'transcript.json'))
+        src=job/manifest.get('source','master-dedup-v2.mp4')
+        duration=float(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',str(src)],text=True).strip())
+        plan=build(manifest,report,transcript,duration)
+        print(json.dumps({'duration':duration,'creative_policy':plan.get('creative_policy',{}),'fact_check_flags':report.get('fact_check_flags',[]),'asset_requests':plan.get('asset_requests',[]),'planned_events':plan.get('events',[])},indent=2))
+        PY
+      register: planning
+      changed_when: false
+
+    - name: Report diagnostic
+      ansible.builtin.debug:
+        msg:
+          status: "{{ status.stdout }}"
+          planning: "{{ planning.stdout }}"
+          commands: "{{ commands.stdout }}"
+          artifacts: "{{ artifacts.stdout }}"
