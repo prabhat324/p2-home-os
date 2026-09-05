@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-implementation-preflight-20260905",
-  "operation": "media01-status",
+  "request_id": "media01-deploy-v2-20260905",
+  "operation": "media01-stage",
   "target": "media-01"
 }
