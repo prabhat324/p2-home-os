@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-curated-wasaga-reprocess-20260905-1601",
-  "operation": "media01-debug-podcast",
+  "request_id": "media01-curated-wasaga-status-20260905-1606",
+  "operation": "media01-status",
   "target": "media-01"
 }
