@@ -185,6 +185,10 @@ case "${operation}" in
     [[ "${target}" == "media-01" ]] || { echo "media01-openmontage-install is restricted to media-01" >&2; exit 2; }
     playbook="playbooks/media01-openmontage-install.yml"
     ;;
+  media01-openmontage-run)
+    [[ "${target}" == "media-01" ]] || { echo "media01-openmontage-run is restricted to media-01" >&2; exit 2; }
+    playbook="playbooks/media01-openmontage-run.yml"
+    ;;
   *)
     exec bash "${ROOT_DIR}/ops/run-request.sh" "${REQUEST_FILE}"
     ;;
