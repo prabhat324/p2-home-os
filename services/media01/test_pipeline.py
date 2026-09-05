@@ -4,7 +4,7 @@ from unittest.mock import patch
 from runtime import atomic,read
 from content_analyzer import caption_chunks
 from editorial import validate
-from qa_gate import new_events,repeat_event_present_in_source,intentional_static_spans,filter_intentional_freezes,filter_intentional_repeats
+from qa_gate import new_events,freeze_event_present_in_source,repeat_event_present_in_source,intentional_static_spans,filter_intentional_freezes,filter_intentional_repeats
 from auto_repair import classify_failures
 from creative_planner import build as build_plan,normalize_text
 from creative_qa import read as creative_read
@@ -39,6 +39,18 @@ class Contracts(unittest.TestCase):
   source=[{'start':10.0,'duration':2.0}]
   output=[{'start':10.2,'duration':2.1},{'start':40.0,'duration':3.0}]
   self.assertEqual(new_events(output,source,['start','duration'],1.0),[output[1]])
+ def test_source_freeze_can_be_longer_than_output_freeze(self):
+  source=[{'start':46.58,'duration':5.44}];event={'start':49.55,'duration':2.50}
+  match=freeze_event_present_in_source(event,source,1.5,0.75);self.assertEqual(match,source[0])
+ def test_source_freeze_boundary_tolerance_allows_edit_truncation(self):
+  source=[{'start':192.225,'duration':5.239}];event={'start':195.195,'duration':2.469}
+  self.assertIsNotNone(freeze_event_present_in_source(event,source,1.5,0.75))
+ def test_unrelated_freeze_is_not_inherited(self):
+  source=[{'start':10.0,'duration':4.0}];event={'start':20.0,'duration':3.0}
+  self.assertIsNone(freeze_event_present_in_source(event,source,1.5,0.75))
+ def test_small_overlap_is_not_enough_to_inherit_freeze(self):
+  source=[{'start':10.0,'duration':3.0}];event={'start':12.5,'duration':3.0}
+  self.assertIsNone(freeze_event_present_in_source(event,source,1.5,0.75))
  def test_repeat_pair_can_be_verified_directly_against_source(self):
   hashes=[0xffffffffffffffff]*60;a=[0x0,0x1,0x3,0x7,0xf];b=[0x0,0x1,0x3,0x7,0x1f]
   hashes[10:15]=a;hashes[30:35]=b;event={'first_second':10,'repeat_second':30,'seconds':5}
@@ -54,7 +66,7 @@ class Contracts(unittest.TestCase):
   remaining,intentional=filter_intentional_repeats(events,spans,5,1.0);self.assertEqual(remaining,[events[1]]);self.assertEqual(len(intentional),1)
  def test_failure_classifier_preserves_non_audio_review_flags(self):
   audio,other=classify_failures(['True peak -0.6 dBTP exceeds -1.0 dBTP','Detected 1 new freeze event(s) introduced after source']);self.assertEqual(len(audio),1);self.assertEqual(len(other),1)
- def test_qa_logic_version_exists_for_safe_rechecks(self):self.assertGreaterEqual(w.QA_LOGIC_VERSION,4)
+ def test_qa_logic_version_exists_for_safe_rechecks(self):self.assertGreaterEqual(w.QA_LOGIC_VERSION,5)
  def test_podcast_plan_has_no_cutaways(self):
   plan=build_plan({'mode':'podcast'},{},{},120);self.assertEqual(plan['events'],[]);self.assertFalse(plan['creative_policy']['cutaways']);self.assertTrue(plan['creative_policy']['speaker_captions'])
  def test_explainer_plan_is_not_empty(self):
