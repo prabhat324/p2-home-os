@@ -3,26 +3,40 @@
   hosts: core-01
   gather_facts: false
   tasks:
-    - name: Probe LAN and collect hostname and SSH clues
+    - name: Probe LAN and collect identity clues
       ansible.builtin.shell: |
         set -u
         subnet="192.168.0"
+        known="192.168.0.31 192.168.0.53 192.168.0.65 192.168.0.88 192.168.0.148 192.168.0.158 192.168.0.177 192.168.0.203"
         seq 1 254 | xargs -P 32 -I{} sh -c 'ping -c 1 -W 1 0.{} >/dev/null 2>&1 || true' "$subnet"
 
-        echo 'HOSTNAME_LOOKUP_BEGIN'
-        getent ahostsv4 media-01 2>/dev/null || true
-        getent ahostsv4 media-01.local 2>/dev/null || true
-        command -v avahi-resolve-host-name >/dev/null 2>&1 && avahi-resolve-host-name -4 media-01.local 2>/dev/null || true
-        echo 'HOSTNAME_LOOKUP_END'
+        echo 'MEDIA_DNS_BEGIN'
+        for name in media-01 media-01.local; do
+          getent ahostsv4 "$name" 2>/dev/null || true
+          command -v dig >/dev/null 2>&1 && dig +short @192.168.0.1 "$name" A 2>/dev/null || true
+          command -v avahi-resolve-host-name >/dev/null 2>&1 && avahi-resolve-host-name -4 "$name" 2>/dev/null || true
+        done
+        echo 'MEDIA_DNS_END'
 
-        echo 'NEIGHBORS_BEGIN'
-        ip -4 neigh show 2>/dev/null | LC_ALL=C tr -cd '\11\12\15\40-\176' | sort -V || cat /proc/net/arp 2>/dev/null || true
-        echo 'NEIGHBORS_END'
+        echo 'SSH_IDENTITY_BEGIN'
+        export subnet known
+        live="$(seq 1 254 | xargs -P 64 -I{} bash -c 'ip="$subnet.{}"; timeout 0.5 bash -c "exec 3<>/dev/tcp/$ip/22" >/dev/null 2>&1 && echo "$ip" || true' | sort -V)"
+        for ip in $live; do
+          case " $known " in *" $ip "*) continue;; esac
+          mac="$(ip neigh show "$ip" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="lladdr") print $(i+1)}')"
+          rev="$(getent hosts "$ip" 2>/dev/null | awk '{print $2}' | head -1)"
+          ident=""
+          for user in p2ops psquare; do
+            out="$(timeout 3 ssh -i /home/p2runner/.ssh/id_ed25519_p2homeos -o BatchMode=yes -o ConnectTimeout=2 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$user@$ip" 'printf "%s|%s" "$(hostname)" "$(hostname -I)"' 2>/dev/null || true)"
+            if [ -n "$out" ]; then ident="$user|$out"; break; fi
+          done
+          printf '%s|MAC=%s|REVERSE=%s|IDENTITY=%s\n' "$ip" "$mac" "$rev" "$ident"
+        done
+        echo 'SSH_IDENTITY_END'
 
-        echo 'LIVE_SSH_HOSTS_BEGIN'
-        export subnet
-        seq 1 254 | xargs -P 64 -I{} bash -c 'ip="$subnet.{}"; timeout 0.5 bash -c "exec 3<>/dev/tcp/$ip/22" >/dev/null 2>&1 && echo "$ip" || true' | sort -V
-        echo 'LIVE_SSH_HOSTS_END'
+        echo 'NEIGHBOR_CANDIDATES_BEGIN'
+        ip -4 neigh show 2>/dev/null | grep '^192\.168\.0\.' | grep -v ' FAILED' | LC_ALL=C tr -cd '\11\12\15\40-\176' | sort -V || true
+        echo 'NEIGHBOR_CANDIDATES_END'
       args:
         executable: /bin/bash
       register: discovery
