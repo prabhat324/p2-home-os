@@ -6,7 +6,7 @@ and provenance; this stage safely downloads direct image/video assets so media-0
 them without manual file copying. Private/link-local destinations and unapproved MIME types
 are rejected to avoid SSRF and accidental arbitrary downloads.
 """
-import argparse,hashlib,ipaddress,json,mimetypes,os,re,socket,urllib.parse,urllib.request
+import argparse,hashlib,ipaddress,json,mimetypes,os,socket,urllib.parse,urllib.request
 from pathlib import Path
 
 MAX_BYTES=120*1024*1024
@@ -32,7 +32,7 @@ class SafeRedirect(urllib.request.HTTPRedirectHandler):
         validate_url(newurl);return super().redirect_request(req,fp,code,msg,headers,newurl)
 
 def download(url,dest_base):
-    parsed=validate_url(url);opener=urllib.request.build_opener(SafeRedirect());req=urllib.request.Request(url,headers={'User-Agent':'BeSquare-media01/1.0'})
+    validate_url(url);opener=urllib.request.build_opener(SafeRedirect());req=urllib.request.Request(url,headers={'User-Agent':'BeSquare-media01/1.0'})
     with opener.open(req,timeout=45) as resp:
         final=resp.geturl();validate_url(final);ctype=(resp.headers.get_content_type() or '').lower();length=resp.headers.get('Content-Length')
         if not ctype.startswith(ALLOWED_PREFIXES):raise ValueError(f'Unsupported asset content type: {ctype}')
@@ -40,14 +40,18 @@ def download(url,dest_base):
         ext=EXTENSIONS.get(ctype) or Path(urllib.parse.urlparse(final).path).suffix.lower() or mimetypes.guess_extension(ctype) or '.bin'
         if ext not in {'.jpg','.jpeg','.png','.webp','.gif','.mp4','.mov','.webm'}:raise ValueError(f'Unsupported asset extension: {ext}')
         target=dest_base.with_suffix('.jpg' if ext=='.jpeg' else ext);tmp=target.with_suffix(target.suffix+'.part');total=0;h=hashlib.sha256()
-        with tmp.open('wb') as f:
-            while True:
-                chunk=resp.read(1024*1024)
-                if not chunk:break
-                total+=len(chunk)
-                if total>MAX_BYTES:raise ValueError('Asset exceeded maximum download size while streaming')
-                h.update(chunk);f.write(chunk)
-        os.replace(tmp,target);return target,ctype,total,h.hexdigest(),final
+        try:
+            with tmp.open('wb') as f:
+                while True:
+                    chunk=resp.read(1024*1024)
+                    if not chunk:break
+                    total+=len(chunk)
+                    if total>MAX_BYTES:raise ValueError('Asset exceeded maximum download size while streaming')
+                    h.update(chunk);f.write(chunk)
+            os.replace(tmp,target)
+        finally:
+            tmp.unlink(missing_ok=True)
+        return target,ctype,total,h.hexdigest(),final
 
 def resolve(manifest,cache):
     cache.mkdir(parents=True,exist_ok=True);out=json.loads(json.dumps(manifest));records=[];assets=[]
@@ -67,5 +71,8 @@ def resolve(manifest,cache):
 
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--manifest',type=Path,required=True);ap.add_argument('--cache-dir',type=Path,required=True);ap.add_argument('--output-manifest',type=Path,required=True);ap.add_argument('--report',type=Path,required=True);a=ap.parse_args()
-    manifest=json.loads(a.manifest.read_text());resolved,records=resolve(manifest,a.cache_dir);a.output_manifest.write_text(json.dumps(resolved,indent=2));payload={'status':'PASS','assets':records};a.report.write_text(json.dumps(payload,indent=2));print(json.dumps({'status':'PASS','resolved_assets':len(records),'output_manifest':str(a.output_manifest)},indent=2))
-if __name__=='__main__':main()
+    try:
+        manifest=json.loads(a.manifest.read_text());resolved,records=resolve(manifest,a.cache_dir);a.output_manifest.write_text(json.dumps(resolved,indent=2));payload={'status':'PASS','assets':records};a.report.write_text(json.dumps(payload,indent=2));print(json.dumps({'status':'PASS','resolved_assets':len(records),'output_manifest':str(a.output_manifest)},indent=2));return 0
+    except Exception as e:
+        payload={'status':'FAIL','error':str(e),'assets':[]};a.report.parent.mkdir(parents=True,exist_ok=True);a.report.write_text(json.dumps(payload,indent=2));print(json.dumps(payload,indent=2));return 2
+if __name__=='__main__':raise SystemExit(main())
