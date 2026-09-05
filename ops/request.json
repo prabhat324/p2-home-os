@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-qa-freeze-diagnostics-20260905-1730",
-  "operation": "media01-status",
+  "request_id": "media01-freeze-overlap-qa-deploy-20260905-1733",
+  "operation": "media01-recover-worker",
   "target": "media-01"
 }
