@@ -4,7 +4,7 @@ from unittest.mock import patch
 from runtime import atomic,read
 from content_analyzer import caption_chunks
 from editorial import validate
-from qa_gate import new_events
+from qa_gate import new_events,repeat_event_present_in_source
 from auto_repair import classify_failures
 import media_worker as w
 
@@ -36,8 +36,18 @@ class Contracts(unittest.TestCase):
   source=[{'start':10.0,'duration':2.0}]
   output=[{'start':10.2,'duration':2.1},{'start':40.0,'duration':3.0}]
   self.assertEqual(new_events(output,source,['start','duration'],1.0),[output[1]])
- def test_auto_repair_only_handles_audio_failures(self):
+ def test_repeat_pair_can_be_verified_directly_against_source(self):
+  hashes=[0xffffffffffffffff]*60
+  a=[0x0,0x1,0x3,0x7,0xf]
+  b=[0x0,0x1,0x3,0x7,0x1f]
+  hashes[10:15]=a;hashes[30:35]=b
+  event={'first_second':10,'repeat_second':30,'seconds':5}
+  self.assertTrue(repeat_event_present_in_source(event,hashes,5,1.5))
+  self.assertFalse(repeat_event_present_in_source({'first_second':10,'repeat_second':45,'seconds':5},hashes,5,1.5))
+ def test_failure_classifier_preserves_non_audio_review_flags(self):
   audio,other=classify_failures(['True peak -0.6 dBTP exceeds -1.0 dBTP','Detected 1 new freeze event(s) introduced after source'])
   self.assertEqual(len(audio),1);self.assertEqual(len(other),1)
+ def test_qa_logic_version_exists_for_safe_rechecks(self):
+  self.assertGreaterEqual(w.QA_LOGIC_VERSION,2)
 
 if __name__=='__main__':unittest.main()
