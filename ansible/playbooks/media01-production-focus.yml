@@ -1,0 +1,45 @@
+---
+- name: Give media-01 production work exclusive capacity
+  hosts: media-01
+  gather_facts: false
+  tasks:
+    - name: Disable benchmark job manifest
+      ansible.builtin.shell: |
+        set -eu
+        p=/srv/media-production/inbox/performance-4k-v2/project.json
+        if [ -f "$p" ]; then
+          python3 - "$p" <<'PY'
+        import json,sys,os
+        p=sys.argv[1]
+        d=json.load(open(p)); d['ready']=False; d['disabled_reason']='production-priority'
+        t=p+'.tmp'; json.dump(d,open(t,'w'),indent=2); os.replace(t,p)
+        PY
+        fi
+      changed_when: true
+
+    - name: Stop only active benchmark subprocesses
+      ansible.builtin.shell: |
+        set -eu
+        pids="$(pgrep -f '/srv/media-production/(inbox|work|review)/performance-4k-v2' || true)"
+        if [ -n "$pids" ]; then
+          echo "$pids" | xargs -r kill -TERM
+          sleep 2
+          pids2="$(pgrep -f '/srv/media-production/(inbox|work|review)/performance-4k-v2' || true)"
+          if [ -n "$pids2" ]; then echo "$pids2" | xargs -r kill -KILL; fi
+        fi
+      changed_when: true
+
+    - name: Verify BeSquare worker and current stage remain alive
+      ansible.builtin.shell: |
+        echo 'WORKER:'
+        pgrep -a -f '^/home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch$' || true
+        echo 'BESQUARE:'
+        cat /srv/media-production/logs/besquare-demo-01.status.json 2>/dev/null || true
+        echo 'BENCHMARK_PROCESSES:'
+        pgrep -a -f '/srv/media-production/(inbox|work|review)/performance-4k-v2' || true
+      register: result
+      changed_when: false
+
+    - name: Report production focus state
+      ansible.builtin.debug:
+        var: result.stdout
