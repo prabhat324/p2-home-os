@@ -1,0 +1,35 @@
+---
+- name: Enroll media-01 into P2 control plane
+  hosts: core-01
+  gather_facts: false
+  tasks:
+    - name: Register media-01 SSH host key
+      ansible.builtin.shell: |
+        set -euo pipefail
+        install -d -m 700 /home/p2runner/.ssh
+        touch /home/p2runner/.ssh/known_hosts
+        chmod 600 /home/p2runner/.ssh/known_hosts
+        ssh-keyscan -T 5 -H 192.168.0.6 2>/dev/null >> /home/p2runner/.ssh/known_hosts
+        sort -u /home/p2runner/.ssh/known_hosts -o /home/p2runner/.ssh/known_hosts
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Verify dedicated control access
+      ansible.builtin.command:
+        argv:
+          - ssh
+          - -i
+          - /home/p2runner/.ssh/id_ed25519_p2homeos
+          - -o
+          - BatchMode=yes
+          - -o
+          - ConnectTimeout=5
+          - p2ops@192.168.0.6
+          - hostnamectl --static; hostname -I; uname -sr
+      register: media_identity
+      changed_when: false
+
+    - name: Print verified media identity
+      ansible.builtin.debug:
+        msg: "{{ media_identity.stdout_lines }}"
