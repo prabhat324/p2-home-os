@@ -134,3 +134,29 @@
     - name: Print implementation prerequisites
       ansible.builtin.debug:
         msg: "{{ prerequisites.stdout | from_json }}"
+
+    - name: Read v2 validation artifacts
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        import pathlib,json,subprocess
+        root=pathlib.Path("/srv/media-production")
+        files=["logs/performance-validation.status.json","logs/performance-4k-v2.status.json","logs/besquare-demo-01.status.json","logs/worker-heartbeat.json","work/performance-validation/results.json","work/performance-4k-v2/timings.json","review/performance-4k-v2/qa-report.json"]
+        data={}
+        for name in files:
+          p=root/name
+          if p.exists():
+            v=json.loads(p.read_text())
+            if name.endswith("qa-report.json"):v={k:v[k] for k in ["status","failures","warnings","loudness"] if k in v}
+            data[name]=v
+        for name in ["work/performance-validation/commands.log","work/performance-4k-v2/commands.log"]:
+          p=root/name
+          if p.exists(): data[name]=p.read_text()[-3500:]
+        data["venv"]=subprocess.run(["/home/p2ops/media01/venv-v2/bin/python","-m","pip","list","--format=json"],capture_output=True,text=True).stdout
+        data["artifacts"]=[str(p.relative_to(root)) for p in (root/"review").glob("*/*") if p.is_file()]
+        print(json.dumps(data))
+        PY
+      changed_when: false
+      register: v2
+    - name: Print v2 validation
+      ansible.builtin.debug:
+        msg: "{{ v2.stdout | from_json }}"
