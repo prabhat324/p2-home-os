@@ -27,6 +27,14 @@ Example podcast manifest fragment:
 }
 ```
 
+## Fresh-video readiness contract
+
+A fresh job is not considered successfully processed merely because FFmpeg and technical QA pass. The worker must also produce a mode-appropriate creative plan and pass `creative_qa.py`.
+
+For `podcast`, the required creative artifact is a two-speaker ASS caption track plus speaker assignments for both left and right speakers. For `explainer`, the required creative artifact is a non-empty timed visual plan whose density satisfies the generated creative policy. If either condition is missing, the job stops in `CREATIVE_REVIEW_REQUIRED` instead of being presented as a finished review candidate.
+
+The system deliberately does not fabricate visual evidence. Newspaper clippings, documents, photos and B-roll are rendered automatically when listed in `visual_assets`, with source/license metadata. Numeric claims only become fact cards when a matching entry exists in `verified_sources`. Without those inputs, the planner uses restrained zooms rather than inventing supporting material.
+
 ## Permanent editorial rules
 
 - Preserve the complete frame unless a motivated crop has been reviewed. Never crop faces, captions, documents, or existing on-screen lettering.
