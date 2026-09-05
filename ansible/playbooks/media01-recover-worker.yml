@@ -1,2 +1,3 @@
 ---
 - import_playbook: media01-autonomy-deploy.yml
+- import_playbook: media01-creative-smoke.yml
