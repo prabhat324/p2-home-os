@@ -33,6 +33,11 @@
           - /home/p2ops/media01/media_worker.py --watch
       changed_when: true
 
+    - name: Clear stale demo processing lock after stopped worker
+      ansible.builtin.file:
+        path: /srv/media-production/work/besquare-demo-01/.processing
+        state: absent
+
     - name: Allow worker to start retry
       ansible.builtin.pause:
         seconds: 20
