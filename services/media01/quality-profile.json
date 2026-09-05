@@ -1,5 +1,5 @@
 {
-  "profile": "besquare-youtube-4k-v2",
+  "profile": "besquare-youtube-4k-v3",
   "video": {
     "width": 3840,
     "height": 2160,
@@ -12,7 +12,17 @@
     "target_true_peak_dbtp": -2.0,
     "maximum_true_peak_dbtp": -1.0,
     "sample_rate": 48000,
-    "channels": 2
+    "channels": 2,
+    "loudness_tolerance_lu": 1.0
+  },
+  "delivery": {
+    "width": 3840,
+    "height": 2160,
+    "audio_sample_rate": 48000,
+    "audio_channels": 2,
+    "integrated_loudness_lufs": -14.0,
+    "loudness_tolerance_lu": 1.0,
+    "true_peak_max_dbtp": -1.0
   },
   "qa": {
     "black_min_seconds": 0.75,
@@ -20,11 +30,19 @@
     "repeat_seconds": 5,
     "source_event_tolerance_seconds": 1.5
   },
+  "qa_gates": {
+    "fail_on_probable_repeated_sequence_seconds": 5
+  },
   "autonomy": {
     "max_auto_repair_attempts": 3,
     "auto_retry_runtime_failures": 3,
     "audio_repair_initial_true_peak_dbtp": -2.5,
-    "audio_repair_floor_true_peak_dbtp": -4.0
+    "audio_repair_floor_true_peak_dbtp": -4.0,
+    "audio_true_peak_repair_target_dbtp": -2.5,
+    "audio_true_peak_repair_floor_dbtp": -4.0,
+    "visual_baseline_tolerance_seconds": 1.5,
+    "visual_repeat_source_mean_hamming_max": 8.0,
+    "visual_repeat_source_frame_hamming_max": 14
   },
   "creative": {
     "default_mode": "explainer",
