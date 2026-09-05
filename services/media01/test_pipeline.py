@@ -1,10 +1,13 @@
-import json,tempfile,unittest
+import tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
 from runtime import atomic,read
-from content_analyzer import caption_chunks,repeated_speech
+from content_analyzer import caption_chunks
 from editorial import validate
+from qa_gate import new_events
+from auto_repair import classify_failures
 import media_worker as w
+
 class Contracts(unittest.TestCase):
  def test_real_word_times(self):
   words=[{'word':str(i),'start':i*0.4,'end':i*0.4+0.2} for i in range(20)]
@@ -27,4 +30,14 @@ class Contracts(unittest.TestCase):
  def test_atomic_state(self):
   with tempfile.TemporaryDirectory() as d:
    p=Path(d)/'state.json';atomic(p,{'a':1});atomic(p,{'a':2});self.assertEqual(read(p),{'a':2});self.assertEqual(len(list(Path(d).iterdir())),1)
+ def test_qa_failure_is_recoverable(self):
+  self.assertNotIn('QA_FAILED',w.TERMINAL);self.assertIn('QA_REVIEW_REQUIRED',w.TERMINAL)
+ def test_visual_baseline_only_flags_new_events(self):
+  source=[{'start':10.0,'duration':2.0}]
+  output=[{'start':10.2,'duration':2.1},{'start':40.0,'duration':3.0}]
+  self.assertEqual(new_events(output,source,['start','duration'],1.0),[output[1]])
+ def test_auto_repair_only_handles_audio_failures(self):
+  audio,other=classify_failures(['True peak -0.6 dBTP exceeds -1.0 dBTP','Detected 1 new freeze event(s) introduced after source'])
+  self.assertEqual(len(audio),1);self.assertEqual(len(other),1)
+
 if __name__=='__main__':unittest.main()

@@ -11,6 +11,13 @@
     "loudness_tolerance_lu": 1.5,
     "true_peak_max_dbtp": -1.0
   },
+  "autonomy": {
+    "max_auto_repair_attempts": 3,
+    "auto_retry_runtime_failures": 3,
+    "audio_true_peak_repair_target_dbtp": -2.5,
+    "audio_true_peak_repair_floor_dbtp": -4.0,
+    "visual_baseline_tolerance_seconds": 1.5
+  },
   "editing_rules": {
     "preserve_full_frame_by_default": true,
     "never_crop_text_or_faces": true,

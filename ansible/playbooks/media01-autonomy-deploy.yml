@@ -1,0 +1,63 @@
+---
+- name: Deploy autonomous media-01 QA recovery
+  hosts: media-01
+  gather_facts: false
+  tasks:
+    - name: Deploy autonomous worker components
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../services/media01/{{ item }}"
+        dest: "/home/p2ops/media01/{{ item }}"
+        mode: "0755"
+      loop:
+        - media_worker.py
+        - qa_gate.py
+        - auto_repair.py
+        - test_pipeline.py
+
+    - name: Deploy quality and autonomy profile
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../services/media01/quality-profile.json"
+        dest: /home/p2ops/media01/quality-profile.json
+        mode: "0644"
+
+    - name: Verify autonomous worker contracts
+      ansible.builtin.command:
+        argv:
+          - /home/p2ops/media01/venv-v2/bin/python
+          - /home/p2ops/media01/test_pipeline.py
+      register: contracts
+      changed_when: false
+
+    - name: Read current worker pid
+      ansible.builtin.shell: "pgrep -f '^/home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch$' | head -1 || true"
+      register: old_worker
+      changed_when: false
+
+    - name: Restart worker into autonomous code
+      ansible.builtin.shell: "pkill -TERM -f '^/home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch$' || true"
+      changed_when: true
+
+    - name: Wait for worker replacement
+      ansible.builtin.shell: "pgrep -f '^/home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch$' | head -1"
+      register: new_worker
+      until: new_worker.rc == 0 and new_worker.stdout | length > 0 and new_worker.stdout != old_worker.stdout
+      retries: 20
+      delay: 3
+      changed_when: false
+
+    - name: Allow worker to claim failed QA job
+      ansible.builtin.pause:
+        seconds: 15
+
+    - name: Read BeSquare state after autonomous restart
+      ansible.builtin.shell: "cat /srv/media-production/logs/besquare-demo-01.status.json 2>/dev/null || true"
+      register: besquare_status
+      changed_when: false
+
+    - name: Report autonomous deployment
+      ansible.builtin.debug:
+        msg:
+          tests: "{{ contracts.stdout }}"
+          old_worker: "{{ old_worker.stdout }}"
+          new_worker: "{{ new_worker.stdout }}"
+          besquare_status: "{{ besquare_status.stdout }}"
