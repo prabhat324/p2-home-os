@@ -32,7 +32,7 @@ def main():
     failures=qa.get('failures',[])
     audio,other=classify_failures(failures)
     result={'changed':False,'attempt':args.attempt,'failures':failures,'audio_failures':audio,'unhandled_failures':other}
-    if not audio or other:
+    if not audio:
         args.result.write_text(json.dumps(result,indent=2))
         print(json.dumps(result,indent=2));return 0
     autonomy=cfg.get('autonomy',{})
