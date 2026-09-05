@@ -7,6 +7,7 @@
     work: /srv/media-production/work/raven-podcast-01-preview
     review: /srv/media-production/review/raven-podcast-01
     clip: /srv/media-production/work/raven-podcast-01-preview/source-60s.mp4
+    clip_partial: /srv/media-production/work/raven-podcast-01-preview/source-60s.partial.mp4
     manifest: /srv/media-production/work/raven-podcast-01-preview/preview-manifest.json
     analysis: /srv/media-production/work/raven-podcast-01-preview/analysis
     ass: /srv/media-production/review/raven-podcast-01/speaker-captions-60s.ass
@@ -47,10 +48,10 @@
     - name: Create exactly first 60 seconds without changing master
       ansible.builtin.shell: |
         set -euo pipefail
-        rm -f "{{ clip }}.partial"
+        rm -f "{{ clip_partial }}"
         ffmpeg -nostdin -hide_banner -loglevel error -y -i "{{ source }}" -t 60 \
-          -map 0:v:0 -map 0:a:0 -c copy -movflags +faststart "{{ clip }}.partial"
-        mv "{{ clip }}.partial" "{{ clip }}"
+          -map 0:v:0 -map 0:a:0 -c copy -movflags +faststart "{{ clip_partial }}"
+        mv "{{ clip_partial }}" "{{ clip }}"
         d="$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "{{ clip }}")"
         python3 - "$d" <<'PY'
         import sys
