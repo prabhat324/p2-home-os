@@ -2,7 +2,6 @@
 - name: Recover and verify media-01 worker
   hosts: media-01
   gather_facts: false
-  become: true
   tasks:
     - name: Verify corrected worker is deployed
       ansible.builtin.command:
@@ -25,11 +24,14 @@
         - /srv/media-production/cache
         - /srv/media-production/cache/huggingface
 
-    - name: Restart media worker
-      ansible.builtin.systemd_service:
-        name: media01-worker.service
-        state: restarted
-        daemon_reload: true
+    - name: Ask current worker process to exit for systemd restart
+      ansible.builtin.command:
+        argv:
+          - pkill
+          - -TERM
+          - -f
+          - /home/p2ops/media01/media_worker.py --watch
+      changed_when: true
 
     - name: Allow worker to start retry
       ansible.builtin.pause:
@@ -39,6 +41,16 @@
       ansible.builtin.command:
         argv: [systemctl, is-active, media01-worker.service]
       register: service_state
+      changed_when: false
+
+    - name: Verify replacement worker process
+      ansible.builtin.command:
+        argv:
+          - pgrep
+          - -a
+          - -f
+          - /home/p2ops/media01/media_worker.py --watch
+      register: worker_process
       changed_when: false
 
     - name: Read demo status
@@ -51,4 +63,5 @@
         msg:
           worker_fix: "{{ worker_fix.stdout }}"
           service: "{{ service_state.stdout }}"
+          process: "{{ worker_process.stdout }}"
           job: "{{ demo_status.content | b64decode | from_json }}"
