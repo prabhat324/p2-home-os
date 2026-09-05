@@ -1,0 +1,101 @@
+---
+- name: Smoke test media-01 creative renderer end to end
+  hosts: media-01
+  gather_facts: false
+  tasks:
+    - name: Prepare isolated creative smoke-test workspace
+      ansible.builtin.shell: |
+        set -eu
+        root=/srv/media-production/work/creative-smoke-v1
+        rm -rf "$root"
+        mkdir -p "$root/assets" "$root/out"
+
+        ffmpeg -nostdin -y -v error \
+          -f lavfi -i "testsrc2=size=1280x720:rate=30:duration=15" \
+          -f lavfi -i "sine=frequency=440:sample_rate=48000:duration=15" \
+          -c:v h264_nvenc -preset p4 -pix_fmt yuv420p -c:a aac -b:a 128k \
+          -shortest "$root/source.mp4"
+
+        python3 - "$root" <<'PY'
+        import json,sys
+        from pathlib import Path
+        from PIL import Image,ImageDraw
+        root=Path(sys.argv[1])
+        for name,label,bg in [
+            ('image.png','PROJECT IMAGE','#24435A'),
+            ('document.png','PRIMARY DOCUMENT','#EEEDE7'),
+            ('newspaper.png','NEWSPAPER CLIPPING','#D9D3C4')]:
+            im=Image.new('RGB',(1600,1000),bg);d=ImageDraw.Draw(im)
+            d.rectangle((70,70,1530,930),outline='#333333',width=8)
+            d.text((150,430),label,fill='#111111' if bg!='#24435A' else '#FFFFFF')
+            im.save(root/'assets'/name)
+        timeline={
+          'version':2,'mode':'explainer',
+          'creative_policy':{'minimum_visual_events':6,'actual_visual_events':6},
+          'chapters':[],
+          'events':[
+            {'start':0.0,'end':2.0,'kind':'image','approved':True,'asset':str(root/'assets/image.png'),'source':'Smoke-test project asset','caption':'Image treatment'},
+            {'start':2.0,'end':4.0,'kind':'document','approved':True,'asset':str(root/'assets/document.png'),'source':'Smoke-test primary document','caption':'Document treatment'},
+            {'start':4.0,'end':6.0,'kind':'newspaper','approved':True,'asset':str(root/'assets/newspaper.png'),'source':'Smoke-test newspaper source','caption':'Newspaper treatment'},
+            {'start':6.0,'end':8.0,'kind':'fact_card','approved':True,'title':'Verified fact card rendering','source':'Smoke-test verified source'},
+            {'start':8.0,'end':11.0,'kind':'graph','approved':True,'title':'Verified sample data','unit':'units','source':'Smoke-test verified source','data':[{'label':'A','value':10},{'label':'B','value':20},{'label':'C','value':15}]},
+            {'start':11.0,'end':15.0,'kind':'zoom','approved':True,'crop_reviewed':True,'scale':1.045}
+          ]
+        }
+        (root/'timeline.json').write_text(json.dumps(timeline,indent=2))
+        (root/'manifest.json').write_text(json.dumps({'mode':'explainer'},indent=2))
+        PY
+      changed_when: true
+
+    - name: Render every supported creative treatment
+      ansible.builtin.command:
+        argv:
+          - /home/p2ops/media01/venv-v2/bin/python
+          - /home/p2ops/media01/editorial.py
+          - render
+          - /srv/media-production/work/creative-smoke-v1/source.mp4
+          - /srv/media-production/work/creative-smoke-v1/out
+          - --timeline
+          - /srv/media-production/work/creative-smoke-v1/timeline.json
+      register: render
+      changed_when: true
+
+    - name: Run creative completeness QA on smoke render
+      ansible.builtin.command:
+        argv:
+          - /home/p2ops/media01/venv-v2/bin/python
+          - /home/p2ops/media01/creative_qa.py
+          - --manifest
+          - /srv/media-production/work/creative-smoke-v1/manifest.json
+          - --timeline
+          - /srv/media-production/work/creative-smoke-v1/timeline.json
+          - --report
+          - /srv/media-production/work/creative-smoke-v1/creative-qa.json
+      register: creativeqa
+      changed_when: false
+
+    - name: Verify rendered media and generated visual assets
+      ansible.builtin.shell: |
+        set -eu
+        root=/srv/media-production/work/creative-smoke-v1
+        test -s "$root/out/timeline.mp4"
+        test -s "$root/out/still-0.png"
+        test -s "$root/out/still-1.png"
+        test -s "$root/out/still-2.png"
+        test -s "$root/out/fact-3.png"
+        test -s "$root/out/graph-4.png"
+        duration="$(ffprobe -v error -show_entries format=duration -of default=nk=1:nw=1 "$root/out/timeline.mp4")"
+        python3 - "$duration" <<'PY'
+        import sys
+        d=float(sys.argv[1]); print('duration',d)
+        if not 14.7 <= d <= 15.3: raise SystemExit(2)
+        PY
+        cat "$root/creative-qa.json"
+      register: verify
+      changed_when: false
+
+    - name: Report creative smoke test
+      ansible.builtin.debug:
+        msg:
+          creative_qa: "{{ creativeqa.stdout }}"
+          verify: "{{ verify.stdout }}"
