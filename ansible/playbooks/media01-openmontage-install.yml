@@ -1,0 +1,212 @@
+---
+- name: Install isolated OpenMontage lab on media-01
+  hosts: media-01
+  gather_facts: false
+  vars:
+    openmontage_repo: "https://github.com/calesthio/OpenMontage.git"
+    openmontage_commit: "cd9f3c1f03368be87b140af494914b8ee4e3c7a4"
+    lab_root: "/home/p2ops/openmontage-lab"
+    repo_dir: "/home/p2ops/openmontage-lab/OpenMontage"
+    node_version: "24.20.0"
+    node_archive: "/home/p2ops/openmontage-lab/downloads/node-v24.20.0-linux-x64.tar.xz"
+    node_sums: "/home/p2ops/openmontage-lab/downloads/SHASUMS256.txt"
+    node_dir: "/home/p2ops/openmontage-lab/node-v24.20.0-linux-x64"
+    source_video: "/srv/media-production/inbox/besquare-demo-01/master.mp4"
+    project_root: "/srv/media-production/work/openmontage-besquare-demo-01"
+    isolated_input: "/srv/media-production/work/openmontage-besquare-demo-01/input/master.mp4"
+    review_root: "/srv/media-production/review/openmontage-besquare-demo-01"
+    safe_path: "/home/p2ops/openmontage-lab/node-v24.20.0-linux-x64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  tasks:
+    - name: Verify original 18 minute source exists
+      ansible.builtin.stat:
+        path: "{{ source_video }}"
+      register: source_stat
+
+    - name: Refuse install if source is missing
+      ansible.builtin.assert:
+        that:
+          - source_stat.stat.exists
+          - source_stat.stat.isreg
+          - source_stat.stat.size > 8000000000
+        fail_msg: "Expected BeSquare 18-minute 4K source is missing or unexpectedly small."
+
+    - name: Create isolated lab directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ lab_root }}"
+        - "{{ lab_root }}/downloads"
+        - "{{ node_dir }}"
+        - "{{ project_root }}"
+        - "{{ project_root }}/input"
+        - "{{ project_root }}/output"
+        - "{{ project_root }}/logs"
+        - "{{ review_root }}"
+
+    - name: Download pinned Node.js LTS archive from nodejs.org
+      ansible.builtin.get_url:
+        url: "https://nodejs.org/dist/v{{ node_version }}/node-v{{ node_version }}-linux-x64.tar.xz"
+        dest: "{{ node_archive }}"
+        mode: "0644"
+
+    - name: Download Node.js signed release checksums
+      ansible.builtin.get_url:
+        url: "https://nodejs.org/dist/v{{ node_version }}/SHASUMS256.txt"
+        dest: "{{ node_sums }}"
+        mode: "0644"
+
+    - name: Verify Node.js archive checksum
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cd "{{ lab_root }}/downloads"
+        grep ' node-v{{ node_version }}-linux-x64.tar.xz$' SHASUMS256.txt | sha256sum -c -
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Check pinned Node.js installation
+      ansible.builtin.stat:
+        path: "{{ node_dir }}/bin/node"
+      register: node_stat
+
+    - name: Extract pinned Node.js into user-space lab
+      ansible.builtin.unarchive:
+        src: "{{ node_archive }}"
+        dest: "{{ node_dir }}"
+        remote_src: true
+        extra_opts:
+          - --strip-components=1
+      when: not node_stat.stat.exists
+
+    - name: Verify pinned Node.js and npm
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export PATH="{{ safe_path }}"
+        node --version
+        npm --version
+        npx --version
+      args:
+        executable: /bin/bash
+      register: node_versions
+      changed_when: false
+
+    - name: Clone only the official OpenMontage repository at pinned commit
+      ansible.builtin.git:
+        repo: "{{ openmontage_repo }}"
+        dest: "{{ repo_dir }}"
+        version: "{{ openmontage_commit }}"
+        update: true
+        force: false
+
+    - name: Verify repository origin and pinned revision before executing setup
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cd "{{ repo_dir }}"
+        test "$(git remote get-url origin)" = "{{ openmontage_repo }}"
+        test "$(git rev-parse HEAD)" = "{{ openmontage_commit }}"
+        git remote get-url origin
+        git rev-parse HEAD
+        git status --short
+      args:
+        executable: /bin/bash
+      register: repo_identity
+      changed_when: false
+
+    - name: Install OpenMontage in its dedicated virtual environment
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export PATH="{{ safe_path }}"
+        cd "{{ repo_dir }}"
+        make setup
+      args:
+        executable: /bin/bash
+      register: setup_result
+      changed_when: true
+
+    - name: Run OpenMontage provider preflight
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export PATH="{{ safe_path }}"
+        cd "{{ repo_dir }}"
+        .venv/bin/python -c "from tools.tool_registry import registry; import json; registry.discover(); print(json.dumps(registry.support_envelope(), indent=2))"
+        echo '--- PROVIDERS ---'
+        .venv/bin/python -c "from tools.tool_registry import registry; import json; registry.discover(); print(json.dumps(registry.provider_menu(), indent=2))"
+      args:
+        executable: /bin/bash
+      register: provider_preflight
+      changed_when: false
+
+    - name: Probe available coding agents and authentication without exposing secrets
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export PATH="{{ safe_path }}"
+        for cmd in codex claude cursor code; do
+          if command -v "$cmd" >/dev/null 2>&1; then
+            printf '%s=%s\n' "$cmd" "$(command -v "$cmd")"
+          else
+            printf '%s=absent\n' "$cmd"
+          fi
+        done
+        for var in OPENAI_API_KEY ANTHROPIC_API_KEY FAL_KEY GOOGLE_API_KEY GEMINI_API_KEY; do
+          if [ -n "$(printenv "$var" 2>/dev/null || true)" ]; then
+            printf '%s=present\n' "$var"
+          else
+            printf '%s=absent\n' "$var"
+          fi
+        done
+      args:
+        executable: /bin/bash
+      register: agent_probe
+      changed_when: false
+
+    - name: Create independent read-only copy of original source for experiment
+      ansible.builtin.shell: |
+        set -euo pipefail
+        if [ ! -f "{{ isolated_input }}" ]; then
+          cp --reflink=auto --sparse=always "{{ source_video }}" "{{ isolated_input }}"
+        fi
+        test "$(stat -c %s "{{ isolated_input }}")" = "$(stat -c %s "{{ source_video }}")"
+        chmod 0444 "{{ isolated_input }}"
+      args:
+        executable: /bin/bash
+      register: input_copy
+      changed_when: "'changed' in input_copy.stdout"
+
+    - name: Record reproducible experiment metadata
+      ansible.builtin.copy:
+        dest: "{{ project_root }}/experiment.json"
+        mode: "0644"
+        content: |
+          {
+            "experiment": "openmontage-besquare-demo-01",
+            "official_repo": "{{ openmontage_repo }}",
+            "pinned_commit": "{{ openmontage_commit }}",
+            "source_original": "{{ source_video }}",
+            "source_isolated_copy": "{{ isolated_input }}",
+            "output_root": "{{ project_root }}/output",
+            "review_root": "{{ review_root }}"
+          }
+
+    - name: Verify original and isolated input hashes match
+      ansible.builtin.shell: |
+        set -euo pipefail
+        sha256sum "{{ source_video }}" "{{ isolated_input }}"
+      args:
+        executable: /bin/bash
+      register: hashes
+      changed_when: false
+
+    - name: Report isolated OpenMontage installation
+      ansible.builtin.debug:
+        msg:
+          node: "{{ node_versions.stdout_lines }}"
+          repository: "{{ repo_identity.stdout_lines }}"
+          agents_and_keys: "{{ agent_probe.stdout_lines }}"
+          hashes: "{{ hashes.stdout_lines }}"
+          provider_preflight: "{{ provider_preflight.stdout }}"
+          repo_dir: "{{ repo_dir }}"
+          isolated_source: "{{ isolated_input }}"
+          output_root: "{{ project_root }}/output"
+          review_root: "{{ review_root }}"
