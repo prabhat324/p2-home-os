@@ -149,6 +149,10 @@ case "${operation}" in
     [[ "${source_drive_file_id}" =~ ^[A-Za-z0-9_-]{20,100}$ ]] || { echo "Invalid source_drive_file_id" >&2; exit 2; }
     playbook="playbooks/transcribe-srt.yml"
     ;;
+  media01-network-discover)
+    [[ "${target}" == "core-01" ]] || { echo "media01-network-discover is restricted to core-01" >&2; exit 2; }
+    playbook="playbooks/media01-network-discover.yml"
+    ;;
   *)
     exec bash "${ROOT_DIR}/ops/run-request.sh" "${REQUEST_FILE}"
     ;;
