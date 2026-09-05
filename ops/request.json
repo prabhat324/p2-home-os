@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-control-key-20260904",
-  "operation": "media01-network-discover",
+  "request_id": "media01-enroll-20260905",
+  "operation": "media01-enroll",
   "target": "core-01"
 }
