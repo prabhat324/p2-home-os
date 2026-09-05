@@ -2,6 +2,8 @@
 import argparse,json,math,re,subprocess,sys
 from pathlib import Path
 
+STATIC_TIMELINE_KINDS={'graph','fact_card','image','document','newspaper'}
+
 def run(cmd):return subprocess.run(cmd,text=True,capture_output=True,check=False)
 def probe(path):
     p=run(['ffprobe','-v','error','-show_streams','-show_format','-of','json',str(path)])
@@ -69,12 +71,7 @@ def new_events(output_events,source_events,keys,tolerance):
     return new
 
 def repeat_event_present_in_source(event,source_hashes,seconds,tolerance,max_mean_hamming=8.0,max_frame_hamming=14):
-    """Verify an output repeat against the source at the same timeline positions.
-
-    Independent repeated-sequence detection can pair the same lossy-transcoded scene
-    differently. This check asks the safer question: were the two output-repeated
-    timeline regions already perceptually similar in the source?
-    """
+    """Verify an output repeat against the source at the same timeline positions."""
     first=int(round(float(event.get('first_second',-1))));repeat=int(round(float(event.get('repeat_second',-1))))
     radius=max(0,int(math.ceil(float(tolerance))))
     for df in range(-radius,radius+1):
@@ -85,6 +82,49 @@ def repeat_event_present_in_source(event,source_hashes,seconds,tolerance,max_mea
             if distances and max(distances)<=max_frame_hamming and sum(distances)/len(distances)<=max_mean_hamming:return True
     return False
 
+def intentional_static_spans(timeline):
+    """Return approved static editorial intervals that are expected to look frozen.
+
+    Moving B-roll and zooms are deliberately excluded. A QA exemption therefore
+    requires an explicit approved timeline event whose renderer is a still frame.
+    """
+    if not timeline:return []
+    if isinstance(timeline,(str,Path)):
+        try:data=json.loads(Path(timeline).read_text())
+        except Exception:return []
+    else:data=timeline
+    spans=[]
+    for e in data.get('events',[]):
+        if e.get('approved') is not True or e.get('kind') not in STATIC_TIMELINE_KINDS:continue
+        try:start=float(e['start']);end=float(e['end'])
+        except Exception:continue
+        if end>start:spans.append({'start':start,'end':end,'kind':e['kind']})
+    return spans
+
+def interval_inside_span(start,end,span,pad=1.0):
+    return start is not None and float(start)>=float(span['start'])-pad and float(end)<=float(span['end'])+pad
+
+def filter_intentional_freezes(events,spans,pad=1.0):
+    remaining=[];intentional=[]
+    for event in events:
+        start=event.get('start');duration=event.get('duration')
+        if start is None or duration is None:remaining.append(event);continue
+        end=float(start)+float(duration);match=next((s for s in spans if interval_inside_span(float(start),end,s,pad)),None)
+        if match:intentional.append({**event,'timeline_kind':match['kind'],'timeline_start':match['start'],'timeline_end':match['end']})
+        else:remaining.append(event)
+    return remaining,intentional
+
+def filter_intentional_repeats(events,spans,seconds,pad=1.0):
+    """Ignore a repeat only when both compared windows live inside one approved still."""
+    remaining=[];intentional=[]
+    for event in events:
+        try:first=float(event['first_second']);repeat=float(event['repeat_second']);length=float(event.get('seconds',seconds))
+        except Exception:remaining.append(event);continue
+        match=next((s for s in spans if interval_inside_span(first,first+length,s,pad) and interval_inside_span(repeat,repeat+length,s,pad)),None)
+        if match:intentional.append({**event,'timeline_kind':match['kind'],'timeline_start':match['start'],'timeline_end':match['end']})
+        else:remaining.append(event)
+    return remaining,intentional
+
 def loudness(path):
     p=run(['ffmpeg','-hide_banner','-nostats','-i',str(path),'-vn','-af','loudnorm=I=-14:TP=-1:LRA=11:print_format=json','-f','null','-'])
     if p.returncode:raise RuntimeError('Audio QA failed: '+p.stderr[-2000:])
@@ -93,7 +133,7 @@ def loudness(path):
     return json.loads(blocks[-1])
 
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument('video',type=Path);ap.add_argument('--source',type=Path);ap.add_argument('--profile',type=Path,default=Path(__file__).with_name('quality-profile.json'));ap.add_argument('--report',type=Path);args=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument('video',type=Path);ap.add_argument('--source',type=Path);ap.add_argument('--timeline',type=Path);ap.add_argument('--profile',type=Path,default=Path(__file__).with_name('quality-profile.json'));ap.add_argument('--report',type=Path);args=ap.parse_args()
     cfg=json.loads(args.profile.read_text());info=probe(args.video)
     videos=[s for s in info['streams'] if s.get('codec_type')=='video'];audios=[s for s in info['streams'] if s.get('codec_type')=='audio']
     failures,warnings=[],[]
@@ -112,38 +152,49 @@ def main():
         if int(a.get('channels',0))!=cfg['delivery']['audio_channels']:warnings.append(f"Audio has {a.get('channels')} channel(s), delivery target is stereo")
     repeat_seconds=int(cfg['qa_gates']['fail_on_probable_repeated_sequence_seconds'])
     output_visual,output_hashes=visual_signals(args.video,repeat_seconds)
-    baseline=None
+    static_spans=intentional_static_spans(args.timeline)
+    static_pad=float(cfg.get('autonomy',{}).get('intentional_static_timeline_tolerance_seconds',1.0))
+    intentional_freezes=[];intentional_repeats=[];baseline=None
     if args.source:
         source_visual,source_hashes=visual_signals(args.source,repeat_seconds)
         tol=float(cfg.get('autonomy',{}).get('visual_baseline_tolerance_seconds',1.5))
         new_black=new_events(output_visual['black_segments'],source_visual['black_segments'],['start','duration'],tol)
-        new_freeze=new_events(output_visual['freeze_events'],source_visual['freeze_events'],['start','duration'],tol)
+        raw_new_freeze=new_events(output_visual['freeze_events'],source_visual['freeze_events'],['start','duration'],tol)
         candidate_new_repeats=new_events(output_visual['repeated_sequences'],source_visual['repeated_sequences'],['first_second','repeat_second'],tol)
-        perceptually_inherited=[];new_repeats=[]
+        perceptually_inherited=[];raw_new_repeats=[]
         mean_hamming=float(cfg.get('autonomy',{}).get('visual_repeat_source_mean_hamming_max',8.0))
         frame_hamming=int(cfg.get('autonomy',{}).get('visual_repeat_source_frame_hamming_max',14))
         for event in candidate_new_repeats:
             if repeat_event_present_in_source(event,source_hashes,repeat_seconds,tol,mean_hamming,frame_hamming):perceptually_inherited.append(event)
-            else:new_repeats.append(event)
-        inherited={k:max(0,len(output_visual[k])-len(v)) for k,v in [('black_segments',new_black),('freeze_events',new_freeze),('repeated_sequences',new_repeats)]}
+            else:raw_new_repeats.append(event)
+        new_freeze,intentional_freezes=filter_intentional_freezes(raw_new_freeze,static_spans,static_pad)
+        new_repeats,intentional_repeats=filter_intentional_repeats(raw_new_repeats,static_spans,repeat_seconds,static_pad)
+        inherited={'black_segments':max(0,len(output_visual['black_segments'])-len(new_black)),'freeze_events':max(0,len(output_visual['freeze_events'])-len(raw_new_freeze)),'repeated_sequences':max(0,len(output_visual['repeated_sequences'])-len(raw_new_repeats))}
         if inherited['black_segments']:warnings.append(f"{inherited['black_segments']} black segment(s) are inherited from the source")
         if inherited['freeze_events']:warnings.append(f"{inherited['freeze_events']} freeze event(s) are inherited from the source")
         if inherited['repeated_sequences']:warnings.append(f"{inherited['repeated_sequences']} repeated visual sequence(s) are inherited from the source")
         if perceptually_inherited:warnings.append(f"{len(perceptually_inherited)} repeat pairing difference(s) verified against source timeline")
+        if intentional_freezes:warnings.append(f"{len(intentional_freezes)} freeze event(s) correspond to approved intentional static timeline treatments")
+        if intentional_repeats:warnings.append(f"{len(intentional_repeats)} repeated sequence event(s) occur entirely inside approved intentional static timeline treatments")
         if new_black:failures.append(f'Detected {len(new_black)} new black segment(s) introduced after source')
-        if new_freeze:failures.append(f'Detected {len(new_freeze)} new freeze event(s) introduced after source')
-        if new_repeats:failures.append(f'Detected {len(new_repeats)} new probable repeated sequence(s) introduced after source')
-        baseline={'source':str(args.source),'tolerance_seconds':tol,'source_counts':{k:len(v) for k,v in source_visual.items()},'output_counts':{k:len(v) for k,v in output_visual.items()},'new':{'black_segments':new_black,'freeze_events':new_freeze,'repeated_sequences':new_repeats},'perceptually_inherited_repeats':perceptually_inherited,'inherited_counts':inherited}
+        if new_freeze:failures.append(f'Detected {len(new_freeze)} new freeze event(s) introduced after source outside approved static treatments')
+        if new_repeats:failures.append(f'Detected {len(new_repeats)} new probable repeated sequence(s) introduced after source outside approved static treatments')
+        baseline={'source':str(args.source),'tolerance_seconds':tol,'source_counts':{k:len(v) for k,v in source_visual.items()},'output_counts':{k:len(v) for k,v in output_visual.items()},'introduced_before_timeline_exemptions':{'black_segments':new_black,'freeze_events':raw_new_freeze,'repeated_sequences':raw_new_repeats},'new':{'black_segments':new_black,'freeze_events':new_freeze,'repeated_sequences':new_repeats},'perceptually_inherited_repeats':perceptually_inherited,'inherited_counts':inherited}
     else:
+        new_freeze,intentional_freezes=filter_intentional_freezes(output_visual['freeze_events'],static_spans,static_pad)
+        new_repeats,intentional_repeats=filter_intentional_repeats(output_visual['repeated_sequences'],static_spans,repeat_seconds,static_pad)
         if output_visual['black_segments']:failures.append(f"Detected {len(output_visual['black_segments'])} black segment(s) >= 0.75s")
-        if output_visual['freeze_events']:failures.append(f"Detected {len(output_visual['freeze_events'])} freeze event(s) >= 2s; review intentional stills")
-        if output_visual['repeated_sequences']:failures.append(f"Detected {len(output_visual['repeated_sequences'])} probable non-consecutive repeated sequence(s); review static scenes")
+        if intentional_freezes:warnings.append(f"{len(intentional_freezes)} freeze event(s) correspond to approved intentional static timeline treatments")
+        if intentional_repeats:warnings.append(f"{len(intentional_repeats)} repeated sequence event(s) occur entirely inside approved intentional static timeline treatments")
+        if new_freeze:failures.append(f"Detected {len(new_freeze)} freeze event(s) >= 2s outside approved static treatments")
+        if new_repeats:failures.append(f"Detected {len(new_repeats)} probable non-consecutive repeated sequence(s) outside approved static treatments")
     audio=loudness(args.video) if audios else {}
     if audio:
         measured=float(audio.get('input_i',-99));peak=float(audio.get('input_tp',99));target=cfg['delivery']['integrated_loudness_lufs'];tol=cfg['delivery']['loudness_tolerance_lu']
         if abs(measured-target)>tol:failures.append(f'Integrated loudness {measured:.1f} LUFS is outside {target:.1f}±{tol:.1f}')
         if peak>cfg['delivery']['true_peak_max_dbtp']:failures.append(f'True peak {peak:.1f} dBTP exceeds {cfg["delivery"]["true_peak_max_dbtp"]:.1f} dBTP')
-    report={'profile':cfg['profile'],'file':str(args.video),'status':'PASS' if not failures else 'FAIL','failures':failures,'warnings':warnings,'probe':info,'loudness':audio,'visual_signals':output_visual,'visual_baseline':baseline,'manual_gates':['Full timeline review completed','No cropped faces, text, or source material','Captions remain in bottom safe area and do not cover content','All zooms are slow, eased, and editorially motivated','No repeated footage or duplicated spoken section','Every graph communicates real labeled data and cites its source','Names, numbers, quotations, dates, and protected terms verified','Political presentation remains neutral and avoids gotcha editing']}
-    out=args.report or args.video.with_suffix('.qa.json');out.write_text(json.dumps(report,indent=2));print(json.dumps({'status':report['status'],'report':str(out),'failures':failures,'warnings':warnings},indent=2));return 0 if not failures else 2
+    intentional={'timeline':str(args.timeline) if args.timeline else None,'tolerance_seconds':static_pad,'spans':static_spans,'ignored_freeze_events':intentional_freezes,'ignored_repeated_sequences':intentional_repeats}
+    report={'profile':cfg['profile'],'file':str(args.video),'status':'PASS' if not failures else 'FAIL','failures':failures,'warnings':warnings,'probe':info,'loudness':audio,'visual_signals':output_visual,'visual_baseline':baseline,'intentional_static_treatments':intentional,'manual_gates':['Full timeline review completed','No cropped faces, text, or source material','Captions remain in bottom safe area and do not cover content','All zooms are slow, eased, and editorially motivated','No repeated footage or duplicated spoken section','Every graph communicates real labeled data and cites its source','Names, numbers, quotations, dates, and protected terms verified','Political presentation remains neutral and avoids gotcha editing']}
+    out=args.report or args.video.with_suffix('.qa.json');out.write_text(json.dumps(report,indent=2));print(json.dumps({'status':report['status'],'report':str(out),'failures':failures,'warnings':warnings,'intentional_static_freezes':len(intentional_freezes),'intentional_static_repeats':len(intentional_repeats)},indent=2));return 0 if not failures else 2
 
 if __name__=='__main__':sys.exit(main())
