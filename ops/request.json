@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-creative-pipeline-deploy-20260905-1312",
-  "operation": "media01-recover-worker",
+  "request_id": "media01-podcast-debug-20260905-1332",
+  "operation": "media01-debug-podcast",
   "target": "media-01"
 }
