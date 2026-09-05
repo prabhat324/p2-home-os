@@ -1,0 +1,9 @@
+faster-whisper>=1.2,<2
+numpy>=2,<3
+opencv-python-headless>=4.12,<5
+Pillow>=11,<13
+PyYAML>=6,<7
+watchdog>=6,<7
+pyloudnorm>=0.1.1,<1
+soundfile>=0.13,<1
+scenedetect[opencv]>=0.6.7,<1
