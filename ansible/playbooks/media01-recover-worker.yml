@@ -1,72 +1,79 @@
 ---
-- name: Recover and verify media-01 worker
+- name: Diagnose confirmed duplicate in BeSquare source
   hosts: media-01
   gather_facts: false
   tasks:
-    - name: Verify corrected worker is deployed
-      ansible.builtin.command:
-        argv:
-          - grep
-          - -n
-          - Content analyzer failed
-          - /home/p2ops/media01/media_worker.py
-      register: worker_fix
+    - name: Derive exact repeated spoken interval from word timestamps
+      ansible.builtin.shell: |
+        set -euo pipefail
+        /home/p2ops/media01/venv-v2/bin/python - <<'PY'
+        import json,re,pathlib
+        root=pathlib.Path('/srv/media-production')
+        analysis=root/'review/besquare-demo-01/analysis'
+        transcript=json.loads((analysis/'transcript.json').read_text())
+        report=json.loads((analysis/'content-report.json').read_text())
+        dup=report.get('probable_repeated_spoken_sections',[])
+        if len(dup)!=1:
+            raise SystemExit(f'expected exactly one duplicate, found {len(dup)}')
+        d=dup[0]
+        rows=[]
+        for seg in transcript.get('segments',[]):
+            for w in seg.get('words',[]):
+                toks=re.findall(r"[a-z0-9']+",str(w.get('word','')).lower())
+                if toks:
+                    rows.append({'token':toks[0],'start':float(w['start']),'end':float(w['end'])})
+        phrase=d['phrase'].split()
+        n=len(phrase)
+        hits=[i for i in range(len(rows)-n+1) if [x['token'] for x in rows[i:i+n]]==phrase]
+        if len(hits)<2:
+            raise SystemExit(f'could not find two exact word-timestamp matches: {hits}')
+        ia=min(hits,key=lambda i:abs(rows[i]['start']-float(d['first_second'])))
+        later=[i for i in hits if rows[i]['start']>rows[ia]['start']+10]
+        if not later:
+            raise SystemExit('no later duplicate match found')
+        ib=min(later,key=lambda i:abs(rows[i]['start']-float(d['repeat_second'])))
+        left=0
+        while ia-left-1>=0 and ib-left-1>=0 and rows[ia-left-1]['token']==rows[ib-left-1]['token']:
+            if rows[ib-left-1]['start']-rows[ia-left-1]['start']<10: break
+            left+=1
+        right=n
+        while ia+right<len(rows) and ib+right<len(rows) and rows[ia+right]['token']==rows[ib+right]['token']:
+            if rows[ib+right]['start']-rows[ia+right]['start']<10: break
+            right+=1
+        a0,a1=ia-left,ia+right-1
+        b0,b1=ib-left,ib+right-1
+        matched=right+left
+        start1,end1=rows[a0]['start'],rows[a1]['end']
+        start2,end2=rows[b0]['start'],rows[b1]['end']
+        if b0>0 and rows[b0]['start']>rows[b0-1]['end']:
+            cut_start=(rows[b0-1]['end']+rows[b0]['start'])/2
+        else:
+            cut_start=start2
+        if b1+1<len(rows) and rows[b1+1]['start']>rows[b1]['end']:
+            cut_end=(rows[b1]['end']+rows[b1+1]['start'])/2
+        else:
+            cut_end=end2
+        plan={
+          'human_confirmation':'User previously reported the same approximately 10-second video repeating near 15:40 and explicitly authorized repair on 2026-09-05.',
+          'analyzer_anchor':d,
+          'matched_words':matched,
+          'first_interval':{'start':round(start1,3),'end':round(end1,3),'duration':round(end1-start1,3)},
+          'repeat_interval':{'start':round(start2,3),'end':round(end2,3),'duration':round(end2-start2,3)},
+          'cut_start':round(cut_start,3),'cut_end':round(cut_end,3),'cut_duration':round(cut_end-cut_start,3),
+          'first_context':' '.join(x['token'] for x in rows[max(0,a0-8):min(len(rows),a1+9)]),
+          'repeat_context':' '.join(x['token'] for x in rows[max(0,b0-8):min(len(rows),b1+9)])
+        }
+        if matched < 12 or not 3.0 <= plan['cut_duration'] <= 20.0 or cut_start <= end1:
+            raise SystemExit('duplicate plan failed safety bounds: '+json.dumps(plan))
+        out=root/'review/besquare-demo-01/duplicate-resolution.json'
+        out.write_text(json.dumps(plan,indent=2))
+        print(json.dumps(plan))
+        PY
+      args:
+        executable: /bin/bash
+      register: duplicate_plan
       changed_when: false
 
-    - name: Prepare writable model cache
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: directory
-        owner: p2ops
-        group: mediaops
-        mode: "2775"
-      loop:
-        - /srv/media-production/work/.cache
-        - /srv/media-production/work/.cache/huggingface
-
-    - name: Terminate current worker as failed so systemd restarts it
-      ansible.builtin.command:
-        argv:
-          - pkill
-          - -KILL
-          - -f
-          - /home/p2ops/media01/media_worker.py --watch
-      changed_when: true
-
-    - name: Clear stale demo processing lock after stopped worker
-      ansible.builtin.file:
-        path: /srv/media-production/work/besquare-demo-01/.processing
-        state: absent
-
-    - name: Allow worker to start retry
-      ansible.builtin.pause:
-        seconds: 20
-
-    - name: Read worker service state
-      ansible.builtin.command:
-        argv: [systemctl, is-active, media01-worker.service]
-      register: service_state
-      changed_when: false
-
-    - name: Verify replacement worker process
-      ansible.builtin.command:
-        argv:
-          - pgrep
-          - -a
-          - -f
-          - /home/p2ops/media01/media_worker.py --watch
-      register: worker_process
-      changed_when: false
-
-    - name: Read demo status
-      ansible.builtin.slurp:
-        src: /srv/media-production/logs/besquare-demo-01.status.json
-      register: demo_status
-
-    - name: Report recovery state
+    - name: Report duplicate diagnosis
       ansible.builtin.debug:
-        msg:
-          worker_fix: "{{ worker_fix.stdout }}"
-          service: "{{ service_state.stdout }}"
-          process: "{{ worker_process.stdout }}"
-          job: "{{ demo_status.content | b64decode | from_json }}"
+        msg: "{{ duplicate_plan.stdout | from_json }}"
