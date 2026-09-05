@@ -37,6 +37,10 @@
         echo 'NEIGHBOR_CANDIDATES_BEGIN'
         ip -4 neigh show 2>/dev/null | grep '^192\.168\.0\.' | grep -v ' FAILED' | LC_ALL=C tr -cd '\11\12\15\40-\176' | sort -V || true
         echo 'NEIGHBOR_CANDIDATES_END'
+
+        echo 'CONTROL_PUBLIC_KEY_BEGIN'
+        cat /home/p2runner/.ssh/id_ed25519_p2homeos.pub 2>/dev/null || true
+        echo 'CONTROL_PUBLIC_KEY_END'
       args:
         executable: /bin/bash
       register: discovery
