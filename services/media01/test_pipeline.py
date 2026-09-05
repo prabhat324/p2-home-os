@@ -6,7 +6,7 @@ from content_analyzer import caption_chunks
 from editorial import validate
 from qa_gate import new_events,repeat_event_present_in_source
 from auto_repair import classify_failures
-from creative_planner import build as build_plan
+from creative_planner import build as build_plan,normalize_text
 from creative_qa import read as creative_read
 from podcast_captions import chunks as podcast_chunks,bgr_to_ass
 import media_worker as w
@@ -40,36 +40,27 @@ class Contracts(unittest.TestCase):
   output=[{'start':10.2,'duration':2.1},{'start':40.0,'duration':3.0}]
   self.assertEqual(new_events(output,source,['start','duration'],1.0),[output[1]])
  def test_repeat_pair_can_be_verified_directly_against_source(self):
-  hashes=[0xffffffffffffffff]*60
-  a=[0x0,0x1,0x3,0x7,0xf]
-  b=[0x0,0x1,0x3,0x7,0x1f]
-  hashes[10:15]=a;hashes[30:35]=b
-  event={'first_second':10,'repeat_second':30,'seconds':5}
-  self.assertTrue(repeat_event_present_in_source(event,hashes,5,1.5))
-  self.assertFalse(repeat_event_present_in_source({'first_second':10,'repeat_second':45,'seconds':5},hashes,5,1.5))
+  hashes=[0xffffffffffffffff]*60;a=[0x0,0x1,0x3,0x7,0xf];b=[0x0,0x1,0x3,0x7,0x1f]
+  hashes[10:15]=a;hashes[30:35]=b;event={'first_second':10,'repeat_second':30,'seconds':5}
+  self.assertTrue(repeat_event_present_in_source(event,hashes,5,1.5));self.assertFalse(repeat_event_present_in_source({'first_second':10,'repeat_second':45,'seconds':5},hashes,5,1.5))
  def test_failure_classifier_preserves_non_audio_review_flags(self):
-  audio,other=classify_failures(['True peak -0.6 dBTP exceeds -1.0 dBTP','Detected 1 new freeze event(s) introduced after source'])
-  self.assertEqual(len(audio),1);self.assertEqual(len(other),1)
- def test_qa_logic_version_exists_for_safe_rechecks(self):
-  self.assertGreaterEqual(w.QA_LOGIC_VERSION,2)
+  audio,other=classify_failures(['True peak -0.6 dBTP exceeds -1.0 dBTP','Detected 1 new freeze event(s) introduced after source']);self.assertEqual(len(audio),1);self.assertEqual(len(other),1)
+ def test_qa_logic_version_exists_for_safe_rechecks(self):self.assertGreaterEqual(w.QA_LOGIC_VERSION,2)
  def test_podcast_plan_has_no_cutaways(self):
-  plan=build_plan({'mode':'podcast'},{},{},120)
-  self.assertEqual(plan['events'],[]);self.assertFalse(plan['creative_policy']['cutaways']);self.assertTrue(plan['creative_policy']['speaker_captions'])
+  plan=build_plan({'mode':'podcast'},{},{},120);self.assertEqual(plan['events'],[]);self.assertFalse(plan['creative_policy']['cutaways']);self.assertTrue(plan['creative_policy']['speaker_captions'])
  def test_explainer_plan_is_not_empty(self):
-  plan=build_plan({'mode':'explainer'},{'fact_check_flags':[]},{},120)
-  self.assertGreaterEqual(len(plan['events']),3);self.assertTrue(all(e['kind']=='zoom' for e in plan['events']))
+  plan=build_plan({'mode':'explainer'},{'fact_check_flags':[]},{},120);self.assertGreaterEqual(len(plan['events']),3);self.assertTrue(all(e['kind']=='zoom' for e in plan['events']))
  def test_unsourced_claim_does_not_become_fact_card(self):
-  report={'fact_check_flags':[{'second':20,'text':'The project cost $40 million'}]}
-  plan=build_plan({'mode':'explainer'},report,{},100)
-  self.assertFalse(any(e['kind']=='fact_card' for e in plan['events']))
+  report={'fact_check_flags':[{'second':20,'text':'The project cost $40 million'}]};plan=build_plan({'mode':'explainer'},report,{},100);self.assertFalse(any(e['kind']=='fact_card' for e in plan['events']))
  def test_sourced_claim_can_become_fact_card(self):
-  report={'fact_check_flags':[{'second':20,'text':'The project cost $40 million'}]}
-  plan=build_plan({'mode':'explainer','verified_sources':{'20':'Town budget'}},report,{},100)
-  self.assertTrue(any(e['kind']=='fact_card' for e in plan['events']))
+  report={'fact_check_flags':[{'second':20,'text':'The project cost $40 million'}]};plan=build_plan({'mode':'explainer','verified_sources':{'20':'Town budget'}},report,{},100);self.assertTrue(any(e['kind']=='fact_card' for e in plan['events']))
+ def test_curated_graph_is_preserved_and_sourced(self):
+  m={'mode':'explainer','graphic_events':[{'start':10,'end':16,'kind':'graph','title':'Funding','unit':'$M','source':'Town source','data':[{'label':'A','value':2},{'label':'B','value':3}]}]}
+  plan=build_plan(m,{'fact_check_flags':[]},{},120);g=[e for e in plan['events'] if e['kind']=='graph'];self.assertEqual(len(g),1);self.assertEqual(g[0]['source'],'Town source');self.assertEqual(len(g[0]['data']),2)
+ def test_protected_wasaga_spelling_is_normalized(self):
+  self.assertEqual(normalize_text('Visaga Beach and Vassaga'), 'Wasaga Beach and Wasaga')
  def test_podcast_caption_chunks_keep_word_times(self):
-  t={'segments':[{'start':0,'end':2,'text':'hello world','words':[{'word':'hello','start':0.1,'end':0.5},{'word':'world','start':0.6,'end':1.0}]}]}
-  cues=podcast_chunks(t,12);self.assertEqual(cues[0]['start'],0.1);self.assertEqual(cues[0]['end'],1.0)
- def test_ass_color_is_bgr(self):
-  self.assertEqual(bgr_to_ass('#7DFF95'),'&H0095FF7D')
+  t={'segments':[{'start':0,'end':2,'text':'hello world','words':[{'word':'hello','start':0.1,'end':0.5},{'word':'world','start':0.6,'end':1.0}]}]};cues=podcast_chunks(t,12);self.assertEqual(cues[0]['start'],0.1);self.assertEqual(cues[0]['end'],1.0)
+ def test_ass_color_is_bgr(self):self.assertEqual(bgr_to_ass('#7DFF95'),'&H0095FF7D')
 
 if __name__=='__main__':unittest.main()
