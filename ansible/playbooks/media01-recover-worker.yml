@@ -21,8 +21,8 @@
         group: mediaops
         mode: "2775"
       loop:
-        - /srv/media-production/cache
-        - /srv/media-production/cache/huggingface
+        - /srv/media-production/work/.cache
+        - /srv/media-production/work/.cache/huggingface
 
     - name: Ask current worker process to exit for systemd restart
       ansible.builtin.command:

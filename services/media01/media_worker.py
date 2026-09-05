@@ -15,8 +15,9 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".mxf", ".mkv", ".mts", ".m2ts"}
 
 # The systemd unit intentionally protects /home. Keep all downloaded models and
 # runtime caches on the production volume, where the service has write access.
-os.environ.setdefault("XDG_CACHE_HOME", str(ROOT / "cache"))
-os.environ.setdefault("HF_HOME", str(ROOT / "cache" / "huggingface"))
+CACHE_ROOT = ROOT / "work" / ".cache"
+os.environ.setdefault("XDG_CACHE_HOME", str(CACHE_ROOT))
+os.environ.setdefault("HF_HOME", str(CACHE_ROOT / "huggingface"))
 
 
 def stamp():
@@ -111,7 +112,7 @@ def make_review(job):
 
 
 def scan_once():
-    for directory in (ROOT / "logs", ROOT / "cache", ROOT / "cache" / "huggingface"):
+    for directory in (ROOT / "logs", CACHE_ROOT, CACHE_ROOT / "huggingface"):
         directory.mkdir(parents=True, exist_ok=True)
     for job in sorted((ROOT / "inbox").iterdir()):
         if job.is_dir():

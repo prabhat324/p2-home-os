@@ -28,8 +28,8 @@ install -d -o p2ops -g mediaops -m 2775 \
   /srv/media-production/logs \
   /srv/media-production/assets \
   /srv/media-production/profiles \
-  /srv/media-production/cache \
-  /srv/media-production/cache/huggingface
+  /srv/media-production/work/.cache \
+  /srv/media-production/work/.cache/huggingface
 
 cat >/etc/systemd/system/media01-worker.service <<'UNIT'
 [Unit]
