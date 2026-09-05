@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-worker-stage-20260905",
-  "operation": "media01-stage",
+  "request_id": "media01-4k-acceptance-20260905",
+  "operation": "media01-acceptance",
   "target": "media-01"
 }
