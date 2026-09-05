@@ -1,50 +1,80 @@
 ---
-- name: Diagnose media-01 podcast and explainer planning pipeline
+- name: Inspect media-01 OpenMontage render inputs
   hosts: media-01
   gather_facts: false
+  become: true
+  vars:
+    source_video: /home/psquare/storage/reolink_drop/BeSquare_DEMO/2025-12-10_EMC_Raven_Master.mp4
+    prior_dir: /home/psquare/R/Data/Project_2/openmontage_demo
   tasks:
-    - name: Read current BeSquare status
-      ansible.builtin.shell: "cat /srv/media-production/logs/besquare-demo-01.status.json 2>/dev/null || true"
-      register: status
-      changed_when: false
-
-    - name: Read podcast command log tail
-      ansible.builtin.shell: "tail -n 180 /srv/media-production/work/besquare-demo-01/commands.log 2>/dev/null || true"
-      register: commands
-      changed_when: false
-
-    - name: Read speaker artifacts
+    - name: Verify source and OpenMontage install
       ansible.builtin.shell: |
-        set -eu
-        ls -l /srv/media-production/review/besquare-demo-01/speaker-* 2>/dev/null || true
-        cat /srv/media-production/review/besquare-demo-01/speaker-assignments.json 2>/dev/null | head -80 || true
-      register: artifacts
+        set -euo pipefail
+        echo '=== HOST ==='
+        hostname
+        echo '=== SOURCE ==='
+        stat -c '%n | %s bytes | %y | mode=%a owner=%U:%G' '{{ source_video }}'
+        ffprobe -v error -show_entries format=duration,size -show_entries stream=index,codec_name,codec_type,width,height,r_frame_rate -of json '{{ source_video }}'
+        echo '=== OPENMONTAGE ==='
+        git -C /srv/openmontage/repo rev-parse HEAD
+        /srv/openmontage/.venv/bin/python -V
+        ls -lah /srv/openmontage/repo/tools | sed -n '1,160p'
+      args: {executable: /bin/bash}
+      register: base
       changed_when: false
 
-    - name: Build read-only explainer planning diagnostic
+    - name: Show prior caption artifacts and renderer
       ansible.builtin.shell: |
-        set -eu
-        /home/p2ops/media01/venv-v2/bin/python - <<'PY'
-        import json,subprocess,sys
-        from pathlib import Path
-        sys.path.insert(0,'/home/p2ops/media01')
-        from creative_planner import build
-        job=Path('/srv/media-production/inbox/besquare-demo-01')
-        analysis=Path('/srv/media-production/review/besquare-demo-01/analysis')
-        manifest=json.load(open(job/'project.json'));manifest=dict(manifest);manifest['mode']='explainer';manifest.pop('podcast_captions',None)
-        report=json.load(open(analysis/'content-report.json'));transcript=json.load(open(analysis/'transcript.json'))
-        src=job/manifest.get('source','master-dedup-v2.mp4')
-        duration=float(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',str(src)],text=True).strip())
-        plan=build(manifest,report,transcript,duration)
-        print(json.dumps({'duration':duration,'creative_policy':plan.get('creative_policy',{}),'fact_check_flags':report.get('fact_check_flags',[]),'asset_requests':plan.get('asset_requests',[]),'planned_events':plan.get('events',[])},indent=2))
-        PY
-      register: planning
+        set -euo pipefail
+        echo '=== PRIOR TREE ==='
+        if [ -d '{{ prior_dir }}' ]; then
+          find '{{ prior_dir }}' -maxdepth 2 -type f -printf '%p | %s bytes\n' | sort | sed -n '1,260p'
+        else
+          echo 'PRIOR_DIR_MISSING'
+        fi
+        echo '=== RENDER SCRIPT ==='
+        if [ -f '{{ prior_dir }}/render_captions.py' ]; then
+          sed -n '1,420p' '{{ prior_dir }}/render_captions.py'
+        else
+          echo 'RENDER_SCRIPT_MISSING'
+        fi
+        echo '=== CAPTION FILE SAMPLES ==='
+        if [ -d '{{ prior_dir }}/captions' ]; then
+          for f in '{{ prior_dir }}'/captions/*; do
+            [ -f "$f" ] || continue
+            echo "--- $f ---"
+            sed -n '1,100p' "$f"
+          done
+        fi
+      args: {executable: /bin/bash}
+      register: prior
       changed_when: false
 
-    - name: Report diagnostic
+    - name: Probe agent CLIs as psquare
+      ansible.builtin.shell: |
+        set -uo pipefail
+        export HOME=/home/psquare
+        echo '=== PATH ==='
+        echo "$PATH"
+        for c in codex claude kimi opencode qwen openmontage; do
+          echo "=== $c ==="
+          command -v "$c" || true
+          "$c" --version 2>&1 | head -20 || true
+        done
+        echo '=== CODEX EXEC HELP ==='
+        codex exec --help 2>&1 | sed -n '1,240p' || true
+        echo '=== PROVIDER FLAGS ==='
+        for v in OPENAI_API_KEY ANTHROPIC_API_KEY OPENROUTER_API_KEY GEMINI_API_KEY; do
+          if [ -n "${!v:-}" ]; then echo "$v=set"; else echo "$v=unset"; fi
+        done
+      args: {executable: /bin/bash}
+      become_user: psquare
+      register: agents
+      changed_when: false
+
+    - name: Print inspection
       ansible.builtin.debug:
         msg:
-          status: "{{ status.stdout }}"
-          planning: "{{ planning.stdout }}"
-          commands: "{{ commands.stdout }}"
-          artifacts: "{{ artifacts.stdout }}"
+          - "{{ base.stdout }}"
+          - "{{ prior.stdout }}"
+          - "{{ agents.stdout }}"
