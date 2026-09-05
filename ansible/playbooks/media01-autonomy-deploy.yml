@@ -31,16 +31,21 @@
         p=/srv/media-production/inbox/besquare-demo-01/project.json
         if [ -f "$p" ]; then
           python3 - "$p" <<'PY'
-        import json,sys,tempfile,os
+        import json,sys,os
         p=sys.argv[1]
         with open(p) as f:d=json.load(f)
         d['mode']='podcast'
         d['podcast_captions']={
           'enabled':True,
+          'caption_pipeline_version':2,
           'left':{'name':'Raven','color':'#7DFF95'},
           'right':{'name':'Prabhat','color':'#83D9FF'},
           'font':'DejaVu Sans','font_size':78,'outline':2.2,'shadow':3.2,
-          'margin_v':115,'words_per_caption':12
+          'margin_v':115,'words_per_caption':12,
+          'analysis_fps':4.0,'analysis_width':640,
+          'confidence_threshold':0.055,'speaker_hold_seconds':2.5,
+          'left_roi':[0.08,0.10,0.47,0.67],
+          'right_roi':[0.53,0.10,0.92,0.67]
         }
         tmp=p+'.tmp'
         with open(tmp,'w') as f:json.dump(d,f,indent=2)
@@ -59,6 +64,36 @@
 
     - name: Verify FFmpeg ASS renderer is available
       ansible.builtin.shell: "ffmpeg -hide_banner -filters 2>/dev/null | grep -qE '(^| )ass +V->V'"
+      changed_when: false
+
+    - name: Live preflight speaker-aware captions on current podcast
+      ansible.builtin.command:
+        argv:
+          - /home/p2ops/media01/venv-v2/bin/python
+          - /home/p2ops/media01/podcast_captions.py
+          - /srv/media-production/inbox/besquare-demo-01/master-dedup-v2.mp4
+          - --transcript
+          - /srv/media-production/review/besquare-demo-01/analysis/transcript.json
+          - --manifest
+          - /srv/media-production/inbox/besquare-demo-01/project.json
+          - --ass
+          - /srv/media-production/review/besquare-demo-01/speaker-captions.ass
+          - --assignments
+          - /srv/media-production/review/besquare-demo-01/speaker-assignments.json
+      register: speaker_preflight
+      changed_when: false
+
+    - name: Require both podcast speakers in live preflight
+      ansible.builtin.shell: |
+        /home/p2ops/media01/venv-v2/bin/python - <<'PY'
+        import json
+        p='/srv/media-production/review/besquare-demo-01/speaker-assignments.json'
+        d=json.load(open(p));c=d.get('cues',[])
+        left=sum(x.get('side')=='left' for x in c);right=sum(x.get('side')=='right' for x in c)
+        print(json.dumps({'cues':len(c),'left':left,'right':right,'low_confidence':sum(float(x.get('speaker_confidence',0))<0.055 for x in c)}))
+        if len(c)<5 or left==0 or right==0:raise SystemExit(2)
+        PY
+      register: speaker_validation
       changed_when: false
 
     - name: Install user watchdog for worker self-recovery
@@ -108,5 +143,7 @@
       ansible.builtin.debug:
         msg:
           tests: "{{ contracts.stdout }}"
+          speaker_preflight: "{{ speaker_preflight.stdout }}"
+          speaker_validation: "{{ speaker_validation.stdout }}"
           worker: "{{ worker.stdout }}"
           besquare_status: "{{ besquare_status.stdout }}"
