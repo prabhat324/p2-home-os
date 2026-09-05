@@ -1,5 +1,5 @@
 ---
-- name: Deploy autonomous media-01 QA recovery
+- name: Deploy autonomous media-01 creative and QA pipeline
   hosts: media-01
   gather_facts: false
   tasks:
@@ -10,6 +10,11 @@
         mode: "0755"
       loop:
         - media_worker.py
+        - content_analyzer.py
+        - editorial.py
+        - creative_planner.py
+        - creative_qa.py
+        - podcast_captions.py
         - qa_gate.py
         - auto_repair.py
         - test_pipeline.py
@@ -20,12 +25,40 @@
         dest: /home/p2ops/media01/quality-profile.json
         mode: "0644"
 
+    - name: Configure current BeSquare interview as two-person podcast
+      ansible.builtin.shell: |
+        set -eu
+        p=/srv/media-production/inbox/besquare-demo-01/project.json
+        if [ -f "$p" ]; then
+          python3 - "$p" <<'PY'
+        import json,sys,tempfile,os
+        p=sys.argv[1]
+        with open(p) as f:d=json.load(f)
+        d['mode']='podcast'
+        d['podcast_captions']={
+          'enabled':True,
+          'left':{'name':'Raven','color':'#7DFF95'},
+          'right':{'name':'Prabhat','color':'#83D9FF'},
+          'font':'DejaVu Sans','font_size':78,'outline':2.2,'shadow':3.2,
+          'margin_v':115,'words_per_caption':12
+        }
+        tmp=p+'.tmp'
+        with open(tmp,'w') as f:json.dump(d,f,indent=2)
+        os.replace(tmp,p)
+        PY
+        fi
+      changed_when: true
+
     - name: Verify autonomous worker contracts
       ansible.builtin.command:
         argv:
           - /home/p2ops/media01/venv-v2/bin/python
           - /home/p2ops/media01/test_pipeline.py
       register: contracts
+      changed_when: false
+
+    - name: Verify FFmpeg ASS renderer is available
+      ansible.builtin.shell: "ffmpeg -hide_banner -filters 2>/dev/null | grep -qE '(^| )ass +V->V'"
       changed_when: false
 
     - name: Install user watchdog for worker self-recovery
@@ -62,7 +95,7 @@
       delay: 3
       changed_when: false
 
-    - name: Allow worker to claim failed QA job
+    - name: Allow worker to claim updated podcast job
       ansible.builtin.pause:
         seconds: 15
 
