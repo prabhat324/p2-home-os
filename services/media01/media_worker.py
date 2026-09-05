@@ -82,7 +82,10 @@ def review_job(job):
                 if not blocks:raise RuntimeError('Audio measurement missing')
                 atomic(audio_report,json.loads(blocks[-1]))
             a=read(audio_report)
-            af='loudnorm=I=-14:TP=-1.5:LRA=11:linear=true:'+':'.join(f'{dst}={a[src]}' for dst,src in [('measured_I','input_i'),('measured_TP','input_tp'),('measured_LRA','input_lra'),('measured_thresh','input_thresh'),('offset','target_offset')])
+            # Force dynamic mode in the second pass. Linear gain cannot satisfy the
+            # loudness target when the required gain would violate the true-peak
+            # ceiling; forcing dynamic mode makes loudnorm enforce TP reliably.
+            af='loudnorm=I=-14:TP=-1.5:LRA=11:linear=false:'+':'.join(f'{dst}={a[src]}' for dst,src in [('measured_I','input_i'),('measured_TP','input_tp'),('measured_LRA','input_lra'),('measured_thresh','input_thresh'),('offset','target_offset')])
             partial=review/'review-4k.partial.mp4'
             cmd=['ffmpeg','-hide_banner','-y','-hwaccel','cuda','-hwaccel_output_format','cuda','-i',render_source,'-map','0:v:0','-map','0:a:0']
             if (v['width'],v['height'])!=(3840,2160):
