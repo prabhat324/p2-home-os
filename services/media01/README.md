@@ -21,3 +21,18 @@
 Place each project in `/srv/media-production/inbox/<project>/` with a source video and a project manifest. Work products, review exports, approved output, archives, failures, logs, assets, and profiles remain in their corresponding directories under `/srv/media-production`.
 
 The QA gate deliberately cannot approve editorial truth, taste, or political fairness by itself. It creates a machine report and a mandatory human checklist; both are required before an export is marked publish-ready.
+
+## Per-project analysis products
+
+For normal jobs the worker transcribes before rendering with `faster-whisper` and the
+`large-v3-turbo` model. It writes `transcript.txt`, `transcript.json`, `captions.srt`,
+and `content-report.json` beneath the project's review `analysis/` directory. Captions
+are limited to two lines and seven words per line. Probable duplicated spoken passages
+block the render for investigation; numbers, dates, currency, and percentages are
+flagged for source verification. The first run downloads the speech model and therefore
+takes longer. A CUDA initialization failure falls back to CPU inference rather than
+discarding the analysis.
+
+Optional `project.json` fields are `language` (default `en`), `transcription_model`
+(default `large-v3-turbo`), and `content_analysis` (default `true`). Acceptance-test
+jobs skip transcription so hardware validation remains deterministic.

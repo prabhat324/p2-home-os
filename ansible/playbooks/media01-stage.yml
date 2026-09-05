@@ -21,6 +21,8 @@
         mode: "0755"
       loop:
         - /home/p2ops/media01/qa_gate.py
+        - /home/p2ops/media01/content_analyzer.py
+        - /home/p2ops/media01/media_worker.py
         - /home/p2ops/media01/bootstrap-root.sh
 
     - name: Create isolated Python environment

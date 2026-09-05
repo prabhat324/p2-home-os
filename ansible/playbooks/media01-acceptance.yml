@@ -11,6 +11,7 @@
           - py_compile
           - /home/p2ops/media01/media_worker.py
           - /home/p2ops/media01/qa_gate.py
+          - /home/p2ops/media01/content_analyzer.py
       changed_when: false
 
     - name: Prepare acceptance job

@@ -56,6 +56,19 @@ def make_review(job):
     log = ROOT / "logs" / f"{job.name}.log"
     output = review / "review-4k.mp4"
     try:
+        analysis = review / "analysis"
+        if manifest.get("purpose") != "acceptance-test" and manifest.get("content_analysis", True):
+            write_status(job, "ANALYZING_CONTENT", source=str(source))
+            analysis_result = command([
+                APP / "venv/bin/python", APP / "content_analyzer.py", source,
+                "--output-dir", analysis,
+                "--model", manifest.get("transcription_model", "large-v3-turbo"),
+                "--language", manifest.get("language", "en"),
+            ], log)
+            content_report = json.loads((analysis / "content-report.json").read_text())
+            if analysis_result.returncode:
+                duplicate_count = len(content_report.get("probable_repeated_spoken_sections", []))
+                raise RuntimeError(f"Content analysis blocked render: {duplicate_count} probable repeated spoken section(s)")
         write_status(job, "RENDERING", source=str(source))
         vf = "scale=3840:2160:force_original_aspect_ratio=decrease:flags=lanczos,pad=3840:2160:(ow-iw)/2:(oh-ih)/2:black,format=yuv420p"
         cmd = [
@@ -74,7 +87,9 @@ def make_review(job):
         qa = command([APP / "venv/bin/python", APP / "qa_gate.py", output, "--report", review / "qa-report.json"], log)
         report = json.loads((review / "qa-report.json").read_text())
         if qa.returncode == 0:
-            write_status(job, "REVIEW_REQUIRED", review=str(output), qa="PASS", manual_gates=report["manual_gates"])
+            write_status(job, "REVIEW_REQUIRED", review=str(output), qa="PASS",
+                         analysis=str(analysis) if analysis.exists() else None,
+                         manual_gates=report["manual_gates"])
         else:
             write_status(job, "QA_FAILED", review=str(output), failures=report["failures"])
     except Exception as exc:
