@@ -1,82 +1,27 @@
 ---
-- name: Inspect media-01 OpenMontage render inputs
+- name: Locate Raven media assets on media-01
   hosts: media-01
   gather_facts: false
-  vars:
-    source_video: /home/psquare/storage/reolink_drop/BeSquare_DEMO/2025-12-10_EMC_Raven_Master.mp4
-    prior_dir: /home/psquare/R/Data/Project_2/openmontage_demo
   tasks:
-    - name: Verify source and OpenMontage install
+    - name: Inspect service-area media and worker state
       ansible.builtin.shell: |
-        set -euo pipefail
+        set -uo pipefail
         echo '=== ID ==='; id
-        echo '=== SOURCE ==='
-        stat -c '%n | %s bytes | %y | mode=%a owner=%U:%G' '{{ source_video }}' || true
-        ffprobe -v error -show_entries format=duration,size -show_entries stream=index,codec_name,codec_type,width,height,r_frame_rate -of json '{{ source_video }}' || true
-        echo '=== OPENMONTAGE ==='
-        git -C /srv/openmontage/repo rev-parse HEAD || true
-        /srv/openmontage/.venv/bin/python -V || true
-        ls -lah /srv/openmontage/repo/tools 2>/dev/null | sed -n '1,160p' || true
-        echo '=== DIR PERMS ==='
-        namei -l '{{ source_video }}' || true
-        namei -l /srv/openmontage/output || true
-      args: {executable: /bin/bash}
-      register: base
-      changed_when: false
-
-    - name: Show prior caption artifacts and renderer
-      ansible.builtin.shell: |
-        set -uo pipefail
-        echo '=== PRIOR TREE ==='
-        if [ -d '{{ prior_dir }}' ]; then
-          find '{{ prior_dir }}' -maxdepth 2 -type f -printf '%p | %s bytes\n' 2>&1 | sort | sed -n '1,300p'
-        else
-          echo 'PRIOR_DIR_MISSING_OR_INACCESSIBLE'
+        echo '=== SRV TOP ==='; find /srv -maxdepth 3 -mindepth 1 -printf '%M %u:%g %s %p\n' 2>/dev/null | sort | sed -n '1,420p'
+        echo '=== RAVEN / BESQUARE CANDIDATES ==='
+        find /srv /tmp /var/tmp -maxdepth 8 -type f \( -iname '*raven*' -o -iname '*besquare*' -o -iname '*caption*' -o -name 'master.mp4' -o -name 'render_captions.py' \) -printf '%s %p\n' 2>/dev/null | sort -nr | sed -n '1,500p'
+        echo '=== MEDIA-PRODUCTION FILES ==='
+        if [ -d /srv/media-production ]; then
+          find /srv/media-production -maxdepth 6 -type f -printf '%s %p\n' 2>/dev/null | sort -nr | sed -n '1,500p'
         fi
-        echo '=== RENDER SCRIPT ==='
-        if [ -r '{{ prior_dir }}/render_captions.py' ]; then
-          sed -n '1,460p' '{{ prior_dir }}/render_captions.py'
-        else
-          echo 'RENDER_SCRIPT_MISSING_OR_INACCESSIBLE'
-        fi
-        echo '=== CAPTION FILE SAMPLES ==='
-        if [ -d '{{ prior_dir }}/captions' ]; then
-          for f in '{{ prior_dir }}'/captions/*; do
-            [ -r "$f" ] || continue
-            echo "--- $f ---"
-            sed -n '1,100p' "$f"
-          done
-        fi
+        echo '=== WORKER STATUS ==='
+        systemctl is-active media01-worker.service 2>/dev/null || true
+        systemctl status media01-worker.service --no-pager -l 2>/dev/null | sed -n '1,100p' || true
+        echo '=== PROCESS LIST ==='
+        ps -eo user,pid,etimes,%cpu,%mem,args --sort=-%cpu | grep -Ei 'media01|ffmpeg|python|openmontage|whisper' | grep -v grep | head -100 || true
       args: {executable: /bin/bash}
-      register: prior
+      register: out
       changed_when: false
-
-    - name: Probe agent CLIs
-      ansible.builtin.shell: |
-        set -uo pipefail
-        echo '=== HOME/PATH ==='; echo "$HOME"; echo "$PATH"
-        for c in codex claude kimi opencode qwen openmontage; do
-          echo "=== $c ==="
-          command -v "$c" || true
-          "$c" --version 2>&1 | head -20 || true
-        done
-        echo '=== CODEX EXEC HELP ==='
-        codex exec --help 2>&1 | sed -n '1,240p' || true
-        echo '=== PROVIDER FLAGS ==='
-        for v in OPENAI_API_KEY ANTHROPIC_API_KEY OPENROUTER_API_KEY GEMINI_API_KEY; do
-          if [ -n "${!v:-}" ]; then echo "$v=set"; else echo "$v=unset"; fi
-        done
-        echo '=== WRITE PROBES ==='
-        for d in /srv/openmontage/project /srv/openmontage/output /srv/openmontage/logs /tmp; do
-          if [ -w "$d" ]; then echo "$d=writable"; else echo "$d=not-writable"; fi
-        done
-      args: {executable: /bin/bash}
-      register: agents
-      changed_when: false
-
     - name: Print inspection
       ansible.builtin.debug:
-        msg:
-          - "{{ base.stdout }}"
-          - "{{ prior.stdout }}"
-          - "{{ agents.stdout }}"
+        msg: "{{ out.stdout }}"
