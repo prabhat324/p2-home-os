@@ -1,0 +1,54 @@
+---
+- name: Recover and verify media-01 worker
+  hosts: media-01
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Verify corrected worker is deployed
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -n
+          - Content analyzer failed
+          - /home/p2ops/media01/media_worker.py
+      register: worker_fix
+      changed_when: false
+
+    - name: Prepare writable model cache
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: p2ops
+        group: mediaops
+        mode: "2775"
+      loop:
+        - /srv/media-production/cache
+        - /srv/media-production/cache/huggingface
+
+    - name: Restart media worker
+      ansible.builtin.systemd_service:
+        name: media01-worker.service
+        state: restarted
+        daemon_reload: true
+
+    - name: Allow worker to start retry
+      ansible.builtin.pause:
+        seconds: 20
+
+    - name: Read worker service state
+      ansible.builtin.command:
+        argv: [systemctl, is-active, media01-worker.service]
+      register: service_state
+      changed_when: false
+
+    - name: Read demo status
+      ansible.builtin.slurp:
+        src: /srv/media-production/logs/besquare-demo-01.status.json
+      register: demo_status
+
+    - name: Report recovery state
+      ansible.builtin.debug:
+        msg:
+          worker_fix: "{{ worker_fix.stdout }}"
+          service: "{{ service_state.stdout }}"
+          job: "{{ demo_status.content | b64decode | from_json }}"
