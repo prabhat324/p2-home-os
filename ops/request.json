@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-podcast-debug-20260905-1332",
-  "operation": "media01-debug-podcast",
+  "request_id": "media01-speaker-preflight-deploy-20260905-1337",
+  "operation": "media01-recover-worker",
   "target": "media-01"
 }
