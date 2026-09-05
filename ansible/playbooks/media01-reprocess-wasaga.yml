@@ -1,0 +1,138 @@
+---
+- import_playbook: media01-autonomy-deploy.yml
+- import_playbook: media01-creative-smoke.yml
+
+- name: Reprocess the current Wasaga report as a fully sourced explainer
+  hosts: media-01
+  gather_facts: false
+  tasks:
+    - name: Back up and replace project manifest with curated explainer plan
+      ansible.builtin.shell: |
+        set -eu
+        p=/srv/media-production/inbox/besquare-demo-01/project.json
+        test -f "$p"
+        cp -a "$p" "$p.before-full-creative-$(date +%Y%m%d-%H%M%S)"
+        /home/p2ops/media01/venv-v2/bin/python - "$p" <<'PY'
+        import json,os,sys
+        p=sys.argv[1]
+        with open(p) as f:d=json.load(f)
+        d['ready']=True
+        d['mode']='explainer'
+        d['profile']='besquare-youtube-4k-v3'
+        d['content_analysis']=True
+        d.pop('podcast_captions',None)
+        d.pop('visual_assets',None)
+        d['creative_run']='wasaga-full-creative-v1-20260905'
+        d['graphic_events']=[
+          {
+            'start':76.0,'end':87.0,'kind':'newspaper',
+            'title':'Wasaga Beach Selects Urban Strategies to Lead Destination Wasaga',
+            'excerpt':'The master plan is a community-led planning process supported by Ontario funding and public engagement.',
+            'source':'https://www.wasagabeach.com/news/posts/wasaga-beach-selects-ontario-based-urban-strategies-to-help-design-and-build-destination-wasaga/'
+          },
+          {
+            'start':130.0,'end':141.0,'kind':'document',
+            'title':'Province proposes returning less than 60 hectares, about 3% of parkland',
+            'excerpt':'The Town described the proposal as a transfer of a small portion of Wasaga Beach Provincial Park land.',
+            'source':'https://www.wasagabeach.com/news/posts/statement-by-mayor-brian-smith-on-provinces-proposal-to-return-3-of-parkland-to-the-town-1/'
+          },
+          {
+            'start':184.0,'end':195.0,'kind':'document',
+            'title':'Destination Wasaga is a master planning process',
+            'excerpt':'The Town project page identifies the current phase as public engagement and describes a long-term waterfront and downtown plan.',
+            'source':'https://www.wasagabeach.com/our-organization/major-projects-initiatives/destination-wasaga/'
+          },
+          {
+            'start':212.0,'end':222.0,'kind':'fact_card',
+            'title':'$506 million in public and private investment committed since 2023',
+            'subtitle':'Town of Wasaga Beach, July 16, 2026',
+            'source':'https://www.wasagabeach.com/news/posts/wasaga-beach-welcomes-506-million-in-community-investment-over-four-years/'
+          },
+          {
+            'start':224.0,'end':242.0,'kind':'graph','title':'What makes up the $506M investment total?','unit':'CAD millions',
+            'source':'https://www.wasagabeach.com/news/posts/wasaga-beach-welcomes-506-million-in-community-investment-over-four-years/',
+            'data':[{'label':'Provincial','value':202.8},{'label':'Federal','value':3.1},{'label':'Simcoe County + other grants','value':0.158},{'label':'Private sector','value':300.0}]
+          },
+          {
+            'start':281.0,'end':300.0,'kind':'graph','title':'Ontario Destination Wasaga funding announced in 2025','unit':'CAD millions',
+            'source':'https://www.wasagabeach.com/news/posts/ontario-building-destination-wasaga/',
+            'data':[{'label':'Nancy Island','value':25.0},{'label':'Beach Drive / roadways','value':10.9},{'label':'Master Plan / tourism planning','value':2.0}]
+          },
+          {
+            'start':304.0,'end':316.0,'kind':'newspaper',
+            'title':'Beach Drive rebuild raises the roadway by about 5 feet (1.5 m)',
+            'excerpt':'The Town says the elevation change is intended to reduce flooding risk along the beachfront corridor.',
+            'source':'https://www.wasagabeach.com/news/posts/beach-drive-construction-update-august-21-2026/'
+          },
+          {
+            'start':326.0,'end':338.0,'kind':'fact_card',
+            'title':'Provincial road funding is intended to support infrastructure for more than 3,000 new homes',
+            'source':'https://www.wasagabeach.com/news/posts/ontario-building-destination-wasaga/'
+          },
+          {
+            'start':365.0,'end':380.0,'kind':'newspaper',
+            'title':'Wasaga Beach signs Letter of Intent to explore aerial attractions and ropeway solutions',
+            'excerpt':'The Town says the work is exploratory: no final project, route, design, construction or financial commitment has been approved.',
+            'source':'https://www.wasagabeach.com/news/posts/wasaga-beach-signs-agreement-to-explore-new-aerial-attractions-and-ropeway-solutions-for-destination-wasaga/'
+          },
+          {
+            'start':482.0,'end':498.0,'kind':'newspaper',
+            'title':'Sunray Group agreement announced as an investment of more than $45M',
+            'excerpt':'The March 2025 Town release said the beachfront hotel project was expected to create more than 100 local jobs.',
+            'source':'https://www.wasagabeach.com/news/posts/town-of-wasaga-beach-welcomes-over-45m-investment-by-sunray-group/'
+          },
+          {
+            'start':568.0,'end':579.0,'kind':'document',
+            'title':'2026 blended property tax increase: 2.99%',
+            'excerpt':'The Town budget release describes the increase as 2.99% while maintaining existing service levels.',
+            'source':'https://www.wasagabeach.com/news/posts/council-supports-2026-status-quo-mayor-proposed-budget/'
+          },
+          {
+            'start':617.0,'end':648.0,'kind':'graph','title':'Twin-pad Arena & Library published funding plan','unit':'CAD millions',
+            'source':'https://buildwasaga.wasagabeach.com/en/business-and-development/twin-pad-arena-and-library.aspx',
+            'data':[{'label':'Reserves / surplus','value':13.576309},{'label':'Development charges','value':14.219479},{'label':'Donations','value':0.1},{'label':'Long-term debt','value':31.698038},{'label':'Taxation','value':0.376481}]
+          },
+          {
+            'start':811.0,'end':822.0,'kind':'fact_card',
+            'title':'Wasaga Beach welcomes more than 2 million visitors annually',
+            'source':'https://www.wasagabeach.com/news/posts/wasaga-beach-signs-agreement-to-explore-new-aerial-attractions-and-ropeway-solutions-for-destination-wasaga/'
+          },
+          {
+            'start':890.0,'end':903.0,'kind':'document',
+            'title':'Municipal Election Day: Monday, October 26, 2026',
+            'excerpt':'Wasaga Beach voters elect one Mayor, one Deputy Mayor and five Councillors.',
+            'source':'https://www.wasagabeach.com/get-involved/elections/'
+          },
+          {
+            'start':904.0,'end':915.0,'kind':'fact_card',
+            'title':'Certified 2026 ballot: 4 mayoral candidates, 2 deputy-mayor candidates, 13 council candidates',
+            'source':'https://www.wasagabeach.com/get-involved/elections/'
+          }
+        ]
+        tmp=p+'.tmp'
+        with open(tmp,'w') as f:json.dump(d,f,indent=2)
+        os.replace(tmp,p)
+        PY
+        if [ -f /srv/media-production/inbox/besquare-demo-01/timeline.json ]; then
+          mv /srv/media-production/inbox/besquare-demo-01/timeline.json /srv/media-production/inbox/besquare-demo-01/timeline.previous-$(date +%Y%m%d-%H%M%S).json
+        fi
+      changed_when: true
+
+    - name: Wait for worker to claim new creative recipe
+      ansible.builtin.pause:
+        seconds: 20
+
+    - name: Verify real reprocess has started
+      ansible.builtin.shell: |
+        set -eu
+        cat /srv/media-production/inbox/besquare-demo-01/project.json
+        echo STATUS
+        cat /srv/media-production/logs/besquare-demo-01.status.json
+        echo PROCESS
+        pgrep -a -f '^/home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch$' | head -1
+      register: result
+      changed_when: false
+
+    - name: Report real reprocess state
+      ansible.builtin.debug:
+        var: result.stdout
