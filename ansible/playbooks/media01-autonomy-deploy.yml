@@ -28,19 +28,36 @@
       register: contracts
       changed_when: false
 
-    - name: Read current worker pid
-      ansible.builtin.shell: "pgrep -f '^/home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch$' | head -1 || true"
-      register: old_worker
-      changed_when: false
-
-    - name: Restart worker into autonomous code
-      ansible.builtin.shell: "pkill -TERM -f '^/home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch$' || true"
+    - name: Install user watchdog for worker self-recovery
+      ansible.builtin.shell: |
+        set -eu
+        current="$(crontab -l 2>/dev/null | grep -v 'MEDIA01_WORKER_WATCHDOG' || true)"
+        {
+          printf '%s\n' "$current"
+          echo "* * * * * pgrep -f '^/home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch$' >/dev/null || setsid -f /home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch >>/srv/media-production/logs/media01-worker-watchdog.log 2>&1 # MEDIA01_WORKER_WATCHDOG"
+          echo "@reboot pgrep -f '^/home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch$' >/dev/null || setsid -f /home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch >>/srv/media-production/logs/media01-worker-watchdog.log 2>&1 # MEDIA01_WORKER_WATCHDOG"
+        } | crontab -
       changed_when: true
 
-    - name: Wait for worker replacement
-      ansible.builtin.shell: "pgrep -f '^/home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch$' | head -1"
-      register: new_worker
-      until: new_worker.rc == 0 and new_worker.stdout | length > 0 and new_worker.stdout != old_worker.stdout
+    - name: Force old worker to fail so systemd may restart it
+      ansible.builtin.shell: "pkill -KILL -f '^/home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch$' || true"
+      changed_when: true
+
+    - name: Give systemd restart policy a chance
+      ansible.builtin.pause:
+        seconds: 12
+
+    - name: Start worker directly when system service did not recover
+      ansible.builtin.shell: |
+        if ! pgrep -f '^/home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch$' >/dev/null; then
+          setsid -f /home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch >>/srv/media-production/logs/media01-worker-watchdog.log 2>&1
+        fi
+      changed_when: true
+
+    - name: Verify autonomous worker is alive
+      ansible.builtin.shell: "pgrep -a -f '^/home/p2ops/media01/venv-v2/bin/python /home/p2ops/media01/media_worker.py --watch$' | head -1"
+      register: worker
+      until: worker.rc == 0 and worker.stdout | length > 0
       retries: 20
       delay: 3
       changed_when: false
@@ -58,6 +75,5 @@
       ansible.builtin.debug:
         msg:
           tests: "{{ contracts.stdout }}"
-          old_worker: "{{ old_worker.stdout }}"
-          new_worker: "{{ new_worker.stdout }}"
+          worker: "{{ worker.stdout }}"
           besquare_status: "{{ besquare_status.stdout }}"
