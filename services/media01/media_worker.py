@@ -13,6 +13,11 @@ ROOT = Path(os.environ.get("MEDIA01_ROOT", "/srv/media-production"))
 APP = Path(__file__).resolve().parent
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mxf", ".mkv", ".mts", ".m2ts"}
 
+# The systemd unit intentionally protects /home. Keep all downloaded models and
+# runtime caches on the production volume, where the service has write access.
+os.environ.setdefault("XDG_CACHE_HOME", str(ROOT / "cache"))
+os.environ.setdefault("HF_HOME", str(ROOT / "cache" / "huggingface"))
+
 
 def stamp():
     return datetime.now(timezone.utc).isoformat()
@@ -65,10 +70,17 @@ def make_review(job):
                 "--model", manifest.get("transcription_model", "large-v3-turbo"),
                 "--language", manifest.get("language", "en"),
             ], log)
-            content_report = json.loads((analysis / "content-report.json").read_text())
             if analysis_result.returncode:
-                duplicate_count = len(content_report.get("probable_repeated_spoken_sections", []))
-                raise RuntimeError(f"Content analysis blocked render: {duplicate_count} probable repeated spoken section(s)")
+                report_path = analysis / "content-report.json"
+                if report_path.exists():
+                    content_report = json.loads(report_path.read_text())
+                    duplicate_count = len(content_report.get("probable_repeated_spoken_sections", []))
+                    raise RuntimeError(
+                        f"Content analysis blocked render: {duplicate_count} probable repeated spoken section(s)"
+                    )
+                raise RuntimeError(
+                    f"Content analyzer failed with exit code {analysis_result.returncode}; see {log}"
+                )
         write_status(job, "RENDERING", source=str(source))
         vf = "scale=3840:2160:force_original_aspect_ratio=decrease:flags=lanczos,pad=3840:2160:(ow-iw)/2:(oh-ih)/2:black,format=yuv420p"
         cmd = [
@@ -99,7 +111,8 @@ def make_review(job):
 
 
 def scan_once():
-    (ROOT / "logs").mkdir(parents=True, exist_ok=True)
+    for directory in (ROOT / "logs", ROOT / "cache", ROOT / "cache" / "huggingface"):
+        directory.mkdir(parents=True, exist_ok=True)
     for job in sorted((ROOT / "inbox").iterdir()):
         if job.is_dir():
             make_review(job)

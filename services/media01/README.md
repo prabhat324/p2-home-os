@@ -33,6 +33,9 @@ flagged for source verification. The first run downloads the speech model and th
 takes longer. A CUDA initialization failure falls back to CPU inference rather than
 discarding the analysis.
 
+Model downloads and application caches are stored below `/srv/media-production/cache`;
+the hardened worker does not write into the service account's home directory.
+
 Optional `project.json` fields are `language` (default `en`), `transcription_model`
 (default `large-v3-turbo`), and `content_analysis` (default `true`). Acceptance-test
 jobs skip transcription so hardware validation remains deterministic.
