@@ -1,2 +1,23 @@
 ---
-- import_playbook: media01-raven-preview.yml
+- name: Inspect Raven caption proof cue assignments
+  hosts: media-01
+  gather_facts: false
+  tasks:
+    - name: Read V1 and V2 cue diagnostics
+      ansible.builtin.shell: |
+        set -euo pipefail
+        echo '=== V1 ASSIGNMENTS ==='
+        cat /srv/media-production/review/raven-podcast-01/speaker-assignments-60s.json
+        echo '=== V1 TRANSCRIPT ==='
+        cat /srv/media-production/work/raven-podcast-01-preview/analysis/transcript.json
+        echo '=== V2 ASSIGNMENTS ==='
+        cat /srv/media-production/review/raven-podcast-01/speaker-assignments-60s-v2.json
+        echo '=== V2 TRANSCRIPT ==='
+        cat /srv/media-production/work/raven-podcast-01-preview/analysis-v2/transcript.json
+      args:
+        executable: /bin/bash
+      register: out
+      changed_when: false
+    - name: Print Raven caption diagnostics
+      ansible.builtin.debug:
+        msg: "{{ out.stdout }}"
