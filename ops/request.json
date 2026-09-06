@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-lid-power-diagnostic-20260906-0829",
-  "operation": "media01-status",
-  "target": "media-01"
+  "request_id": "dashboard-media01-diagnose-20260906-0848",
+  "operation": "dashboard-diagnose",
+  "target": "compute-02"
 }
