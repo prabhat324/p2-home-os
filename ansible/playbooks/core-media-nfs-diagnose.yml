@@ -1,0 +1,40 @@
+---
+- name: Diagnose core-01 media disk and NFS export
+  hosts: core-01
+  gather_facts: false
+  tasks:
+    - name: Collect read-only media and NFS diagnostics
+      ansible.builtin.shell: |
+        set +e
+        echo "HOST=$(hostname)"
+        echo '=== BLOCK DEVICES ==='
+        lsblk -o NAME,MODEL,SERIAL,SIZE,FSTYPE,FSVER,LABEL,UUID,MOUNTPOINTS,TRAN 2>&1
+        echo '=== UUID LINKS ==='
+        ls -l /dev/disk/by-uuid 2>&1 || true
+        echo '=== MEDIA FINDMNT ==='
+        findmnt -T /mnt/media -o SOURCE,FSTYPE,SIZE,USED,AVAIL,OPTIONS,TARGET 2>&1 || true
+        echo '=== FSTAB MEDIA ==='
+        grep -nE '/mnt/media|3C80209F8020621E' /etc/fstab 2>&1 || true
+        echo '=== MEDIA DIRECTORY ==='
+        stat -c '%A %U:%G %a %n' /mnt/media 2>&1 || true
+        echo '=== MEDIA MOUNT UNIT ==='
+        systemctl status mnt-media.mount --no-pager -l 2>&1 | tail -80 || true
+        echo '=== NFS SERVICES ==='
+        for unit in nfs-server.service nfs-kernel-server.service rpcbind.service; do
+          echo "--- $unit ---"
+          systemctl status "$unit" --no-pager -l 2>&1 | tail -50 || true
+        done
+        echo '=== NFS PORT ==='
+        ss -lnt 2>&1 | grep -E '(:2049[[:space:]]|Local Address)' || true
+        echo '=== EXPORTS ==='
+        cat /etc/exports 2>&1 || true
+        echo '=== RECENT MOUNT/NFS LOGS ==='
+        journalctl --no-pager -n 120 -u mnt-media.mount -u nfs-server.service -u nfs-kernel-server.service 2>&1 | tail -120 || true
+      args:
+        executable: /bin/bash
+      register: media_diag
+      changed_when: false
+
+    - name: Show media and NFS diagnostics
+      ansible.builtin.debug:
+        msg: "{{ media_diag.stdout_lines }}"
