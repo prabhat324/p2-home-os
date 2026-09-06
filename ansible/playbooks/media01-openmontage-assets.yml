@@ -1,0 +1,65 @@
+---
+- name: Generate OpenMontage assets only for a BeSquare production job
+  hosts: media-01
+  gather_facts: false
+  vars:
+    standard_path: /srv/media-production/standards/besquare-knowledge-v1/standard.json
+    asset_driver: /home/p2ops/openmontage-lab/run_asset_request.py
+  tasks:
+    - name: Validate requested media job identifier
+      ansible.builtin.assert:
+        that:
+          - media_job is defined
+          - media_job is match('^[A-Za-z0-9._-]{1,80}$')
+        fail_msg: media01-openmontage-assets requires a safe media_job value
+
+    - name: Verify permanent BeSquare standard and asset driver are installed
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ standard_path }}"
+        - "{{ asset_driver }}"
+        - "/srv/media-production/inbox/{{ media_job }}/openmontage-assets.json"
+      register: prerequisites
+
+    - name: Assert all OpenMontage asset-only prerequisites exist
+      ansible.builtin.assert:
+        that:
+          - prerequisites.results | map(attribute='stat.exists') | min
+        fail_msg: Standard, asset driver, or openmontage-assets.json request is missing
+
+    - name: Generate sandboxed OpenMontage assets
+      ansible.builtin.command:
+        argv:
+          - /home/p2ops/openmontage-lab/OpenMontage/.venv/bin/python
+          - "{{ asset_driver }}"
+          - --job
+          - "{{ media_job }}"
+          - --standard
+          - "{{ standard_path }}"
+      environment:
+        PATH: /home/p2ops/openmontage-lab/node-v24.20.0-linux-x64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      register: asset_run
+      changed_when: true
+
+    - name: Verify OpenMontage remained asset-only
+      ansible.builtin.shell: |
+        set -euo pipefail
+        report='/srv/media-production/review/{{ media_job }}/openmontage-assets/openmontage-assets.report.json'
+        test -s "$report"
+        jq -e '.status == "complete" and .purpose == "asset_only"' "$report" >/dev/null
+        jq -e '.assets | length > 0' "$report" >/dev/null
+        jq -e '.assets | all(.production_insertion == "NOT_AUTOMATIC_REVIEW_AND_INSERT_WITH_MAIN_EDITOR")' "$report" >/dev/null
+        echo 'OPENMONTAGE_ASSET_ONLY_OK=1'
+        echo "REPORT=$report"
+        find '/srv/media-production/work/{{ media_job }}/openmontage-assets' -maxdepth 2 -type f -printf '%p\n' | sort
+      args:
+        executable: /bin/bash
+      register: verify
+      changed_when: false
+
+    - name: Report generated asset locations
+      ansible.builtin.debug:
+        msg:
+          driver_output: "{{ asset_run.stdout_lines }}"
+          verification: "{{ verify.stdout_lines }}"
