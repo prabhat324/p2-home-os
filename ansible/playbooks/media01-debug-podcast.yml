@@ -1,2 +1,2 @@
 ---
-- import_playbook: media01-raven-full.yml
+- import_playbook: media01-raven-resume.yml
