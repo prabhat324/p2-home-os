@@ -33,6 +33,14 @@
           lsblk -o NAME,MODEL,SERIAL,SIZE,FSTYPE,FSVER,LABEL,UUID,MOUNTPOINTS,TRAN 2>&1 || true
           echo '--- UUID LINKS ---'
           ls -l /dev/disk/by-uuid 2>&1 || true
+          echo '--- MEDIA DEVICE ACCESS ---'
+          id 2>&1 || true
+          ls -l /dev/sda /dev/sda2 2>&1 || true
+          for cmd in ntfsfix ntfs-3g.probe udisksctl; do command -v "$cmd" 2>&1 || true; done
+          echo '--- NTFS READ-ONLY CHECK ---'
+          if command -v ntfsfix >/dev/null 2>&1; then ntfsfix -n /dev/sda2 2>&1 || true; fi
+          if command -v ntfs-3g.probe >/dev/null 2>&1; then ntfs-3g.probe -r /dev/sda2 2>&1; echo "NTFS_PROBE_RC=$?"; fi
+          if command -v udisksctl >/dev/null 2>&1; then udisksctl info -b /dev/sda2 2>&1 | head -100 || true; fi
           echo '--- MEDIA FINDMNT ---'
           findmnt -T /mnt/media -o SOURCE,FSTYPE,SIZE,USED,AVAIL,OPTIONS,TARGET 2>&1 || true
           echo '--- FSTAB MEDIA ---'
