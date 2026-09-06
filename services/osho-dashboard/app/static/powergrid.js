@@ -1,4 +1,15 @@
 (() => {
+  // The outer ReviewMuse command-center middleware serves index.html directly,
+  // so the older storage middleware cannot inject storage01.js. Load the
+  // existing infrastructure overlay from this script, which is already present
+  // on every command-center page. The overlay adds media-01 and storage telemetry.
+  if (!document.querySelector('script[src^="/assets/storage01.js"]')) {
+    const infrastructureScript = document.createElement('script');
+    infrastructureScript.src = '/assets/storage01.js?v=20260906-media01';
+    infrastructureScript.async = false;
+    document.head.appendChild(infrastructureScript);
+  }
+
   const path = location.pathname;
   if (!['/', '/monitoring'].includes(path)) return;
 
