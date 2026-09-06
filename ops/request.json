@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-v61-standard-install-20260905-2059",
-  "operation": "media01-openmontage-run",
-  "target": "media-01"
+  "request_id": "ssh-transfer-fabric-20260905-2119",
+  "operation": "ssh-transfer-fabric",
+  "target": "all"
 }
