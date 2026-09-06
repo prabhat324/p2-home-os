@@ -1,298 +1,48 @@
 ---
-- name: Run OpenMontage comparison pass on the isolated 18-minute Wasaga report
+- name: Run isolated OpenMontage comparison driver on media-01
   hosts: media-01
   gather_facts: false
   vars:
-    om_repo: /home/p2ops/openmontage-lab/OpenMontage
+    remote_driver: /home/p2ops/openmontage-lab/run_openmontage_compare.py
     om_python: /home/p2ops/openmontage-lab/OpenMontage/.venv/bin/python
-    source: /srv/media-production/work/openmontage-besquare-demo-01/input/master.mp4
-    project: /srv/media-production/work/openmontage-besquare-demo-01
-    analysis_dir: /srv/media-production/work/openmontage-besquare-demo-01/analysis
-    assets_dir: /srv/media-production/work/openmontage-besquare-demo-01/assets
-    output_dir: /srv/media-production/work/openmontage-besquare-demo-01/output
-    review_dir: /srv/media-production/review/openmontage-besquare-demo-01
-    source_ass: /srv/media-production/review/besquare-demo-01/speaker-captions.ass
-    fixed_ass: /srv/media-production/work/openmontage-besquare-demo-01/assets/captions-corrected.ass
     final_mp4: /srv/media-production/review/openmontage-besquare-demo-01/OpenMontage-Wasaga-18m-V1.mp4
+    report_json: /srv/media-production/review/openmontage-besquare-demo-01/OpenMontage-Wasaga-18m-V1.report.json
   tasks:
-    - name: Verify isolated source and official pinned OpenMontage checkout
-      ansible.builtin.shell: |
-        set -euo pipefail
-        test -r '{{ source }}'
-        test -x '{{ om_python }}'
-        test -d '{{ om_repo }}/.git'
-        test "$(git -C '{{ om_repo }}' remote get-url origin)" = 'https://github.com/calesthio/OpenMontage.git'
-        test "$(git -C '{{ om_repo }}' rev-parse HEAD)" = 'cd9f3c1f03368be87b140af494914b8ee4e3c7a4'
-        ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_type,codec_name,width,height,r_frame_rate -of json '{{ source }}'
-        nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
-      args:
-        executable: /bin/bash
-      register: preflight
-      changed_when: false
-
-    - name: Prepare experiment directories
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: directory
+    - name: Install experiment driver beside the isolated OpenMontage lab
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../files/media01_openmontage_driver.py"
+        dest: "{{ remote_driver }}"
         mode: '0755'
-      loop:
-        - "{{ analysis_dir }}"
-        - "{{ assets_dir }}"
-        - "{{ output_dir }}"
-        - "{{ review_dir }}"
 
-    - name: Run OpenMontage local video-understanding pass
-      ansible.builtin.shell: |
-        set -euo pipefail
-        cd '{{ om_repo }}'
-        '{{ om_python }}' .agents/skills/video-understand/scripts/understand_video.py \
-          '{{ source }}' \
-          --mode interval \
-          --max-frames 24 \
-          --whisper-model tiny \
-          --quiet \
-          --output '{{ analysis_dir }}/openmontage-video-understanding.json'
-      args:
-        executable: /bin/bash
-      register: understand
+    - name: Execute full OpenMontage comparison and wait for completion
+      ansible.builtin.command:
+        argv:
+          - "{{ om_python }}"
+          - "{{ remote_driver }}"
+      environment:
+        PATH: /home/p2ops/openmontage-lab/node-v24.20.0-linux-x64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      register: openmontage_run
       changed_when: true
 
-    - name: Correct caption spelling and switch to white text with speaker-colored outline
-      ansible.builtin.shell: |
-        set -euo pipefail
-        if [ -f '{{ source_ass }}' ]; then
-          cp '{{ source_ass }}' '{{ fixed_ass }}'
-          sed -i \
-            -e 's/Visaga/Wasaga/g' \
-            -e 's/visaga/Wasaga/g' \
-            -e 's/B square/BeSquare/g' \
-            -e 's/P square/pSquare/g' \
-            -e 's/broad walks/boardwalks/g' \
-            '{{ fixed_ass }}'
-          python3 - '{{ fixed_ass }}' <<'PY'
-        import sys
-        p=sys.argv[1]
-        text=open(p,encoding='utf-8').read()
-        out=[]
-        for line in text.splitlines():
-            if line.startswith('Style: Left,'):
-                parts=line.split(',')
-                parts[3]='&H00FFFFFF'
-                parts[4]='&H00FFFFFF'
-                parts[5]='&H0095FF7D'
-                line=','.join(parts)
-            elif line.startswith('Style: Right,'):
-                parts=line.split(',')
-                parts[3]='&H00FFFFFF'
-                parts[4]='&H00FFFFFF'
-                parts[5]='&H00FFD983'
-                line=','.join(parts)
-            out.append(line)
-        open(p,'w',encoding='utf-8').write('\n'.join(out)+'\n')
-        PY
-        else
-          : > '{{ fixed_ass }}'
-        fi
-      args:
-        executable: /bin/bash
-      changed_when: true
-
-    - name: Build OpenMontage-directed overlay cards and render manifest
-      ansible.builtin.shell: |
-        set -euo pipefail
-        '{{ om_python }}' - '{{ assets_dir }}' '{{ analysis_dir }}/overlay-manifest.json' <<'PY'
-        import json, os, sys, textwrap
-        from PIL import Image, ImageDraw, ImageFont
-
-        outdir, manifest_path = sys.argv[1], sys.argv[2]
-        os.makedirs(outdir, exist_ok=True)
-        FONT='/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
-        BOLD='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
-        def font(path,size): return ImageFont.truetype(path,size)
-        events=[
-          dict(id='destination',start=76,end=87,side='right',eyebrow='DESTINATION WASAGA',title='A MASTER PLAN, NOT A BLANK CHEQUE',value='COMMUNITY-LED PLANNING',subtitle='Long-term waterfront and downtown vision'),
-          dict(id='parkland',start=130,end=141,side='left',eyebrow='PUBLIC LAND',title='PROPOSED LAND TRANSFER',value='< 60 HECTARES  •  ~3%',subtitle='Published statements say the beach remains public'),
-          dict(id='investment',start=212,end=222,side='right',eyebrow='INVESTMENT',title='PUBLIC + PRIVATE PROJECTS',value='$506 MILLION',subtitle='Town-reported commitments since 2023'),
-          dict(id='mix',start=224,end=242,side='left',eyebrow='WHERE THE $506M COMES FROM',title='REPORTED FUNDING MIX',subtitle='Public funding + private-sector commitments',bars=[('Provincial',202.8),('Federal',3.1),('County + grants',0.158),('Private sector',300.0)]),
-          dict(id='ontario',start=281,end=300,side='right',eyebrow='ONTARIO FUNDING',title='DESTINATION WASAGA ANNOUNCEMENTS',value='$37.9 MILLION',subtitle='Nancy Island + Beach Drive/roads + planning',bars=[('Nancy Island',25.0),('Beach Drive / roads',10.9),('Planning',2.0)]),
-          dict(id='beachdrive',start=304,end=316,side='left',eyebrow='BEACH DRIVE',title='FLOOD-RESILIENCE REBUILD',value='+5 FT  •  ~1.5 M',subtitle='Published elevation increase along the corridor'),
-          dict(id='ropeway',start=365,end=380,side='right',eyebrow='ROPEWAY / AERIAL ATTRACTIONS',title='EXPLORATION, NOT FINAL APPROVAL',value='NO FINAL PROJECT YET',subtitle='No final route, design, construction or financing commitment'),
-          dict(id='hotel',start=482,end=498,side='left',eyebrow='PRIVATE INVESTMENT',title='SUNRAY GROUP HOTEL PROJECT',value='$45M+',subtitle='Town announcement also projected 100+ local jobs'),
-          dict(id='tax',start=568,end=579,side='right',eyebrow='2026 PROPERTY TAX',title='BLENDED TAX CHANGE',value='2.99%',subtitle='Town budget release: existing service levels maintained'),
-          dict(id='arena',start=617,end=648,side='left',eyebrow='ARENA + LIBRARY',title='PUBLISHED FUNDING PLAN',subtitle='Multiple funding sources, not one taxpayer line item',bars=[('Debt',31.70),('Development charges',14.22),('Reserves',13.58),('Taxation',0.38)]),
-          dict(id='visitors',start=811,end=822,side='right',eyebrow='TOURISM',title='ANNUAL VISITATION',value='2 MILLION+',subtitle='Visitors welcomed by Wasaga Beach each year'),
-          dict(id='election',start=890,end=915,side='left',eyebrow='2026 MUNICIPAL ELECTION',title='ELECTION DAY',value='OCTOBER 26, 2026',subtitle='Mayor • Deputy Mayor • Five Councillors')
-        ]
-
-        def rounded(draw,box,r,fill,outline=None,width=1):
-            draw.rounded_rectangle(box,radius=r,fill=fill,outline=outline,width=width)
-        def fit(draw,text,box_width,start_size,min_size=24,bold=True):
-            p=BOLD if bold else FONT
-            for s in range(start_size,min_size-1,-2):
-                f=font(p,s)
-                if draw.textbbox((0,0),text,font=f)[2] <= box_width: return f
-            return font(p,min_size)
-        def make_card(ev):
-            img=Image.new('RGBA',(1920,1080),(0,0,0,0)); d=ImageDraw.Draw(img)
-            is_chart='bars' in ev
-            w=850 if not is_chart else 930; h=300 if not is_chart else 455
-            x=1920-w-72 if ev['side']=='right' else 72; y=82
-            # soft shadow
-            rounded(d,(x+10,y+14,x+w+10,y+h+14),32,(0,0,0,95))
-            rounded(d,(x,y,x+w,y+h),32,(10,21,38,238),(72,214,224,235),3)
-            d.rectangle((x,y,x+11,y+h),fill=(72,214,224,255))
-            d.text((x+42,y+30),ev['eyebrow'],font=font(BOLD,22),fill=(99,230,238,255))
-            title_f=fit(d,ev['title'],w-84,42,26,True)
-            d.text((x+42,y+72),ev['title'],font=title_f,fill=(248,250,252,255))
-            cursor=y+130
-            if ev.get('value'):
-                value_f=fit(d,ev['value'],w-84,64,36,True)
-                d.text((x+42,cursor),ev['value'],font=value_f,fill=(250,204,21,255))
-                cursor += 82
-            if is_chart:
-                vals=ev['bars']; maxv=max(v for _,v in vals) or 1
-                by=y+154; labelw=230; barx=x+42+labelw; maxbw=w-labelw-105
-                for label,val in vals:
-                    d.text((x+42,by+5),label,font=font(FONT,24),fill=(226,232,240,255))
-                    bw=max(6,int(maxbw*val/maxv))
-                    rounded(d,(barx,by,barx+bw,by+30),12,(72,214,224,230))
-                    txt=f'{val:g}M' if val>=1 else f'{val*1000:.0f}K'
-                    d.text((barx+bw+10,by+1),txt,font=font(BOLD,22),fill=(250,204,21,255))
-                    by += 57
-                cursor=by+2
-            sub=ev.get('subtitle','')
-            if sub:
-                lines=textwrap.wrap(sub,width=48)
-                d.multiline_text((x+42,min(cursor,y+h-67)), '\n'.join(lines[:2]), font=font(FONT,25), fill=(203,213,225,255), spacing=4)
-            # tiny brand stamp
-            d.text((x+w-210,y+h-36),'BeSquare by pSquare',font=font(BOLD,16),fill=(148,163,184,230))
-            path=os.path.join(outdir,ev['id']+'.png'); img.save(path)
-            return {**ev,'asset_path':path}
-
-        manifest=[make_card(e) for e in events]
-        # a small persistent brand bug
-        bug=Image.new('RGBA',(1920,1080),(0,0,0,0)); d=ImageDraw.Draw(bug)
-        rounded(d,(48,38,382,100),18,(8,18,34,190),(72,214,224,180),2)
-        d.text((70,55),'BeSquare by pSquare',font=font(BOLD,25),fill=(248,250,252,245))
-        bugpath=os.path.join(outdir,'brand-bug.png'); bug.save(bugpath)
-        manifest.insert(0,dict(id='brand',start=0,end=1126.293333,side='left',asset_path=bugpath))
-        json.dump(manifest,open(manifest_path,'w'),indent=2)
-        print(json.dumps({'overlay_count':len(manifest),'manifest':manifest_path},indent=2))
-        PY
-      args:
-        executable: /bin/bash
-      register: cards
-      changed_when: true
-
-    - name: Exercise OpenMontage video_compose overlay tool on a 10-second smoke clip
-      ansible.builtin.shell: |
-        set -euo pipefail
-        ffmpeg -hide_banner -loglevel error -y -ss 72 -i '{{ source }}' -t 10 -vf scale=1280:-2 -c:v libx264 -preset ultrafast -crf 26 -c:a aac -b:a 128k '{{ output_dir }}/om-smoke-source.mp4'
-        cd '{{ om_repo }}'
-        '{{ om_python }}' - '{{ output_dir }}/om-smoke-source.mp4' '{{ assets_dir }}/destination.png' '{{ output_dir }}/openmontage-video-compose-smoke.mp4' <<'PY'
-        import json,sys
-        from tools.video.video_compose import VideoCompose
-        src,ov,out=sys.argv[1:4]
-        r=VideoCompose().execute({'operation':'overlay','input_path':src,'output_path':out,'overlays':[{'asset_path':ov,'x':0,'y':0,'start_seconds':0,'end_seconds':10}],'codec':'libx264','crf':25})
-        print(json.dumps({'success':r.success,'data':r.data,'error':r.error},indent=2,default=str))
-        if not r.success: raise SystemExit(2)
-        PY
-      args:
-        executable: /bin/bash
-      register: om_smoke
-      changed_when: true
-
-    - name: Render full 18-minute OpenMontage-directed comparison with NVENC
-      ansible.builtin.shell: |
-        set -euo pipefail
-        MAN='{{ analysis_dir }}/overlay-manifest.json'
-        FC='{{ analysis_dir }}/filter_complex.txt'
-        CMD='{{ analysis_dir }}/ffmpeg-command.sh'
-        DUR="$(ffprobe -v error -show_entries format=duration -of csv=p=0 '{{ source }}')"
-        python3 - "$MAN" "$FC" '{{ fixed_ass }}' <<'PY'
-        import json,sys
-        man,fc,ass=sys.argv[1:4]
-        items=json.load(open(man))
-        # Scale to a practical review master. Keep captions above the footage, then add graphics.
-        ass_esc=ass.replace('\\','/').replace(':','\\:').replace("'","\\'")
-        parts=[f"[0:v]scale=1920:1080:flags=lanczos,subtitles='{ass_esc}'[base]"]
-        prev='base'
-        for i,e in enumerate(items):
-            inp=i+1; start=float(e['start']); end=float(e['end'])
-            fade_in=start; fade_out=max(start,end-0.35)
-            parts.append(f"[{inp}:v]format=rgba,fade=t=in:st={fade_in:.3f}:d=0.35:alpha=1,fade=t=out:st={fade_out:.3f}:d=0.35:alpha=1[ov{i}]")
-            out=f'v{i}'
-            parts.append(f"[{prev}][ov{i}]overlay=0:0:format=auto:enable='between(t,{start:.3f},{end:.3f})'[{out}]")
-            prev=out
-        parts.append(f"[{prev}]format=yuv420p[vout]")
-        open(fc,'w').write(';\n'.join(parts)+'\n')
-        PY
-        {
-          printf '#!/usr/bin/env bash\nset -euo pipefail\nffmpeg -hide_banner -y \\\n'
-          printf "  -i %q \\\n" '{{ source }}'
-          python3 - "$MAN" <<'PY'
-        import json,shlex,sys
-        for e in json.load(open(sys.argv[1])):
-            print('  -loop 1 -framerate 30 -i '+shlex.quote(e['asset_path'])+' \\')
-        PY
-          printf "  -filter_complex_script %q \\\n" "$FC"
-          printf "  -map '[vout]' -map '0:a:0?' -t %q \\\n" "$DUR"
-          printf '  -c:v h264_nvenc -preset p5 -tune hq -rc vbr -cq 19 -b:v 12M -maxrate 20M -bufsize 24M \\\n'
-          printf '  -c:a copy -movflags +faststart %q\n' '{{ final_mp4 }}'
-        } > "$CMD"
-        chmod +x "$CMD"
-        "$CMD" 2>&1 | tee '{{ analysis_dir }}/render.log'
-      args:
-        executable: /bin/bash
-      register: render
-      changed_when: true
-
-    - name: Run post-render technical and visual QC
+    - name: Verify completed deliverables
       ansible.builtin.shell: |
         set -euo pipefail
         test -s '{{ final_mp4 }}'
-        ffprobe -v error -show_entries format=duration,size,bit_rate -show_entries stream=index,codec_name,codec_type,width,height,r_frame_rate,sample_rate,channels -of json '{{ final_mp4 }}' > '{{ review_dir }}/OpenMontage-Wasaga-18m-V1.ffprobe.json'
-        rm -rf '{{ review_dir }}/qc-frames'
-        mkdir -p '{{ review_dir }}/qc-frames'
-        for t in 80 135 216 232 289 309 372 490 573 630 816 900; do
-          ffmpeg -hide_banner -loglevel error -y -ss "$t" -i '{{ final_mp4 }}' -frames:v 1 -q:v 2 "{{ review_dir }}/qc-frames/frame-${t}.jpg"
-        done
-        python3 - '{{ analysis_dir }}/openmontage-video-understanding.json' '{{ analysis_dir }}/overlay-manifest.json' '{{ review_dir }}/OpenMontage-Wasaga-18m-V1.ffprobe.json' '{{ review_dir }}/OpenMontage-Wasaga-18m-V1.report.json' <<'PY'
-        import json,os,sys,time
-        ua,man,probe,out=sys.argv[1:]
-        understanding=json.load(open(ua))
-        overlays=json.load(open(man))
-        ffprobe=json.load(open(probe))
-        report={
-          'status':'complete',
-          'generated_at_epoch':time.time(),
-          'pipeline':'OpenMontage official repo + video-understand + OpenMontage video_compose smoke + agent-directed overlay composition',
-          'official_commit':'cd9f3c1f03368be87b140af494914b8ee4e3c7a4',
-          'source':'/srv/media-production/work/openmontage-besquare-demo-01/input/master.mp4',
-          'final':'/srv/media-production/review/openmontage-besquare-demo-01/OpenMontage-Wasaga-18m-V1.mp4',
-          'video_understanding':{'duration':understanding.get('duration'),'resolution':understanding.get('resolution'),'frame_count':understanding.get('frame_count'),'transcript_segments':len(understanding.get('transcript') or []),'text_preview':(understanding.get('text') or '')[:700]},
-          'overlay_count':len(overlays),
-          'ffprobe':ffprobe,
-          'qc_frames':sorted(os.listdir('/srv/media-production/review/openmontage-besquare-demo-01/qc-frames')),
-        }
-        json.dump(report,open(out,'w'),indent=2)
-        print(json.dumps(report,indent=2))
-        PY
-        echo '=== GPU AFTER RENDER ==='
+        test -s '{{ report_json }}'
+        echo '=== FINAL FILE ==='
+        ls -lh '{{ final_mp4 }}' '{{ report_json }}'
+        echo '=== REPORT ==='
+        cat '{{ report_json }}'
+        echo '=== GPU ==='
         nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader
-        echo '=== OUTPUT ==='
-        ls -lh '{{ final_mp4 }}' '{{ review_dir }}/OpenMontage-Wasaga-18m-V1.report.json' '{{ output_dir }}/openmontage-video-compose-smoke.mp4'
       args:
         executable: /bin/bash
-      register: qc
-      changed_when: true
+      register: verify
+      changed_when: false
 
-    - name: Report completed OpenMontage comparison render
+    - name: Report completed OpenMontage render
       ansible.builtin.debug:
         msg:
-          preflight: "{{ preflight.stdout }}"
-          understanding: "{{ understand.stdout }}"
-          cards: "{{ cards.stdout }}"
-          openmontage_smoke: "{{ om_smoke.stdout }}"
-          qc: "{{ qc.stdout }}"
+          driver_output: "{{ openmontage_run.stdout_lines }}"
+          verification: "{{ verify.stdout }}"
           final: "{{ final_mp4 }}"
