@@ -1,48 +1,111 @@
 ---
-- name: Run six-minute OpenMontage validation proof on media-01
+- name: Enforce V6.1 standard and run OpenMontage only as an asset generator
   hosts: media-01
   gather_facts: false
   vars:
-    remote_driver: /home/p2ops/openmontage-lab/run_openmontage_compare.py
+    standard_root: /srv/media-production/standards/besquare-knowledge-v1
+    standard_path: /srv/media-production/standards/besquare-knowledge-v1/standard.json
+    verification_path: /srv/media-production/standards/besquare-knowledge-v1/benchmark-verification.json
+    asset_driver: /home/p2ops/openmontage-lab/run_asset_request.py
     om_python: /home/p2ops/openmontage-lab/OpenMontage/.venv/bin/python
-    final_mp4: /srv/media-production/review/openmontage-besquare-demo-01/OpenMontage-Wasaga-6m-Proof-V1.mp4
-    report_json: /srv/media-production/review/openmontage-besquare-demo-01/OpenMontage-Wasaga-6m-Proof-V1.report.json
   tasks:
-    - name: Install six-minute experiment driver beside the isolated OpenMontage lab
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../files/media01_openmontage_driver.py"
-        dest: "{{ remote_driver }}"
-        mode: '0755'
+    - name: Check whether permanent V6.1 standard is already installed
+      ansible.builtin.stat:
+        path: "{{ verification_path }}"
+      register: standard_marker
 
-    - name: Execute OpenMontage six-minute proof and wait for completion
+    - name: Install exact V6.1 benchmark and permanent worker guardrails on first run
+      ansible.builtin.include_tasks: tasks/media01-besquare-standard-install.yml
+      when: not standard_marker.stat.exists
+
+    - name: Keep canonical standard and asset-only driver synchronized with control repo
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: p2ops
+        group: mediaops
+        mode: "{{ item.mode }}"
+      become: true
+      loop:
+        - src: "{{ playbook_dir }}/../files/besquare-knowledge-standard-v1.json"
+          dest: "{{ standard_path }}"
+          mode: '0644'
+        - src: "{{ playbook_dir }}/../files/BESQUARE_EDITING_STANDARD_V1.md"
+          dest: "{{ standard_root }}/BESQUARE_EDITING_STANDARD_V1.md"
+          mode: '0644'
+        - src: "{{ playbook_dir }}/../files/besquare_guardrail.py"
+          dest: /home/p2ops/media01/besquare_guardrail.py
+          mode: '0755'
+        - src: "{{ playbook_dir }}/../files/media01_openmontage_asset_driver.py"
+          dest: "{{ asset_driver }}"
+          mode: '0755'
+
+    - name: Verify production OpenMontage policy is asset-only
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test -s '{{ verification_path }}'
+        test -s '{{ standard_path }}'
+        test -s '{{ asset_driver }}'
+        jq -e '.standard_id == "besquare-knowledge-v1"' '{{ standard_path }}' >/dev/null
+        jq -e '.openmontage.production_role == "asset_only" and .openmontage.full_timeline_render_allowed == false' '{{ standard_path }}' >/dev/null
+        grep -q 'def knowledge_gate' /home/p2ops/media01/media_worker.py
+        echo 'BESQUARE_STANDARD=besquare-knowledge-v1'
+        echo 'OPENMONTAGE_ROLE=asset_only'
+      args:
+        executable: /bin/bash
+      register: policy_check
+      changed_when: false
+
+    - name: Discover explicit ready OpenMontage asset-only requests
+      ansible.builtin.shell: |
+        set -euo pipefail
+        shopt -s nullglob
+        for request in /srv/media-production/inbox/*/openmontage-assets.json; do
+          if jq -e '.ready == true and .purpose == "asset_only"' "$request" >/dev/null 2>&1; then
+            basename "$(dirname "$request")"
+          fi
+        done | sort -u
+      args:
+        executable: /bin/bash
+      register: pending_jobs
+      changed_when: false
+
+    - name: Generate sandboxed OpenMontage assets for explicitly ready jobs
       ansible.builtin.command:
         argv:
           - "{{ om_python }}"
-          - "{{ remote_driver }}"
+          - "{{ asset_driver }}"
+          - --job
+          - "{{ item }}"
+          - --standard
+          - "{{ standard_path }}"
       environment:
         PATH: /home/p2ops/openmontage-lab/node-v24.20.0-linux-x64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-      register: openmontage_run
+      loop: "{{ pending_jobs.stdout_lines }}"
+      register: asset_runs
       changed_when: true
+      when: pending_jobs.stdout_lines | length > 0
 
-    - name: Verify completed proof deliverables
+    - name: Verify generated OpenMontage reports remained asset-only
       ansible.builtin.shell: |
         set -euo pipefail
-        test -s '{{ final_mp4 }}'
-        test -s '{{ report_json }}'
-        echo '=== FINAL PROOF FILE ==='
-        ls -lh '{{ final_mp4 }}' '{{ report_json }}'
-        echo '=== PROOF REPORT ==='
-        cat '{{ report_json }}'
-        echo '=== GPU ==='
-        nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader
+        for job in {{ pending_jobs.stdout_lines | map('quote') | join(' ') }}; do
+          report="/srv/media-production/review/$job/openmontage-assets/openmontage-assets.report.json"
+          test -s "$report"
+          jq -e '.status == "complete" and .purpose == "asset_only"' "$report" >/dev/null
+          jq -e '.assets | all(.production_insertion == "NOT_AUTOMATIC_REVIEW_AND_INSERT_WITH_MAIN_EDITOR")' "$report" >/dev/null
+          echo "$job=$report"
+        done
       args:
         executable: /bin/bash
-      register: verify
+      register: asset_verify
       changed_when: false
+      when: pending_jobs.stdout_lines | length > 0
 
-    - name: Report completed OpenMontage proof
+    - name: Report V6.1 and OpenMontage production state
       ansible.builtin.debug:
         msg:
-          driver_output: "{{ openmontage_run.stdout_lines }}"
-          verification: "{{ verify.stdout }}"
-          final: "{{ final_mp4 }}"
+          policy: "{{ policy_check.stdout_lines }}"
+          pending_asset_jobs: "{{ pending_jobs.stdout_lines }}"
+          asset_reports: "{{ asset_verify.stdout_lines | default([]) }}"
+          note: "The old full-video OpenMontage proof renderer is no longer invoked by this production operation."
