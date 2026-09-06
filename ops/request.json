@@ -1,5 +1,5 @@
 {
-  "request_id": "p2-dashboard-add-media01-20260905-2138",
-  "operation": "dashboard-deploy",
-  "target": "compute-02"
+  "request_id": "media01-pre-cable-audit-20260906-0755",
+  "operation": "media01-status",
+  "target": "media-01"
 }
