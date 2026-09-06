@@ -1,0 +1,286 @@
+---
+- name: Process full Raven podcast with approved V3 caption standard
+  hosts: media-01
+  gather_facts: false
+  vars:
+    source: /srv/media-production/inbox/raven-podcast-01/master.mp4
+    work: /srv/media-production/work/raven-podcast-01-full
+    review: /srv/media-production/review/raven-podcast-01
+    base_analysis: /srv/media-production/work/raven-podcast-01-full/analysis-base
+    base_transcript: /srv/media-production/work/raven-podcast-01-full/analysis-base/transcript.json
+    reviewed_transcript: /srv/media-production/work/raven-podcast-01-full/transcript-reviewed.json
+    final_transcript: /srv/media-production/work/raven-podcast-01-full/transcript-final.json
+    gap_report: /srv/media-production/work/raven-podcast-01-full/gap-recovery.json
+    manifest: /srv/media-production/work/raven-podcast-01-full/manifest.json
+    ass: /srv/media-production/review/raven-podcast-01/Raven-full-captions.ass
+    assignments: /srv/media-production/review/raven-podcast-01/Raven-full-speaker-assignments.json
+    output: /srv/media-production/review/raven-podcast-01/Raven-Podcast-YouTube-Captioned-V1.mp4
+  tasks:
+    - name: Verify Raven master exists
+      ansible.builtin.stat:
+        path: "{{ source }}"
+      register: source_stat
+      failed_when: not source_stat.stat.exists or source_stat.stat.size | int < 1048576
+
+    - name: Deploy full podcast caption tools
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../services/media01/{{ item }}"
+        dest: "/home/p2ops/media01/{{ item }}"
+        mode: "0755"
+      loop:
+        - content_analyzer.py
+        - transcript_patch.py
+        - podcast_gap_recover.py
+        - podcast_captions.py
+
+    - name: Verify podcast tool syntax
+      ansible.builtin.command:
+        argv:
+          - /home/p2ops/media01/venv-v2/bin/python
+          - -m
+          - py_compile
+          - "/home/p2ops/media01/{{ item }}"
+      loop:
+        - content_analyzer.py
+        - transcript_patch.py
+        - podcast_gap_recover.py
+        - podcast_captions.py
+      changed_when: false
+
+    - name: Create full-run directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0775"
+      loop:
+        - "{{ work }}"
+        - "{{ review }}"
+        - "{{ base_analysis }}"
+
+    - name: Probe full source
+      ansible.builtin.shell: |
+        set -euo pipefail
+        ffprobe -v error -show_entries format=duration,size:stream=index,codec_type,codec_name,width,height,r_frame_rate,sample_rate,channels,channel_layout -of json "{{ source }}"
+      args:
+        executable: /bin/bash
+      register: source_probe
+      changed_when: false
+
+    - name: Clear only previous full-run generated artifacts
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ base_analysis }}/transcript.txt"
+        - "{{ base_analysis }}/transcript.json"
+        - "{{ base_analysis }}/captions.srt"
+        - "{{ base_analysis }}/content-report.json"
+        - "{{ reviewed_transcript }}"
+        - "{{ final_transcript }}"
+        - "{{ gap_report }}"
+        - "{{ manifest }}"
+        - "{{ ass }}"
+        - "{{ assignments }}"
+        - "{{ output }}.partial.mp4"
+
+    - name: Transcribe complete podcast with conversational no-VAD mode
+      ansible.builtin.command:
+        argv:
+          - /home/p2ops/media01/venv-v2/bin/python
+          - /home/p2ops/media01/content_analyzer.py
+          - "{{ source }}"
+          - --output-dir
+          - "{{ base_analysis }}"
+          - --model
+          - large-v3-turbo
+          - --language
+          - en
+          - --disable-vad
+      register: transcription
+      changed_when: true
+
+    - name: Apply reviewed first-minute Raven recovery only when ASR still missed it
+      ansible.builtin.command:
+        argv:
+          - /home/p2ops/media01/venv-v2/bin/python
+          - /home/p2ops/media01/transcript_patch.py
+          - "{{ base_transcript }}"
+          - "{{ reviewed_transcript }}"
+          - --insert-start
+          - "23.68"
+          - --insert-end
+          - "30.28"
+          - --insert-text
+          - "I moved to Wasaga Beach in 2016 after a long marriage."
+          - --trim-segment-start
+          - "30.0"
+          - --trim-through
+          - "30.31"
+          - --source-note
+          - "approved V3 targeted recovery reviewed from the source audio"
+      register: reviewed_patch
+      changed_when: true
+
+    - name: Recover other suspicious non-silent transcript gaps
+      ansible.builtin.command:
+        argv:
+          - /home/p2ops/media01/venv-v2/bin/python
+          - /home/p2ops/media01/podcast_gap_recover.py
+          - "{{ source }}"
+          - "{{ reviewed_transcript }}"
+          - "{{ final_transcript }}"
+          - --report
+          - "{{ gap_report }}"
+          - --model
+          - large-v3-turbo
+          - --language
+          - en
+          - --min-gap
+          - "1.8"
+          - --max-gap
+          - "12.0"
+      register: gap_recovery
+      changed_when: true
+
+    - name: Write approved full podcast caption manifest
+      ansible.builtin.copy:
+        dest: "{{ manifest }}"
+        mode: "0644"
+        content: |
+          {
+            "mode": "podcast",
+            "language": "en",
+            "podcast_captions": {
+              "enabled": true,
+              "show_speaker_names": false,
+              "words_per_caption": 8,
+              "font": "DejaVu Sans",
+              "font_size": 72,
+              "margin_v": 48,
+              "outline": 2.8,
+              "shadow": 4.0,
+              "shadow_alpha": "20",
+              "outline_alpha": "30",
+              "text_color": "#000000",
+              "analysis_fps": 3.0,
+              "analysis_width": 480,
+              "audio_analysis_rate": 8000,
+              "audio_weight": 0.68,
+              "turn_gap_split_seconds": 0.55,
+              "initial_speaker": "right",
+              "uncertain_confidence": 0.16,
+              "close_turn_switch_confidence": 0.28,
+              "close_turn_gap_seconds": 0.9,
+              "bridge_caption_gap_seconds": 0.55,
+              "caption_tail_pad_seconds": 0.12,
+              "caption_lead_pad_seconds": 0.04,
+              "speaker_calibration": {
+                "right": [{"start": 4.0, "end": 20.0, "note": "approved Prabhat opening"}],
+                "left": [{"start": 32.0, "end": 52.0, "note": "approved Raven answer"}]
+              },
+              "speaker_overrides": [
+                {"start": 0.0, "end": 23.20, "side": "right", "reason": "approved V3 Prabhat intro/question"},
+                {"start": 23.50, "end": 60.30, "side": "left", "reason": "approved V3 Raven answer"}
+              ],
+              "left": {"name": "Raven", "text_color": "#000000", "shadow_color": "#8EF2A0"},
+              "right": {"name": "Prabhat", "text_color": "#000000", "shadow_color": "#8FD6FF"}
+            }
+          }
+
+    - name: Generate calibrated full-length speaker captions
+      ansible.builtin.command:
+        argv:
+          - /home/p2ops/media01/venv-v2/bin/python
+          - /home/p2ops/media01/podcast_captions.py
+          - "{{ source }}"
+          - --transcript
+          - "{{ final_transcript }}"
+          - --manifest
+          - "{{ manifest }}"
+          - --ass
+          - "{{ ass }}"
+          - --assignments
+          - "{{ assignments }}"
+      register: caption_generation
+      changed_when: true
+
+    - name: Enforce full-length pre-render caption QA
+      ansible.builtin.shell: |
+        set -euo pipefail
+        unresolved="$(jq '.unresolved_suspect_gaps | length' "{{ gap_report }}")"
+        turns="$(jq '.turns | length' "{{ assignments }}")"
+        uncertain="$(jq '.uncertain_turns | length' "{{ assignments }}")"
+        left="$(jq '[.cues[] | select(.side=="left")] | length' "{{ assignments }}")"
+        right="$(jq '[.cues[] | select(.side=="right")] | length' "{{ assignments }}")"
+        total="$((left+right))"
+        echo "unresolved_suspect_gaps=$unresolved turns=$turns uncertain=$uncertain raven_cues=$left prabhat_cues=$right"
+        test "$unresolved" -eq 0
+        test "$turns" -ge 50
+        test "$left" -gt 0
+        test "$right" -gt 0
+        # Abort only if calibration is broadly indecisive; a few low-confidence turns are expected.
+        python3 - "$turns" "$uncertain" <<'PY'
+        import sys
+        turns=max(1,int(sys.argv[1]));unc=int(sys.argv[2]);ratio=unc/turns
+        print(f'uncertain_turn_ratio={ratio:.4f}')
+        if ratio>0.20: raise SystemExit('too many uncertain speaker turns')
+        PY
+        # Approved first minute remains exact.
+        jq -e '([.cues[] | select(.start < 23.2 and .side != "right")] | length) == 0' "{{ assignments }}" >/dev/null
+        jq -e '([.cues[] | select(.start >= 23.5 and .start < 60.3 and .side != "left")] | length) == 0' "{{ assignments }}" >/dev/null
+        grep -q '^Style: Left,.*&H00000000,&H00000000,' "{{ ass }}"
+        grep -q '^Style: Right,.*&H00000000,&H00000000,' "{{ ass }}"
+      args:
+        executable: /bin/bash
+      register: preflight
+      changed_when: false
+
+    - name: Burn approved captions into complete 4K podcast
+      ansible.builtin.shell: |
+        set -euo pipefail
+        rm -f "{{ output }}.partial.mp4"
+        ffmpeg -nostdin -hide_banner -loglevel warning -y -i "{{ source }}" \
+          -vf "ass='{{ ass }}'" \
+          -map 0:v:0 -map 0:a:0 -map_metadata 0 \
+          -c:v h264_nvenc -preset p6 -tune hq -rc vbr -cq 18 -b:v 30M -maxrate 45M -bufsize 90M -profile:v high \
+          -c:a copy -movflags +faststart "{{ output }}.partial.mp4"
+        mv "{{ output }}.partial.mp4" "{{ output }}"
+      args:
+        executable: /bin/bash
+      register: render
+      changed_when: true
+
+    - name: Validate final podcast output
+      ansible.builtin.shell: |
+        set -euo pipefail
+        src_d="$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "{{ source }}")"
+        out_d="$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "{{ output }}")"
+        python3 - "$src_d" "$out_d" <<'PY'
+        import sys
+        a=float(sys.argv[1]);b=float(sys.argv[2]);print(f'source_duration={a:.3f} output_duration={b:.3f} delta={b-a:.3f}')
+        if abs(a-b)>0.35: raise SystemExit('duration mismatch')
+        PY
+        ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,width,height,r_frame_rate -of json "{{ output }}"
+        ffprobe -v error -select_streams a:0 -show_entries stream=codec_name,sample_rate,channels,channel_layout -of json "{{ output }}"
+        # Decode-check beginning and ending windows for corrupted output.
+        ffmpeg -nostdin -v error -t 5 -i "{{ output }}" -f null -
+        ffmpeg -nostdin -v error -sseof -5 -i "{{ output }}" -f null -
+        du -h "{{ output }}"
+      args:
+        executable: /bin/bash
+      register: final_validation
+      changed_when: false
+
+    - name: Report full Raven production result
+      ansible.builtin.debug:
+        msg:
+          source: "{{ source_probe.stdout }}"
+          transcription: "{{ transcription.stdout }}"
+          reviewed_patch: "{{ reviewed_patch.stdout }}"
+          gap_recovery: "{{ gap_recovery.stdout }}"
+          caption_generation: "{{ caption_generation.stdout }}"
+          preflight: "{{ preflight.stdout }}"
+          final: "{{ final_validation.stdout }}"
+          output: "{{ output }}"
+          assignments: "{{ assignments }}"
+          gap_report: "{{ gap_report }}"
