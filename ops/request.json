@@ -1,5 +1,5 @@
 {
-  "request_id": "ssh-transfer-fabric-20260905-2121-r2",
-  "operation": "ssh-transfer-fabric",
-  "target": "all"
+  "request_id": "media01-raven-final-encode-resume-20260905-2132",
+  "operation": "media01-debug-podcast",
+  "target": "media-01"
 }
