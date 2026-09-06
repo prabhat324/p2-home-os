@@ -1,0 +1,347 @@
+---
+- name: Define BeSquare V6.1 benchmark paths
+  ansible.builtin.set_fact:
+    bs_source_master: /srv/media-production/inbox/wasaga-report-v6.1/output/wasaga-report-2026-V6.1-youtube-master.mp4
+    bs_source_support: /srv/media-production/inbox/besquare-v61-benchmark-support.tar.gz
+    bs_standard_root: /srv/media-production/standards/besquare-knowledge-v1
+    bs_reference_dir: /srv/media-production/standards/besquare-knowledge-v1/reference
+    bs_support_dir: /srv/media-production/standards/besquare-knowledge-v1/support
+    bs_tools_dir: /srv/media-production/standards/besquare-knowledge-v1/tools
+    bs_target_master: /srv/media-production/standards/besquare-knowledge-v1/reference/wasaga-report-2026-V6.1-youtube-master.mp4
+    bs_target_support: /srv/media-production/standards/besquare-knowledge-v1/support/benchmark-support.tar.gz
+    bs_expected_master_sha256: c7ab41d20af7c760f4e9f13a4b955bb4f78775d202827ca22aea6bbf1366a860
+    bs_expected_master_size: 3051279914
+    bs_expected_support_sha256: 859163a0ee78a1360ed77845e372a9f84d49981f65ab07da6210cfc87143455f
+    bs_expected_support_size: 1390703
+    bs_ssh_key: "{{ lookup('env', 'HOME') }}/.ssh/id_ed25519_p2homeos"
+
+- name: Verify V6.1 benchmark source exists on compute-01
+  ansible.builtin.stat:
+    path: "{{ bs_source_master }}"
+    get_checksum: false
+  delegate_to: compute-01
+  register: bs_source_master_stat
+
+- name: Verify V6/V6.1 support archive exists on compute-01
+  ansible.builtin.stat:
+    path: "{{ bs_source_support }}"
+    get_checksum: false
+  delegate_to: compute-01
+  register: bs_source_support_stat
+
+- name: Assert benchmark source package is exact
+  ansible.builtin.assert:
+    that:
+      - bs_source_master_stat.stat.exists
+      - bs_source_master_stat.stat.size == bs_expected_master_size
+      - bs_source_support_stat.stat.exists
+      - bs_source_support_stat.stat.size == bs_expected_support_size
+    fail_msg: V6.1 benchmark package on compute-01 is missing or no longer matches the approved benchmark
+
+- name: Create canonical standard directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: p2ops
+    group: mediaops
+    mode: '0775'
+  become: true
+  loop:
+    - "{{ bs_standard_root }}"
+    - "{{ bs_reference_dir }}"
+    - "{{ bs_support_dir }}"
+    - "{{ bs_support_dir }}/raw"
+    - "{{ bs_support_dir }}/v61/work"
+    - "{{ bs_support_dir }}/v61/qc"
+    - "{{ bs_support_dir }}/v61/logs"
+    - "{{ bs_support_dir }}/v61/motion"
+    - "{{ bs_support_dir }}/v6/work"
+    - "{{ bs_support_dir }}/v6/qc"
+    - "{{ bs_tools_dir }}"
+    - "{{ bs_standard_root }}/backups"
+
+- name: Inspect existing V6.1 reference on media-01
+  ansible.builtin.stat:
+    path: "{{ bs_target_master }}"
+    get_checksum: false
+  register: bs_target_master_stat
+
+- name: Transfer exact V6.1 master through core-01 SSH control plane
+  ansible.builtin.shell: |
+    set -euo pipefail
+    src='{{ bs_source_master }}'
+    dst='{{ bs_target_master }}'
+    tmp="${dst}.partial"
+    ssh -i '{{ bs_ssh_key }}' -o BatchMode=yes -o StrictHostKeyChecking=yes p2ops@192.168.0.31 "cat '$src'" \
+      | ssh -i '{{ bs_ssh_key }}' -o BatchMode=yes -o StrictHostKeyChecking=yes p2ops@192.168.0.6 "cat > '$tmp' && mv '$tmp' '$dst'"
+  args:
+    executable: /bin/bash
+  delegate_to: core-01
+  when: not bs_target_master_stat.stat.exists or bs_target_master_stat.stat.size != bs_expected_master_size
+  changed_when: true
+
+- name: Inspect existing support archive on media-01
+  ansible.builtin.stat:
+    path: "{{ bs_target_support }}"
+    get_checksum: false
+  register: bs_target_support_stat
+
+- name: Transfer V6/V6.1 support archive through core-01 SSH control plane
+  ansible.builtin.shell: |
+    set -euo pipefail
+    src='{{ bs_source_support }}'
+    dst='{{ bs_target_support }}'
+    tmp="${dst}.partial"
+    ssh -i '{{ bs_ssh_key }}' -o BatchMode=yes -o StrictHostKeyChecking=yes p2ops@192.168.0.31 "cat '$src'" \
+      | ssh -i '{{ bs_ssh_key }}' -o BatchMode=yes -o StrictHostKeyChecking=yes p2ops@192.168.0.6 "cat > '$tmp' && mv '$tmp' '$dst'"
+  args:
+    executable: /bin/bash
+  delegate_to: core-01
+  when: not bs_target_support_stat.stat.exists or bs_target_support_stat.stat.size != bs_expected_support_size
+  changed_when: true
+
+- name: Verify V6.1 master checksum on media-01
+  ansible.builtin.command:
+    argv: [sha256sum, "{{ bs_target_master }}"]
+  register: bs_master_sha
+  changed_when: false
+
+- name: Verify support archive checksum on media-01
+  ansible.builtin.command:
+    argv: [sha256sum, "{{ bs_target_support }}"]
+  register: bs_support_sha
+  changed_when: false
+
+- name: Refuse policy installation unless benchmark checksums are exact
+  ansible.builtin.assert:
+    that:
+      - bs_master_sha.stdout.split()[0] == bs_expected_master_sha256
+      - bs_support_sha.stdout.split()[0] == bs_expected_support_sha256
+    fail_msg: V6.1 checksum verification failed; production worker has not been patched
+
+- name: Reset benchmark support extraction
+  ansible.builtin.file:
+    path: "{{ bs_support_dir }}/raw"
+    state: absent
+  become: true
+
+- name: Recreate benchmark support extraction
+  ansible.builtin.file:
+    path: "{{ bs_support_dir }}/raw"
+    state: directory
+    owner: p2ops
+    group: mediaops
+    mode: '0775'
+  become: true
+
+- name: Extract benchmark support archive
+  ansible.builtin.unarchive:
+    src: "{{ bs_target_support }}"
+    dest: "{{ bs_support_dir }}/raw"
+    remote_src: true
+    owner: p2ops
+    group: mediaops
+  become: true
+
+- name: Arrange V6.1 and V6 support files
+  ansible.builtin.shell: |
+    set -euo pipefail
+    root='{{ bs_support_dir }}'; raw="$root/raw"
+    rm -rf "$root/v61/work" "$root/v61/qc" "$root/v61/logs" "$root/v61/motion" "$root/v6/work" "$root/v6/qc"
+    mkdir -p "$root/v61/work" "$root/v61/qc" "$root/v61/logs" "$root/v61/motion" "$root/v6/work" "$root/v6/qc"
+    for f in camera-plan-v61.csv camera-v61-eased.cmd captions-v61.srt cut-info.txt filter-v61.txt orchestrate-v61.sh render-v61-final.sh v61-timeline.tsv; do
+      test -f "$raw/work/$f" && cp -a "$raw/work/$f" "$root/v61/work/"
+    done
+    test -d "$raw/logs" && cp -a "$raw/logs/." "$root/v61/logs/"
+    test -d "$raw/motion" && cp -a "$raw/motion/." "$root/v61/motion/"
+    if test -d "$raw/qc"; then
+      find "$raw/qc" -mindepth 1 -maxdepth 1 ! -name 'V6-YOUTUBE-READY-RUBRIC.md' ! -name 'V6_VISUAL_QC_COMPLETE.txt' -exec cp -a {} "$root/v61/qc/" \;
+      test -f "$raw/qc/V6-YOUTUBE-READY-RUBRIC.md" && cp -a "$raw/qc/V6-YOUTUBE-READY-RUBRIC.md" "$root/v6/qc/"
+      test -f "$raw/qc/V6_VISUAL_QC_COMPLETE.txt" && cp -a "$raw/qc/V6_VISUAL_QC_COMPLETE.txt" "$root/v6/qc/"
+    fi
+    for f in v6-timeline.tsv camera-plan-v6.csv render-v6-final.sh orchestrate-v6.sh; do
+      test -f "$raw/work/$f" && cp -a "$raw/work/$f" "$root/v6/work/"
+    done
+    chown -R p2ops:mediaops "$root/v61" "$root/v6"
+  args:
+    executable: /bin/bash
+  become: true
+  changed_when: true
+
+- name: Install canonical standard JSON
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../files/besquare-knowledge-standard-v1.json"
+    dest: "{{ bs_standard_root }}/standard.json"
+    owner: p2ops
+    group: mediaops
+    mode: '0644'
+  become: true
+
+- name: Install human-readable standard
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../files/BESQUARE_EDITING_STANDARD_V1.md"
+    dest: "{{ bs_standard_root }}/BESQUARE_EDITING_STANDARD_V1.md"
+    owner: p2ops
+    group: mediaops
+    mode: '0644'
+  become: true
+
+- name: Install V6.1 pre-render guardrail
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../files/besquare_guardrail.py"
+    dest: /home/p2ops/media01/besquare_guardrail.py
+    owner: p2ops
+    group: mediaops
+    mode: '0755'
+  become: true
+
+- name: Install deterministic worker patcher
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../files/install_besquare_standard.py"
+    dest: "{{ bs_tools_dir }}/install_besquare_standard.py"
+    owner: p2ops
+    group: mediaops
+    mode: '0755'
+  become: true
+
+- name: Install OpenMontage asset-only driver
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../files/media01_openmontage_asset_driver.py"
+    dest: /home/p2ops/openmontage-lab/run_asset_request.py
+    owner: p2ops
+    group: mediaops
+    mode: '0755'
+  become: true
+
+- name: Record successful full benchmark verification
+  ansible.builtin.copy:
+    dest: "{{ bs_standard_root }}/benchmark-verification.json"
+    owner: p2ops
+    group: mediaops
+    mode: '0644'
+    content: |
+      {
+        "standard_id": "besquare-knowledge-v1",
+        "benchmark_sha256": "{{ bs_expected_master_sha256 }}",
+        "benchmark_size_bytes": {{ bs_expected_master_size }},
+        "support_sha256": "{{ bs_expected_support_sha256 }}",
+        "support_size_bytes": {{ bs_expected_support_size }},
+        "verified_by": "core-01-ansible",
+        "verified_at_epoch": {{ lookup('pipe','date +%s') }}
+      }
+  become: true
+
+- name: Create timestamped backup of live worker policy files
+  ansible.builtin.shell: |
+    set -euo pipefail
+    d='{{ bs_standard_root }}/backups/install-'$(date +%Y%m%d-%H%M%S)
+    mkdir -p "$d"
+    cp -a /home/p2ops/media01/media_worker.py "$d/media_worker.py"
+    cp -a /home/p2ops/media01/quality-profile.json "$d/quality-profile.json"
+    test -f /home/p2ops/media01/creative_qa.py && cp -a /home/p2ops/media01/creative_qa.py "$d/creative_qa.py"
+    chown -R p2ops:mediaops "$d"
+    echo "$d"
+  args:
+    executable: /bin/bash
+  become: true
+  register: bs_backup
+  changed_when: true
+
+- name: Apply idempotent V6.1 worker and quality-profile patch
+  ansible.builtin.command:
+    argv: [/usr/bin/python3, "{{ bs_tools_dir }}/install_besquare_standard.py"]
+  become: true
+  register: bs_install_result
+  changed_when: true
+
+- name: Restore expected ownership of patched app files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: p2ops
+    group: mediaops
+  become: true
+  loop:
+    - /home/p2ops/media01/media_worker.py
+    - /home/p2ops/media01/quality-profile.json
+    - /home/p2ops/media01/besquare_guardrail.py
+    - /home/p2ops/openmontage-lab/run_asset_request.py
+
+- name: Write guardrail smoke-test inputs
+  ansible.builtin.copy:
+    dest: "{{ bs_standard_root }}/{{ item.name }}"
+    owner: p2ops
+    group: mediaops
+    mode: '0644'
+    content: "{{ item.content }}"
+  become: true
+  loop:
+    - name: smoke-manifest.json
+      content: |
+        {"mode":"explainer","title":"Guardrail smoke test","openmontage":{"mode":"asset_only"}}
+    - name: smoke-timeline.json
+      content: |
+        {"duration_seconds":120,"events":[{"kind":"zoom","start":10,"end":13,"from_scale":1.0,"to_scale":1.06},{"kind":"chart","start":45,"end":55,"title":"Example sourced comparison","source_label":"benchmark smoke test","data":[{"label":"A","value":1},{"label":"B","value":2}]}]}
+
+- name: Execute V6.1 pre-render guardrail smoke test
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - /home/p2ops/media01/besquare_guardrail.py
+      - --manifest
+      - "{{ bs_standard_root }}/smoke-manifest.json"
+      - --timeline
+      - "{{ bs_standard_root }}/smoke-timeline.json"
+      - --standard
+      - "{{ bs_standard_root }}/standard.json"
+      - --verification
+      - "{{ bs_standard_root }}/benchmark-verification.json"
+      - --report
+      - "{{ bs_standard_root }}/smoke-guardrail-report.json"
+  become: true
+  become_user: p2ops
+  register: bs_guardrail_smoke
+  changed_when: false
+
+- name: Compile patched worker and OpenMontage asset driver
+  ansible.builtin.shell: |
+    set -euo pipefail
+    python3 -m py_compile /home/p2ops/media01/media_worker.py /home/p2ops/media01/besquare_guardrail.py /home/p2ops/openmontage-lab/run_asset_request.py
+    jq -e '.editing_standard.id == "besquare-knowledge-v1"' /home/p2ops/media01/quality-profile.json >/dev/null
+    jq -e '.openmontage.production_role == "asset_only" and .openmontage.full_video_editor_allowed == false' /home/p2ops/media01/quality-profile.json >/dev/null
+    jq -e '.status == "PASS"' '{{ bs_standard_root }}/smoke-guardrail-report.json' >/dev/null
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Restart media worker with V6.1 standard loaded
+  ansible.builtin.systemd:
+    name: media01-worker.service
+    state: restarted
+  become: true
+
+- name: Verify media worker active after V6.1 install
+  ansible.builtin.command:
+    argv: [systemctl, is-active, media01-worker.service]
+  register: bs_worker_active
+  changed_when: false
+  failed_when: bs_worker_active.stdout.strip() != 'active'
+
+- name: Verify permanent benchmark package and policy hook
+  ansible.builtin.shell: |
+    set -euo pipefail
+    test -s '{{ bs_target_master }}'
+    test -s '{{ bs_standard_root }}/standard.json'
+    test -s '{{ bs_standard_root }}/benchmark-verification.json'
+    test -s '{{ bs_support_dir }}/v61/work/camera-plan-v61.csv'
+    test -s '{{ bs_support_dir }}/v61/work/v61-timeline.tsv'
+    test -s '{{ bs_support_dir }}/v6/qc/V6-YOUTUBE-READY-RUBRIC.md'
+    grep -q 'def knowledge_gate' /home/p2ops/media01/media_worker.py
+    grep -q 'KNOWLEDGE_REVIEW_REQUIRED' /home/p2ops/media01/media_worker.py
+    echo BESQUARE_V61_STANDARD_INSTALLED=1
+    echo BENCHMARK_SHA256='{{ bs_expected_master_sha256 }}'
+    echo OPENMONTAGE_ROLE=asset_only
+    echo WORKER_STATE=$(systemctl is-active media01-worker.service)
+  args:
+    executable: /bin/bash
+  register: bs_standard_verify
+  changed_when: false
