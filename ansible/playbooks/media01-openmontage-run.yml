@@ -86,18 +86,18 @@
       changed_when: true
       when: pending_jobs.stdout_lines | length > 0
 
-    - name: Verify generated OpenMontage reports remained asset-only
+    - name: Verify each generated OpenMontage report remained asset-only
       ansible.builtin.shell: |
         set -euo pipefail
-        for job in {{ pending_jobs.stdout_lines | map('quote') | join(' ') }}; do
-          report="/srv/media-production/review/$job/openmontage-assets/openmontage-assets.report.json"
-          test -s "$report"
-          jq -e '.status == "complete" and .purpose == "asset_only"' "$report" >/dev/null
-          jq -e '.assets | all(.production_insertion == "NOT_AUTOMATIC_REVIEW_AND_INSERT_WITH_MAIN_EDITOR")' "$report" >/dev/null
-          echo "$job=$report"
-        done
+        report='/srv/media-production/review/{{ item }}/openmontage-assets/openmontage-assets.report.json'
+        test -s "$report"
+        jq -e '.status == "complete" and .purpose == "asset_only"' "$report" >/dev/null
+        jq -e '.assets | length > 0' "$report" >/dev/null
+        jq -e '.assets | all(.production_insertion == "NOT_AUTOMATIC_REVIEW_AND_INSERT_WITH_MAIN_EDITOR")' "$report" >/dev/null
+        echo '{{ item }}='"$report"
       args:
         executable: /bin/bash
+      loop: "{{ pending_jobs.stdout_lines }}"
       register: asset_verify
       changed_when: false
       when: pending_jobs.stdout_lines | length > 0
@@ -107,5 +107,5 @@
         msg:
           policy: "{{ policy_check.stdout_lines }}"
           pending_asset_jobs: "{{ pending_jobs.stdout_lines }}"
-          asset_reports: "{{ asset_verify.stdout_lines | default([]) }}"
+          asset_verification: "{{ asset_verify.results | default([]) }}"
           note: "The old full-video OpenMontage proof renderer is no longer invoked by this production operation."
