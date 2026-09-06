@@ -51,7 +51,6 @@ def repeated_speech(segments, window=12, minimum_gap=12):
                             "words": window, "phrase": " ".join(phrase)})
         else:
             seen[phrase] = when
-    # Suppress overlapping reports from one duplicated passage.
     compact = []
     for item in repeats:
         if not compact or item["repeat_second"] - compact[-1]["repeat_second"] > 3:
@@ -76,6 +75,8 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--model", default="large-v3-turbo")
     parser.add_argument("--language", default="en")
+    parser.add_argument("--disable-vad", action="store_true",
+                        help="Disable Whisper VAD filtering for conversational/podcast speech where softer phrases must not be dropped")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -88,11 +89,16 @@ def main():
         model = WhisperModel(args.model, device=engine["device"], compute_type=engine["compute_type"])
 
     def transcribe(current_model):
-        stream, current_info = current_model.transcribe(
-            str(args.video), language=args.language, beam_size=5, vad_filter=True,
-            condition_on_previous_text=True, word_timestamps=True
+        kwargs = dict(
+            language=args.language,
+            beam_size=5,
+            vad_filter=not args.disable_vad,
+            condition_on_previous_text=True,
+            word_timestamps=True,
         )
-        # Materialize the lazy stream here so CUDA execution errors are caught.
+        if not args.disable_vad:
+            kwargs["vad_parameters"] = {"min_silence_duration_ms": 300, "speech_pad_ms": 180}
+        stream, current_info = current_model.transcribe(str(args.video), **kwargs)
         current_segments = [
             {"start": float(s.start), "end": float(s.end), "text": s.text.strip(), "words": [{"start":float(w.start),"end":float(w.end),"word":w.word,"probability":float(w.probability)} for w in (s.words or [])]}
             for s in stream if s.text.strip()
@@ -112,6 +118,7 @@ def main():
     (args.output_dir / "transcript.txt").write_text(transcript_text)
     (args.output_dir / "transcript.json").write_text(json.dumps({
         "created_at": stamp(), "model": args.model, "engine": engine,
+        "vad_filter": not args.disable_vad,
         "language": info.language, "language_probability": info.language_probability,
         "segments": segments,
     }, indent=2))
@@ -119,7 +126,6 @@ def main():
     captions = [chunk for segment in segments for chunk in caption_chunks(segment)]
     srt = []
     for number, cue in enumerate(captions, 1):
-        # Fourteen words max: two restrained lines of up to seven words.
         cue_words = cue["text"].split()
         text = " ".join(cue_words[:7])
         if len(cue_words) > 7:
@@ -145,10 +151,10 @@ def main():
     (args.output_dir / "content-report.json").write_text(json.dumps(report, indent=2))
     print(json.dumps({"status": report["status"], "segments": len(segments),
                       "duplicates": len(duplicates), "fact_check_flags": len(claims),
+                      "vad_filter": not args.disable_vad,
                       "output_dir": str(args.output_dir)}, indent=2))
-    return 0  # Findings are review evidence, not an execution failure.
+    return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
