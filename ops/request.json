@@ -1,5 +1,5 @@
 {
-  "request_id": "p2-dashboard-media01-diagnose-20260905-2135",
-  "operation": "dashboard-diagnose",
+  "request_id": "p2-dashboard-add-media01-20260905-2138",
+  "operation": "dashboard-deploy",
   "target": "compute-02"
 }
