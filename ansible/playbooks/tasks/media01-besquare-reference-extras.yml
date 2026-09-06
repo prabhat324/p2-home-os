@@ -1,0 +1,94 @@
+---
+- name: Create inherited V6 motion and toolchain reference directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: p2ops
+    group: mediaops
+    mode: '0775'
+  become: true
+  loop:
+    - /srv/media-production/standards/besquare-knowledge-v1/support/v6/motion
+    - /srv/media-production/standards/besquare-knowledge-v1/support/v6/research
+    - /srv/media-production/standards/besquare-knowledge-v1/support/toolchain
+
+- name: Stream inherited V6 motion examples and source manifest from compute-01
+  ansible.builtin.shell: |
+    set -euo pipefail
+    key="{{ lookup('env', 'HOME') }}/.ssh/id_ed25519_p2homeos"
+    ssh -i "$key" -o BatchMode=yes -o StrictHostKeyChecking=yes p2ops@192.168.0.31 \
+      "tar -C /srv/media-production/inbox/wasaga-report-v6 -czf - motion assets/research/SOURCE-MANIFEST-V6.txt" \
+      | ssh -i "$key" -o BatchMode=yes -o StrictHostKeyChecking=yes p2ops@192.168.0.6 \
+      "tar -C /srv/media-production/standards/besquare-knowledge-v1/support/v6 -xzf -"
+  args:
+    executable: /bin/bash
+  delegate_to: core-01
+  changed_when: true
+
+- name: Move inherited source manifest into research reference folder
+  ansible.builtin.shell: |
+    set -euo pipefail
+    root=/srv/media-production/standards/besquare-knowledge-v1/support/v6
+    if test -f "$root/assets/research/SOURCE-MANIFEST-V6.txt"; then
+      mv "$root/assets/research/SOURCE-MANIFEST-V6.txt" "$root/research/SOURCE-MANIFEST-V6.txt"
+      rm -rf "$root/assets"
+    fi
+    chown -R p2ops:mediaops "$root/motion" "$root/research"
+  args:
+    executable: /bin/bash
+  become: true
+  changed_when: true
+
+- name: Stream V6 and V6.1 Remotion design-source components from compute-01
+  ansible.builtin.shell: |
+    set -euo pipefail
+    key="{{ lookup('env', 'HOME') }}/.ssh/id_ed25519_p2homeos"
+    dst=/srv/media-production/standards/besquare-knowledge-v1/support/toolchain
+    for f in WasagaV6.tsx WasagaV61.tsx; do
+      ssh -i "$key" -o BatchMode=yes -o StrictHostKeyChecking=yes p2ops@192.168.0.31 \
+        "cat '/srv/media-production/toolchain/besquare-motion/src/$f'" \
+        | ssh -i "$key" -o BatchMode=yes -o StrictHostKeyChecking=yes p2ops@192.168.0.6 \
+        "cat > '$dst/$f'"
+    done
+  args:
+    executable: /bin/bash
+  delegate_to: core-01
+  changed_when: true
+
+- name: Normalize design-source ownership
+  ansible.builtin.file:
+    path: /srv/media-production/standards/besquare-knowledge-v1/support/toolchain
+    state: directory
+    owner: p2ops
+    group: mediaops
+    recurse: true
+  become: true
+
+- name: Create deterministic checksum manifest for benchmark support files
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd /srv/media-production/standards/besquare-knowledge-v1
+    find support -type f ! -name 'support-files.sha256' -print0 \
+      | sort -z \
+      | xargs -0 sha256sum > support-files.sha256
+    chown p2ops:mediaops support-files.sha256
+    chmod 0644 support-files.sha256
+    echo MOTION_REFERENCE_COUNT=$(find support/v6/motion -maxdepth 1 -type f -name '*.mp4' | wc -l)
+    echo TOOLCHAIN_REFERENCE_COUNT=$(find support/toolchain -maxdepth 1 -type f -name 'WasagaV*.tsx' | wc -l)
+  args:
+    executable: /bin/bash
+  become: true
+  register: reference_manifest
+  changed_when: true
+
+- name: Assert detailed style-reference package is substantial
+  ansible.builtin.shell: |
+    set -euo pipefail
+    test "$(find /srv/media-production/standards/besquare-knowledge-v1/support/v6/motion -maxdepth 1 -type f -name '*.mp4' | wc -l)" -ge 20
+    test -s /srv/media-production/standards/besquare-knowledge-v1/support/toolchain/WasagaV6.tsx
+    test -s /srv/media-production/standards/besquare-knowledge-v1/support/toolchain/WasagaV61.tsx
+    test -s /srv/media-production/standards/besquare-knowledge-v1/support/v6/research/SOURCE-MANIFEST-V6.txt
+    test -s /srv/media-production/standards/besquare-knowledge-v1/support-files.sha256
+  args:
+    executable: /bin/bash
+  changed_when: false

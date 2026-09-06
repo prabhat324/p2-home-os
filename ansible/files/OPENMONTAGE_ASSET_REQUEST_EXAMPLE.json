@@ -1,0 +1,32 @@
+{
+  "ready": true,
+  "purpose": "asset_only",
+  "requests": [
+    {
+      "id": "example-stat",
+      "kind": "stat_card",
+      "side": "right",
+      "eyebrow": "KEY NUMBER",
+      "title": "Example factual callout",
+      "value": "$506 MILLION",
+      "subtitle": "Use only when the narration is discussing this exact claim.",
+      "source_label": "Town of Wasaga Beach",
+      "duration_seconds": 5
+    },
+    {
+      "id": "example-chart",
+      "kind": "chart",
+      "side": "left",
+      "eyebrow": "FUNDING BREAKDOWN",
+      "title": "Example sourced comparison",
+      "subtitle": "Labels and units must be meaningful to the spoken point.",
+      "source_label": "Approved project source",
+      "duration_seconds": 7,
+      "data": [
+        {"label": "Category A", "value": 25},
+        {"label": "Category B", "value": 10.9},
+        {"label": "Category C", "value": 2}
+      ]
+    }
+  ]
+}

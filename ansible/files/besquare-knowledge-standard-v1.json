@@ -1,0 +1,122 @@
+{
+  "standard_id": "besquare-knowledge-v1",
+  "standard_version": 1,
+  "status": "production",
+  "description": "Permanent BeSquare by pSquare editing standard for knowledge/explainer videos. V6.1 is the gold reference. OpenMontage is asset-only in production.",
+  "applies_to_modes": ["explainer", "feature"],
+  "excluded_modes": ["podcast"],
+  "benchmark": {
+    "name": "Wasaga Report 2026 V6.1 YouTube Master",
+    "source_host": "compute-01",
+    "source_path": "/srv/media-production/inbox/wasaga-report-v6.1/output/wasaga-report-2026-V6.1-youtube-master.mp4",
+    "reference_path": "/srv/media-production/standards/besquare-knowledge-v1/reference/wasaga-report-2026-V6.1-youtube-master.mp4",
+    "sha256": "c7ab41d20af7c760f4e9f13a4b955bb4f78775d202827ca22aea6bbf1366a860",
+    "size_bytes": 3051279914,
+    "support_archive_sha256": "859163a0ee78a1360ed77845e372a9f84d49981f65ab07da6210cfc87143455f",
+    "support_archive_size_bytes": 1390703,
+    "reference_precedence": "When a heuristic conflicts with the V6.1 reference, preserve the V6.1 editorial feel unless a project-specific instruction explicitly overrides it."
+  },
+  "editorial": {
+    "source_media_read_only": true,
+    "manual_review_required_before_publish": true,
+    "preserve_complete_frame": true,
+    "cropped_faces_prohibited": true,
+    "cropped_text_prohibited": true,
+    "accidental_edge_crops_prohibited": true,
+    "abrupt_zooms_prohibited": true,
+    "zooms_must_be_slow_eased_and_editorially_motivated": true,
+    "repeated_spoken_or_visual_segments_prohibited_unless_intentional": true,
+    "decorative_or_nonsensical_graphs_prohibited": true,
+    "graph_must_explain_a_specific_claim_or_comparison": true,
+    "source_labels_required_for_factual_graphics": true,
+    "political_neutrality_required": true,
+    "fact_claims_must_be_traceable_to_research_or_source_manifest": true,
+    "protected_terms": ["Wasaga Beach", "BeSquare by pSquare"]
+  },
+  "pacing": {
+    "talking_head_refresh_target_seconds": 25,
+    "max_uninterrupted_talking_head_seconds": 35,
+    "avoid_effect_for_effects_sake": true,
+    "visual_change_should_follow_the_spoken_idea": true,
+    "prefer_fewer_high_value_visuals_over_frequent_generic_overlays": true,
+    "transition_consistency_required": true,
+    "hard_cut_or_effect_spam_prohibited": true
+  },
+  "camera_motion": {
+    "easing_required": true,
+    "abrupt_scale_changes_prohibited": true,
+    "default_max_zoom_scale": 1.15,
+    "default_min_zoom_ramp_seconds": 1.0,
+    "preferred_minimum_time_between_new_zoom_moves_seconds": 5.0,
+    "subject_must_remain_in_safe_frame": true,
+    "benchmark_camera_plan": "support/v61/work/camera-plan-v61.csv",
+    "benchmark_eased_commands": "support/v61/work/camera-v61-eased.cmd"
+  },
+  "visuals": {
+    "generic_stock_broll_should_not_replace_specific_evidence": true,
+    "sourced_visuals_preferred_for_claims": true,
+    "graphs_and_diagrams_should_reduce_cognitive_load": true,
+    "large_stat_callouts_should_be_brief_and_contextual": true,
+    "source_or_context_label_should_be_visible_when_needed": true,
+    "no_permanent_large_brand_bug": true,
+    "no_overlay_should_cover_faces_or_critical_source_text": true,
+    "benchmark_timeline": "support/v61/work/v61-timeline.tsv"
+  },
+  "captions": {
+    "safe_area": "bottom",
+    "maximum_lines": 2,
+    "maximum_words_per_line": 7,
+    "must_not_cover_key_graphics_or_faces": true,
+    "spelling_and_protected_terms_must_be_checked": true,
+    "benchmark_caption_file": "support/v61/work/captions-v61.srt"
+  },
+  "audio": {
+    "target_integrated_lufs": -14.0,
+    "target_true_peak_dbtp": -2.0,
+    "maximum_true_peak_dbtp": -1.0,
+    "sample_rate": 48000,
+    "channels": 2
+  },
+  "delivery": {
+    "preferred_width": 3840,
+    "preferred_height": 2160,
+    "colorspace": "bt709",
+    "manual_visual_qc_required": true,
+    "decode_errors_prohibited": true,
+    "duration_drift_max_seconds": 0.25
+  },
+  "openmontage": {
+    "production_role": "asset_only",
+    "full_timeline_render_allowed": false,
+    "may_create": [
+      "transparent title graphics",
+      "stat cards",
+      "source cards",
+      "charts",
+      "diagrams",
+      "lower thirds",
+      "short motion graphics",
+      "transition elements",
+      "standalone visual explainers"
+    ],
+    "must_not": [
+      "replace the primary editorial timeline",
+      "decide the final pacing of the full video",
+      "render or overwrite the production master",
+      "change source media",
+      "apply global captions to the production master",
+      "insert assets into the final timeline without BeSquare guardrail review"
+    ],
+    "request_filename": "openmontage-assets.json",
+    "asset_output_root_template": "/srv/media-production/work/{job}/openmontage-assets",
+    "review_output_root_template": "/srv/media-production/review/{job}/openmontage-assets",
+    "manual_asset_review_required": true
+  },
+  "required_gates": [
+    "benchmark_presence_and_checksum",
+    "knowledge_timeline_guardrail_before_render",
+    "technical_qa_after_render",
+    "creative_qa_after_render",
+    "manual_review_before_publish"
+  ]
+}
