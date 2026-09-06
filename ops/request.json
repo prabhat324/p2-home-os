@@ -1,5 +1,5 @@
 {
-  "request_id": "core01-media-nfs-status-20260906-0953",
+  "request_id": "core01-media-nfs-deep-status-20260906-0955",
   "operation": "status",
   "target": "core-01"
 }
