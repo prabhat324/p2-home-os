@@ -78,6 +78,8 @@ jobs:
           operation="$(jq -er '.operation' ops/request.json)"
           if [[ "$operation" == "network-static-fix" ]]; then
             bash ops/run-network-static-fix.sh ops/request.json
+          elif [[ "$operation" == "ssh-transfer-fabric" ]]; then
+            bash ops/run-ssh-transfer-fabric.sh ops/request.json
           else
             bash ops/run-request-v2.sh ops/request.json
           fi
