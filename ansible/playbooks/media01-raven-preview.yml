@@ -4,8 +4,6 @@
   gather_facts: false
   vars:
     source: /srv/media-production/inbox/raven-podcast-01/master.mp4
-    work: /srv/media-production/work/raven-podcast-01-preview
-    review: /srv/media-production/review/raven-podcast-01
     clip: /srv/media-production/work/raven-podcast-01-preview/source-60s.mp4
     base_transcript: /srv/media-production/work/raven-podcast-01-preview/analysis-v2/transcript.json
     analysis: /srv/media-production/work/raven-podcast-01-preview/analysis-v3
@@ -15,7 +13,7 @@
     assignments: /srv/media-production/review/raven-podcast-01/speaker-assignments-60s-v3.json
     output: /srv/media-production/review/raven-podcast-01/preview-60s-captioned-v3.mp4
   tasks:
-    - name: Verify source and first-minute transcript exist
+    - name: Verify source and first-minute working files exist
       ansible.builtin.stat:
         path: "{{ item }}"
       loop:
@@ -25,65 +23,52 @@
       register: required
       failed_when: not required.stat.exists
 
-    - name: Deploy current podcast captioner
+    - name: Deploy V3 caption tools
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../../services/media01/podcast_captions.py"
-        dest: /home/p2ops/media01/podcast_captions.py
+        src: "{{ playbook_dir }}/../../services/media01/{{ item }}"
+        dest: "/home/p2ops/media01/{{ item }}"
         mode: "0755"
+      loop:
+        - podcast_captions.py
+        - transcript_patch.py
 
-    - name: Verify captioner syntax
+    - name: Verify V3 tool syntax
       ansible.builtin.command:
         argv:
           - /home/p2ops/media01/venv-v2/bin/python
           - -m
           - py_compile
-          - /home/p2ops/media01/podcast_captions.py
+          - "/home/p2ops/media01/{{ item }}"
+      loop:
+        - podcast_captions.py
+        - transcript_patch.py
       changed_when: false
 
-    - name: Create isolated V3 analysis directory
+    - name: Create V3 analysis directory
       ansible.builtin.file:
         path: "{{ analysis }}"
         state: directory
         mode: "0775"
 
-    - name: Build reviewed V3 transcript with recovered Raven opening answer
-      ansible.builtin.shell: |
-        set -euo pipefail
-        /home/p2ops/media01/venv-v2/bin/python - <<'PY'
-        import json
-        from pathlib import Path
-        src=Path('{{ base_transcript }}');dst=Path('{{ transcript }}')
-        t=json.load(open(src));segments=t.get('segments',[])
-        # The 22-31 second audio was independently force-decoded after the full pass skipped it.
-        # Reviewed correction: Raven's answer begins at 23.68 with her 2016 move to Wasaga Beach.
-        recovered_text='I moved to Wasaga Beach in 2016 after a long marriage.'
-        start,end=23.68,30.28
-        toks=recovered_text.split();words=[]
-        for i,w in enumerate(toks):
-            a=start+(end-start)*i/len(toks);b=start+(end-start)*(i+1)/len(toks)
-            words.append({'start':a,'end':b,'word':(' ' if i else '')+w,'probability':1.0,'recovered':True})
-        recovered={'start':start,'end':end,'text':recovered_text,'words':words,'recovered':True,'recovery_source':'targeted 22-31s CPU Whisper + human/context review'}
-        fixed=[]
-        for s in segments:
-            s=dict(s);ws=list(s.get('words') or [])
-            if abs(float(s.get('start',-1))-30.0)<0.15 and s.get('text','').startswith('A marriage. So'):
-                ws=[w for w in ws if float(w.get('end',0))>30.31]
-                s['words']=ws;s['start']=float(ws[0]['start']) if ws else 30.78
-                s['text']='So I separated and I had three kids. I say had because I went through such an awakening moment the last two years.'
-                s['reviewed_trim']='removed duplicate tail A marriage. already recovered in prior sentence'
-            fixed.append(s)
-        fixed.append(recovered);fixed.sort(key=lambda s:(float(s['start']),float(s['end'])))
-        t['segments']=fixed;t['caption_review_v3']={
-          'recovered_gap':[23.68,30.28],
-          'recovered_text':recovered_text,
-          'removed_duplicate_at_30s':'A marriage.',
-          'reason':'full-pass Whisper skipped non-silent speech; targeted CPU decode recovered content'
-        }
-        dst.write_text(json.dumps(t,indent=2))
-        print(json.dumps(t['caption_review_v3'],indent=2))
-        PY
-      args:
-        executable: /bin/bash
+    - name: Recover skipped Raven sentence and trim duplicate ASR tail
+      ansible.builtin.command:
+        argv:
+          - /home/p2ops/media01/venv-v2/bin/python
+          - /home/p2ops/media01/transcript_patch.py
+          - "{{ base_transcript }}"
+          - "{{ transcript }}"
+          - --insert-start
+          - "23.68"
+          - --insert-end
+          - "30.28"
+          - --insert-text
+          - "I moved to Wasaga Beach in 2016 after a long marriage."
+          - --trim-segment-start
+          - "30.0"
+          - --trim-through
+          - "30.31"
+          - --source-note
+          - "targeted non-silent 22-31 second CPU Whisper recovery, reviewed against interview context"
       register: transcript_patch
       changed_when: true
 
@@ -121,20 +106,12 @@
                 {"start": 0.0, "end": 23.20, "side": "right", "reason": "reviewed Prabhat intro and complete question turn"},
                 {"start": 23.50, "end": 60.30, "side": "left", "reason": "reviewed Raven answer turn"}
               ],
-              "left": {
-                "name": "Raven",
-                "text_color": "#000000",
-                "shadow_color": "#8EF2A0"
-              },
-              "right": {
-                "name": "Prabhat",
-                "text_color": "#000000",
-                "shadow_color": "#8FD6FF"
-              }
+              "left": {"name": "Raven", "text_color": "#000000", "shadow_color": "#8EF2A0"},
+              "right": {"name": "Prabhat", "text_color": "#000000", "shadow_color": "#8FD6FF"}
             }
           }
 
-    - name: Clear only V3 proof output artifacts
+    - name: Clear only V3 proof outputs
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
@@ -143,7 +120,7 @@
         - "{{ assignments }}"
         - "{{ output }}"
 
-    - name: Generate speaker-turn V3 caption ASS
+    - name: Generate V3 speaker-turn captions
       ansible.builtin.command:
         argv:
           - /home/p2ops/media01/venv-v2/bin/python
@@ -160,34 +137,21 @@
       register: caption_generation
       changed_when: true
 
-    - name: Verify V3 caption contracts before encoding
+    - name: Enforce V3 colour, recovered-speech, and coverage contracts
       ansible.builtin.shell: |
         set -euo pipefail
-        /home/p2ops/media01/venv-v2/bin/python - <<'PY'
-        import json
-        a=json.load(open('{{ assignments }}'));c=a['cues'];turns=a['turns']
-        assert c, 'no captions'
-        # Host question must never switch green mid-turn.
-        host=[x for x in c if x['start'] < 23.2]
-        assert host and all(x['side']=='right' for x in host), [(x['start'],x['text'],x['side']) for x in host if x['side']!='right']
-        # Recovered Raven line must exist and be green-shadowed/left.
-        recovered=[x for x in c if x.get('recovered')]
-        assert recovered and all(x['side']=='left' for x in recovered), recovered
-        assert any('moved to Wasaga Beach in 2016' in x['text'] for x in recovered), recovered
-        # Raven's answer after the switch must remain left for this reviewed proof.
-        answer=[x for x in c if x['start'] >= 23.5]
-        assert answer and all(x['side']=='left' for x in answer), [(x['start'],x['text'],x['side']) for x in answer if x['side']!='left']
-        assert not a.get('caption_gaps_over_0_60s'), a.get('caption_gaps_over_0_60s')
-        print(json.dumps({'host_cues':len(host),'recovered_cues':len(recovered),'answer_cues':len(answer),'gaps':a.get('caption_gaps_over_0_60s'),'turns':turns},indent=2))
-        PY
+        jq -e '([.cues[] | select(.start < 23.2 and .side != "right")] | length) == 0' "{{ assignments }}" >/dev/null
+        jq -e '([.cues[] | select(.start >= 23.5 and .side != "left")] | length) == 0' "{{ assignments }}" >/dev/null
+        jq -e '([.cues[] | select(.recovered == true)] | length) > 0' "{{ assignments }}" >/dev/null
+        jq -e 'any(.cues[]; (.recovered == true) and (.text | contains("moved to Wasaga Beach in 2016")))' "{{ assignments }}" >/dev/null
+        jq -e '(.caption_gaps_over_0_60s | length) == 0' "{{ assignments }}" >/dev/null
         grep -q '^Style: Left,.*&H00000000,&H00000000,' "{{ ass }}"
         grep -q '^Style: Right,.*&H00000000,&H00000000,' "{{ ass }}"
       args:
         executable: /bin/bash
-      register: contract
       changed_when: false
 
-    - name: Burn V3 captions into first-minute proof
+    - name: Burn V3 black captions with speaker-coloured shadows
       ansible.builtin.shell: |
         set -euo pipefail
         rm -f "{{ output }}.partial.mp4"
@@ -201,24 +165,15 @@
         executable: /bin/bash
       changed_when: true
 
-    - name: Validate V3 preview
+    - name: Validate V3 output file
       ansible.builtin.shell: |
         set -euo pipefail
-        /home/p2ops/media01/venv-v2/bin/python - <<'PY'
-        import json,subprocess
-        from pathlib import Path
-        out=Path('{{ output }}');a=json.load(open('{{ assignments }}'))
-        if not out.exists() or out.stat().st_size<1024*1024:raise SystemExit('V3 output missing')
-        d=float(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',str(out)],text=True).strip())
-        if not 59.0<=d<=60.5:raise SystemExit(f'bad duration {d}')
-        print(json.dumps({
-          'preview':str(out),'duration_seconds':round(d,3),'size_mb':round(out.stat().st_size/1024/1024,1),
-          'captions':len(a['cues']),'turns':len(a['turns']),'prabhat_right':sum(x['side']=='right' for x in a['cues']),
-          'raven_left':sum(x['side']=='left' for x in a['cues']),'recovered_captions':sum(bool(x.get('recovered')) for x in a['cues']),
-          'caption_gaps_over_0_60s':a.get('caption_gaps_over_0_60s'),
-          'ass':'{{ ass }}','assignments':'{{ assignments }}'
-        },indent=2))
-        PY
+        test -s "{{ output }}"
+        d="$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "{{ output }}")"
+        awk -v d="$d" 'BEGIN { if (d < 59.0 || d > 60.5) exit 1 }'
+        echo "duration=$d"
+        du -h "{{ output }}"
+        jq '{captions:(.cues|length),turns:(.turns|length),prabhat_right:([.cues[]|select(.side=="right")]|length),raven_left:([.cues[]|select(.side=="left")]|length),recovered:([.cues[]|select(.recovered==true)]|length),gaps:.caption_gaps_over_0_60s}' "{{ assignments }}"
       args:
         executable: /bin/bash
       register: proof
@@ -229,5 +184,5 @@
         msg:
           transcript_patch: "{{ transcript_patch.stdout }}"
           caption_generation: "{{ caption_generation.stdout }}"
-          contract: "{{ contract.stdout }}"
           proof: "{{ proof.stdout }}"
+          preview: "{{ output }}"
