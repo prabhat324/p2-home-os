@@ -5,6 +5,19 @@
   const originalNodeHTML = nodeHTML;
   const originalRenderLists = renderLists;
 
+  if (!NODES.some(n => n.name === 'media-01')) {
+    const mediaNode = {
+      name: 'media-01',
+      label: 'media-01',
+      ip: '192.168.0.6',
+      role: 'Media production · 4K editing',
+      glances: '/api/glances/media-01'
+    };
+    const storageIndex = NODES.findIndex(n => n.name === 'storage-01');
+    if (storageIndex >= 0) NODES.splice(storageIndex, 0, mediaNode);
+    else NODES.push(mediaNode);
+  }
+
   pollNode = async function(n){
     if(n.kind !== 'qnap') return originalPollNode(n);
     try{
@@ -59,14 +72,25 @@
 
   renderLists = function(){
     originalRenderLists();
+
     const list = document.getElementById('storageList');
-    if(!list) return;
-    const first = list.firstElementChild;
-    if(first && first.textContent.includes('storage-01 NAS')){
-      first.outerHTML = storageSummaryHTML(nodeState['storage-01']);
+    if(list){
+      const first = list.firstElementChild;
+      if(first && first.textContent.includes('storage-01 NAS')){
+        first.outerHTML = storageSummaryHTML(nodeState['storage-01']);
+      }
+    }
+
+    const monitor = document.getElementById('monitorList');
+    if(monitor){
+      const s = nodeState['media-01'] || {};
+      const mediaRow = `<div class="row"><div><b>media-01</b><div><small>${s.online?Math.round(s.cpu||0)+'% CPU · '+Math.round(s.ram||0)+'% RAM':'No telemetry'}</small></div></div><span class="badge ${s.online?'':'bad'}">${s.online?'Online':'Offline'}</span></div>`;
+      const storageRow = Array.from(monitor.children).find(row => row.querySelector('b')?.textContent === 'storage-01');
+      if(storageRow) storageRow.insertAdjacentHTML('beforebegin', mediaRow);
+      else monitor.insertAdjacentHTML('beforeend', mediaRow);
     }
   };
 
-  // Re-run immediately so the enhanced QNAP card does not wait for the next 15s cycle.
+  // Re-run immediately so enhanced infrastructure cards do not wait for the next 15s cycle.
   refresh();
 })();
