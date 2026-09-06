@@ -1,99 +1,54 @@
 ---
-- name: Collect safe node status
+- name: Attempt safe core media mount recovery
   hosts: all
   gather_facts: false
   tasks:
-    - name: Collect host summary
+    - name: Attempt non-destructive media mount recovery on core-01
       ansible.builtin.shell: |
-        set -o pipefail
+        set +e
         echo "HOST=$(hostname)"
-        echo "ROLE={{ node_role | default('unknown') }}"
-        echo "UPTIME=$(uptime -p 2>/dev/null || true)"
-        echo "LOAD=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || true)"
-        echo "MEMORY=$(free -h 2>/dev/null | awk '/^Mem:/ {print $3 "/" $2}' || true)"
-        echo "ROOT=$(df -hP / 2>/dev/null | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}' || true)"
-        echo '=== FILESYSTEMS ==='
-        df -hPT -x tmpfs -x devtmpfs 2>/dev/null || true
-        echo '=== GLANCES FILESYSTEMS ==='
-        curl -fsS --max-time 4 http://127.0.0.1:61208/api/4/fs 2>/dev/null | python3 -c '
-        import json,sys
-        try: rows=json.load(sys.stdin)
-        except Exception: rows=[]
-        for x in rows if isinstance(rows,list) else []:
-            print("|".join(str(x.get(k,"")) for k in ("mnt_point","device_name","fs_type","size","used","free","percent")))
-        ' || true
-        if [ "$(hostname)" = "media-server" ] || [ "$(hostname)" = "core-01" ]; then
-          echo '=== CORE GLANCES ACCESS ==='
-          stat -c '%U:%G %a %n' /opt/docker/compose/glances /opt/docker/compose/glances/docker-compose.yml 2>/dev/null || true
-          sed -n '1,160p' /opt/docker/compose/glances/docker-compose.yml 2>/dev/null || true
-          docker ps --filter name=glances --format '{{ "{{.Names}}" }}|{{ "{{.Status}}" }}' 2>&1 || true
-          sudo -n -l 2>&1 | head -80 || true
-          echo '=== CORE MEDIA STORAGE ==='
-          echo '--- BLOCK DEVICES ---'
-          lsblk -o NAME,MODEL,SERIAL,SIZE,FSTYPE,FSVER,LABEL,UUID,MOUNTPOINTS,TRAN 2>&1 || true
-          echo '--- UUID LINKS ---'
-          ls -l /dev/disk/by-uuid 2>&1 || true
-          echo '--- MEDIA DEVICE ACCESS ---'
-          id 2>&1 || true
-          ls -l /dev/sda /dev/sda2 2>&1 || true
-          for cmd in ntfsfix ntfs-3g.probe udisksctl; do command -v "$cmd" 2>&1 || true; done
-          echo '--- NTFS READ-ONLY CHECK ---'
-          if command -v ntfsfix >/dev/null 2>&1; then ntfsfix -n /dev/sda2 2>&1 || true; fi
-          if command -v ntfs-3g.probe >/dev/null 2>&1; then ntfs-3g.probe -r /dev/sda2 2>&1; echo "NTFS_PROBE_RC=$?"; fi
-          if command -v udisksctl >/dev/null 2>&1; then udisksctl info -b /dev/sda2 2>&1 | head -100 || true; fi
-          echo '--- MEDIA FINDMNT ---'
-          findmnt -T /mnt/media -o SOURCE,FSTYPE,SIZE,USED,AVAIL,OPTIONS,TARGET 2>&1 || true
-          echo '--- FSTAB MEDIA ---'
-          grep -nE '/mnt/media|3C80209F8020621E' /etc/fstab 2>&1 || true
-          echo '--- MEDIA MOUNT UNIT ---'
-          systemctl status mnt-media.mount --no-pager -l 2>&1 | tail -80 || true
-          echo '--- NFS SERVICES ---'
-          for unit in nfs-server.service nfs-kernel-server.service rpcbind.service; do
-            echo "UNIT=$unit"
-            systemctl is-active "$unit" 2>&1 || true
-            systemctl is-enabled "$unit" 2>&1 || true
-          done
-          echo '--- NFS PORT ---'
-          ss -lnt 2>&1 | grep -E '(:2049[[:space:]]|Local Address)' || true
-          echo '--- EXPORTS ---'
-          cat /etc/exports 2>&1 || true
-          echo '--- RECENT MEDIA/NFS LOGS ---'
-          journalctl --no-pager -n 100 -u mnt-media.mount -u nfs-server.service -u nfs-kernel-server.service 2>&1 | tail -100 || true
-          echo '=== PSQUARE DISCORD OVERSEER ==='
-          psquare_pid="$(cat /home/p2runner/.local/state/psquare-discord.pid 2>/dev/null || true)"
-          echo "PSQUARE_PID=${psquare_pid:-missing}"
-          if [ -n "$psquare_pid" ] && kill -0 "$psquare_pid" 2>/dev/null; then
-            echo 'PSQUARE_STATUS=running'
-            ps -o pid=,etimes=,cmd= -p "$psquare_pid" 2>/dev/null || true
-          else
-            echo 'PSQUARE_STATUS=stopped'
-          fi
-          echo "PSQUARE_CRON=$(crontab -l -u p2runner 2>/dev/null | grep -c 'psquare-discord-bot.py' || true)"
-          echo "PSQUARE_CONFIG_MODE=$(stat -c %a /home/p2runner/.config/psquare-discord.env 2>/dev/null || echo missing)"
-          echo "PSQUARE_INVENTORY_MODE=$(stat -c %a /home/p2runner/.config/psquare/hosts.yml 2>/dev/null || echo missing)"
+        if [ "$(hostname)" != "core-01" ]; then
+          echo 'RECOVERY_SKIPPED=not-core-01'
+          exit 0
         fi
-        if [ "$(hostname)" = "compute-01" ]; then
-          echo '=== JELLYFIN HEALTH ==='
-          echo "JELLYFIN_ACTIVE=$(systemctl is-active jellyfin 2>/dev/null || true)"
-          echo "JELLYFIN_ENABLED=$(systemctl is-enabled jellyfin 2>/dev/null || true)"
-          echo '--- LISTENERS ---'
-          ss -ltn 2>/dev/null | grep -E '(:8096|:8920)' || true
-          echo '--- PUBLIC API ---'
-          curl -fsS --max-time 5 http://127.0.0.1:8096/System/Info/Public 2>/dev/null || true
-          echo
-          echo '--- MEDIA MOUNT ---'
-          findmnt -T /mnt/media -o SOURCE,FSTYPE,TARGET,OPTIONS -n 2>/dev/null || true
-          timeout 5 find /mnt/media -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null | head -20 || true
-          echo '--- JELLYFIN PROCESS ---'
-          pgrep -af jellyfin 2>/dev/null || true
-          echo '--- SUDO ALLOWLIST ---'
-          sudo -n -l 2>&1 | head -100 || true
+        echo '=== BEFORE ==='
+        findmnt -T /mnt/media -o SOURCE,FSTYPE,TARGET,OPTIONS -n 2>&1 || true
+        systemctl is-active mnt-media.mount 2>&1 || true
+        systemctl is-active nfs-server.service 2>&1 || true
+
+        echo '=== TRY SYSTEMD MOUNT ==='
+        systemctl start mnt-media.mount 2>&1
+        echo "SYSTEMD_MOUNT_RC=$?"
+        findmnt -T /mnt/media -o SOURCE,FSTYPE,TARGET,OPTIONS -n 2>&1 || true
+
+        if ! findmnt -T /mnt/media -n -o SOURCE 2>/dev/null | grep -qE 'sda2|3C80209F8020621E'; then
+          echo '=== TRY UDISKS MOUNT ==='
+          udisksctl mount -b /dev/sda2 2>&1
+          echo "UDISKS_MOUNT_RC=$?"
+          findmnt -T /mnt/media -o SOURCE,FSTYPE,TARGET,OPTIONS -n 2>&1 || true
+          findmnt -S /dev/sda2 -o SOURCE,FSTYPE,TARGET,OPTIONS -n 2>&1 || true
         fi
+
+        if findmnt -T /mnt/media -n -o SOURCE 2>/dev/null | grep -qE 'sda2|3C80209F8020621E'; then
+          echo 'MEDIA_MOUNT=ready'
+          echo '=== TRY NFS START ==='
+          systemctl start nfs-server.service 2>&1
+          echo "NFS_START_RC=$?"
+        else
+          echo 'MEDIA_MOUNT=not-ready'
+          echo 'NFS_START_SKIPPED=media-not-mounted'
+        fi
+
+        echo '=== AFTER ==='
+        findmnt -T /mnt/media -o SOURCE,FSTYPE,SIZE,USED,AVAIL,TARGET,OPTIONS 2>&1 || true
+        systemctl status mnt-media.mount --no-pager -l 2>&1 | tail -40 || true
+        systemctl status nfs-server.service --no-pager -l 2>&1 | tail -40 || true
+        ss -lnt 2>&1 | grep -E '(:2049[[:space:]]|Local Address)' || true
       args:
         executable: /bin/bash
-      register: host_status
+      register: recovery
       changed_when: false
 
-    - name: Print host summary
+    - name: Show recovery attempt
       ansible.builtin.debug:
-        msg: "{{ host_status.stdout_lines }}"
+        msg: "{{ recovery.stdout_lines }}"
