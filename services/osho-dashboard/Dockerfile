@@ -24,8 +24,8 @@ ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho
 # Local analytics.html is maintained in app/static so dashboard navigation stays consistent.
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/static/storage01.js /app/static/storage01.js
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/master/services/osho-dashboard/app/static/powergrid.js /app/static/powergrid.js
-# Local override adds the dedicated /power route while preserving the production power widget.
-COPY app/static/powergrid.js /app/static/powergrid.js
+# Keep the GitHub runtime overlay authoritative; do not overwrite powergrid.js
+# with the helper's older local build-context copy.
 ADD https://raw.githubusercontent.com/prabhat324/p2-home-os/f15a496e91170a288c5dbdf38a5bf24d58cbce45/services/osho-dashboard/app/static/tst902.html /app/static/tst902.html
 
 EXPOSE 8787
