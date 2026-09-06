@@ -1,40 +1,29 @@
 ---
 - name: Build direct passwordless SSH transfer fabric
-  hosts: "control_nodes:compute_nodes"
-  gather_facts: true
-  become: true
+  hosts: compute_nodes
+  gather_facts: false
   vars:
-    transfer_user: p2ops
     transfer_home: /home/p2ops
     transfer_key: /home/p2ops/.ssh/id_ed25519_p2transfer
     transfer_known_hosts: /home/p2ops/.ssh/known_hosts_p2transfer
-    fabric_hosts: "{{ (groups['control_nodes'] + groups['compute_nodes']) | unique | list }}"
+    fabric_hosts: "{{ groups['compute_nodes'] | unique | list }}"
 
   tasks:
-    - name: Ensure transfer prerequisites are installed
-      ansible.builtin.package:
-        name:
-          - openssh-client
-          - openssh-server
-          - rsync
-        state: present
-
-    - name: Ensure SSH host keys exist
-      ansible.builtin.command: ssh-keygen -A
+    - name: Verify SSH and rsync prerequisites already exist
+      ansible.builtin.shell: |
+        set -euo pipefail
+        command -v ssh >/dev/null
+        command -v ssh-keygen >/dev/null
+        command -v rsync >/dev/null
+        test -r /etc/ssh/ssh_host_ed25519_key.pub
+      args:
+        executable: /bin/bash
       changed_when: false
-
-    - name: Ensure SSH service is enabled and started
-      ansible.builtin.service:
-        name: ssh
-        state: started
-        enabled: true
 
     - name: Ensure p2ops SSH directory exists
       ansible.builtin.file:
         path: "{{ transfer_home }}/.ssh"
         state: directory
-        owner: "{{ transfer_user }}"
-        group: "{{ transfer_user }}"
         mode: "0700"
 
     - name: Generate one dedicated transfer key per host
@@ -52,7 +41,6 @@
           - "{{ transfer_key }}"
       args:
         creates: "{{ transfer_key }}"
-      become_user: "{{ transfer_user }}"
 
     - name: Read each host transfer public key
       ansible.builtin.slurp:
@@ -68,8 +56,6 @@
       ansible.builtin.blockinfile:
         path: "{{ transfer_home }}/.ssh/authorized_keys"
         create: true
-        owner: "{{ transfer_user }}"
-        group: "{{ transfer_user }}"
         mode: "0600"
         marker: "# {mark} P2 HOME OS DIRECT TRANSFER FABRIC"
         block: |
@@ -80,8 +66,6 @@
     - name: Pin exact server host keys for every transfer alias
       ansible.builtin.copy:
         dest: "{{ transfer_known_hosts }}"
-        owner: "{{ transfer_user }}"
-        group: "{{ transfer_user }}"
         mode: "0644"
         content: |
           {% for h in fabric_hosts %}
@@ -92,16 +76,14 @@
       ansible.builtin.blockinfile:
         path: "{{ transfer_home }}/.ssh/config"
         create: true
-        owner: "{{ transfer_user }}"
-        group: "{{ transfer_user }}"
         mode: "0600"
         marker: "# {mark} P2 HOME OS DIRECT TRANSFER ALIASES"
         block: |
           {% for h in fabric_hosts %}
           Host {{ h }}
-            HostName {{ hostvars[h].ansible_default_ipv4.address }}
+            HostName {{ hostvars[h].production_ip }}
             HostKeyAlias {{ h }}
-            User {{ transfer_user }}
+            User p2ops
             IdentityFile {{ transfer_key }}
             IdentitiesOnly yes
             BatchMode yes
@@ -125,7 +107,6 @@
           - "{{ transfer_home }}/.ssh/config"
           - "{{ item }}"
           - "printf 'P2_SSH_OK source=%s target=%s\\n' '{{ inventory_hostname }}' '{{ item }}'"
-      become_user: "{{ transfer_user }}"
       loop: "{{ fabric_hosts | difference([inventory_hostname]) }}"
       register: ssh_matrix
       changed_when: false
@@ -134,8 +115,6 @@
       ansible.builtin.copy:
         dest: "/tmp/p2-transfer-smoke-{{ inventory_hostname }}.txt"
         content: "source={{ inventory_hostname }}\n"
-        owner: "{{ transfer_user }}"
-        group: "{{ transfer_user }}"
         mode: "0600"
 
     - name: Verify rsync file transfer to every other managed node
@@ -147,9 +126,7 @@
           - "ssh -F {{ transfer_home }}/.ssh/config"
           - "/tmp/p2-transfer-smoke-{{ inventory_hostname }}.txt"
           - "{{ item }}:/tmp/p2-transfer-smoke-{{ inventory_hostname }}-to-{{ item }}.txt"
-      become_user: "{{ transfer_user }}"
       loop: "{{ fabric_hosts | difference([inventory_hostname]) }}"
-      register: rsync_matrix
       changed_when: true
 
     - name: Verify transferred payload remotely and clean it up
@@ -160,7 +137,6 @@
           - "{{ transfer_home }}/.ssh/config"
           - "{{ item }}"
           - "test -s /tmp/p2-transfer-smoke-{{ inventory_hostname }}-to-{{ item }}.txt && rm -f /tmp/p2-transfer-smoke-{{ inventory_hostname }}-to-{{ item }}.txt"
-      become_user: "{{ transfer_user }}"
       loop: "{{ fabric_hosts | difference([inventory_hostname]) }}"
       changed_when: true
 
