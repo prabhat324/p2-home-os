@@ -11,6 +11,7 @@ import server as base_server
 
 
 app = base_server.app
+base_server.GLANCES_NODES["media-01"] = "192.168.0.6"
 
 QNAP_HOST = "192.168.0.53"
 COMMUNITY_FILE = "/data/storage-01-snmp-community"
