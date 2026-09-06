@@ -28,6 +28,29 @@
           sed -n '1,160p' /opt/docker/compose/glances/docker-compose.yml 2>/dev/null || true
           docker ps --filter name=glances --format '{{ "{{.Names}}" }}|{{ "{{.Status}}" }}' 2>&1 || true
           sudo -n -l 2>&1 | head -80 || true
+          echo '=== CORE MEDIA STORAGE ==='
+          echo '--- BLOCK DEVICES ---'
+          lsblk -o NAME,MODEL,SERIAL,SIZE,FSTYPE,FSVER,LABEL,UUID,MOUNTPOINTS,TRAN 2>&1 || true
+          echo '--- UUID LINKS ---'
+          ls -l /dev/disk/by-uuid 2>&1 || true
+          echo '--- MEDIA FINDMNT ---'
+          findmnt -T /mnt/media -o SOURCE,FSTYPE,SIZE,USED,AVAIL,OPTIONS,TARGET 2>&1 || true
+          echo '--- FSTAB MEDIA ---'
+          grep -nE '/mnt/media|3C80209F8020621E' /etc/fstab 2>&1 || true
+          echo '--- MEDIA MOUNT UNIT ---'
+          systemctl status mnt-media.mount --no-pager -l 2>&1 | tail -80 || true
+          echo '--- NFS SERVICES ---'
+          for unit in nfs-server.service nfs-kernel-server.service rpcbind.service; do
+            echo "UNIT=$unit"
+            systemctl is-active "$unit" 2>&1 || true
+            systemctl is-enabled "$unit" 2>&1 || true
+          done
+          echo '--- NFS PORT ---'
+          ss -lnt 2>&1 | grep -E '(:2049[[:space:]]|Local Address)' || true
+          echo '--- EXPORTS ---'
+          cat /etc/exports 2>&1 || true
+          echo '--- RECENT MEDIA/NFS LOGS ---'
+          journalctl --no-pager -n 100 -u mnt-media.mount -u nfs-server.service -u nfs-kernel-server.service 2>&1 | tail -100 || true
           echo '=== PSQUARE DISCORD OVERSEER ==='
           psquare_pid="$(cat /home/p2runner/.local/state/psquare-discord.pid 2>/dev/null || true)"
           echo "PSQUARE_PID=${psquare_pid:-missing}"
