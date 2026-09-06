@@ -1,23 +1,65 @@
 ---
-- name: Inspect Raven caption proof cue assignments
+- name: Diagnose Raven first-minute missing-caption gap
   hosts: media-01
   gather_facts: false
+  vars:
+    clip: /srv/media-production/work/raven-podcast-01-preview/source-60s.mp4
+    gapwav: /srv/media-production/work/raven-podcast-01-preview/gap-22-31.wav
   tasks:
-    - name: Read V1 and V2 cue diagnostics
+    - name: Inspect audio energy and silence around 23 to 30 seconds
       ansible.builtin.shell: |
         set -euo pipefail
-        echo '=== V1 ASSIGNMENTS ==='
-        cat /srv/media-production/review/raven-podcast-01/speaker-assignments-60s.json
-        echo '=== V1 TRANSCRIPT ==='
-        cat /srv/media-production/work/raven-podcast-01-preview/analysis/transcript.json
-        echo '=== V2 ASSIGNMENTS ==='
-        cat /srv/media-production/review/raven-podcast-01/speaker-assignments-60s-v2.json
-        echo '=== V2 TRANSCRIPT ==='
-        cat /srv/media-production/work/raven-podcast-01-preview/analysis-v2/transcript.json
+        rm -f "{{ gapwav }}"
+        ffmpeg -nostdin -hide_banner -loglevel error -y -ss 22 -t 9 -i "{{ clip }}" -map 0:a:0 -ac 1 -ar 16000 -c:a pcm_s16le "{{ gapwav }}"
+        echo '=== SILENCE DETECT ==='
+        ffmpeg -nostdin -hide_banner -ss 22 -t 9 -i "{{ clip }}" -af silencedetect=noise=-38dB:d=0.20 -f null - 2>&1 | grep -E 'silence_(start|end|duration)' || true
+        echo '=== VOLUME DETECT ==='
+        ffmpeg -nostdin -hide_banner -ss 22 -t 9 -i "{{ clip }}" -af volumedetect -f null - 2>&1 | grep -E 'mean_volume|max_volume' || true
+        echo '=== WAV PROBE ==='
+        ffprobe -v error -show_entries format=duration,size -of json "{{ gapwav }}"
       args:
         executable: /bin/bash
-      register: out
+      register: audio_diag
+      changed_when: true
+
+    - name: Force-transcribe only the suspicious audio window
+      ansible.builtin.shell: |
+        set -euo pipefail
+        /home/p2ops/media01/venv-v2/bin/python - <<'PY'
+        import json
+        from faster_whisper import WhisperModel
+        wav='{{ gapwav }}'
+        try:
+            model=WhisperModel('large-v3-turbo',device='cuda',compute_type='float16')
+            engine='cuda-float16'
+        except Exception as e:
+            model=WhisperModel('large-v3-turbo',device='cpu',compute_type='int8')
+            engine='cpu-int8:'+str(e)
+        def run(**kw):
+            segs,info=model.transcribe(wav,language='en',beam_size=5,word_timestamps=True,**kw)
+            return [{
+              'start_absolute':round(22+float(s.start),2),
+              'end_absolute':round(22+float(s.end),2),
+              'text':s.text.strip(),
+              'words':[{'start_absolute':round(22+float(w.start),2),'end_absolute':round(22+float(w.end),2),'word':w.word,'p':round(float(w.probability),3)} for w in (s.words or [])]
+            } for s in segs if s.text.strip()]
+        attempts={}
+        for name,kwargs in {
+          'no_vad_no_context':dict(vad_filter=False,condition_on_previous_text=False,temperature=0.0,initial_prompt='Interview between Prabhat and Raven in Wasaga Beach.'),
+          'no_vad_context':dict(vad_filter=False,condition_on_previous_text=True,temperature=0.0),
+          'permissive_vad':dict(vad_filter=True,vad_parameters={'min_silence_duration_ms':150,'speech_pad_ms':300},condition_on_previous_text=False,temperature=0.0),
+        }.items():
+            try: attempts[name]=run(**kwargs)
+            except Exception as exc: attempts[name]={'error':str(exc)}
+        print(json.dumps({'engine':engine,'attempts':attempts},indent=2))
+        PY
+      args:
+        executable: /bin/bash
+      register: forced_transcript
       changed_when: false
-    - name: Print Raven caption diagnostics
+
+    - name: Report Raven gap diagnosis
       ansible.builtin.debug:
-        msg: "{{ out.stdout }}"
+        msg:
+          audio: "{{ audio_diag.stdout }}"
+          forced_transcript: "{{ forced_transcript.stdout }}"
