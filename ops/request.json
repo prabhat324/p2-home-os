@@ -1,5 +1,5 @@
 {
-  "request_id": "dashboard-media01-propagated-deploy-20260906-1000",
-  "operation": "dashboard-deploy",
-  "target": "compute-02"
+  "request_id": "core01-media-nfs-status-20260906-0953",
+  "operation": "status",
+  "target": "core-01"
 }
