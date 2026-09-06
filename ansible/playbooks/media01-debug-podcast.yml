@@ -1,65 +1,54 @@
 ---
-- name: Diagnose Raven first-minute missing-caption gap
+- name: Force recover Raven first-minute missing-caption speech
   hosts: media-01
   gather_facts: false
   vars:
     clip: /srv/media-production/work/raven-podcast-01-preview/source-60s.mp4
     gapwav: /srv/media-production/work/raven-podcast-01-preview/gap-22-31.wav
   tasks:
-    - name: Inspect audio energy and silence around 23 to 30 seconds
+    - name: Refresh suspicious audio window
       ansible.builtin.shell: |
         set -euo pipefail
-        rm -f "{{ gapwav }}"
         ffmpeg -nostdin -hide_banner -loglevel error -y -ss 22 -t 9 -i "{{ clip }}" -map 0:a:0 -ac 1 -ar 16000 -c:a pcm_s16le "{{ gapwav }}"
-        echo '=== SILENCE DETECT ==='
-        ffmpeg -nostdin -hide_banner -ss 22 -t 9 -i "{{ clip }}" -af silencedetect=noise=-38dB:d=0.20 -f null - 2>&1 | grep -E 'silence_(start|end|duration)' || true
-        echo '=== VOLUME DETECT ==='
-        ffmpeg -nostdin -hide_banner -ss 22 -t 9 -i "{{ clip }}" -af volumedetect -f null - 2>&1 | grep -E 'mean_volume|max_volume' || true
-        echo '=== WAV PROBE ==='
-        ffprobe -v error -show_entries format=duration,size -of json "{{ gapwav }}"
       args:
         executable: /bin/bash
-      register: audio_diag
       changed_when: true
 
-    - name: Force-transcribe only the suspicious audio window
+    - name: Force CPU decode with several context strategies
       ansible.builtin.shell: |
         set -euo pipefail
         /home/p2ops/media01/venv-v2/bin/python - <<'PY'
         import json
         from faster_whisper import WhisperModel
         wav='{{ gapwav }}'
-        try:
-            model=WhisperModel('large-v3-turbo',device='cuda',compute_type='float16')
-            engine='cuda-float16'
-        except Exception as e:
-            model=WhisperModel('large-v3-turbo',device='cpu',compute_type='int8')
-            engine='cpu-int8:'+str(e)
+        model=WhisperModel('large-v3-turbo',device='cpu',compute_type='int8')
         def run(**kw):
-            segs,info=model.transcribe(wav,language='en',beam_size=5,word_timestamps=True,**kw)
+            segs,info=model.transcribe(wav,language='en',beam_size=8,word_timestamps=True,**kw)
             return [{
               'start_absolute':round(22+float(s.start),2),
               'end_absolute':round(22+float(s.end),2),
               'text':s.text.strip(),
+              'avg_logprob':round(float(s.avg_logprob),3),
+              'no_speech_prob':round(float(s.no_speech_prob),3),
               'words':[{'start_absolute':round(22+float(w.start),2),'end_absolute':round(22+float(w.end),2),'word':w.word,'p':round(float(w.probability),3)} for w in (s.words or [])]
             } for s in segs if s.text.strip()]
         attempts={}
-        for name,kwargs in {
-          'no_vad_no_context':dict(vad_filter=False,condition_on_previous_text=False,temperature=0.0,initial_prompt='Interview between Prabhat and Raven in Wasaga Beach.'),
-          'no_vad_context':dict(vad_filter=False,condition_on_previous_text=True,temperature=0.0),
-          'permissive_vad':dict(vad_filter=True,vad_parameters={'min_silence_duration_ms':150,'speech_pad_ms':300},condition_on_previous_text=False,temperature=0.0),
-        }.items():
+        configs={
+          'no_context':dict(vad_filter=False,condition_on_previous_text=False,temperature=0.0),
+          'interview_prompt':dict(vad_filter=False,condition_on_previous_text=False,temperature=0.0,initial_prompt='Prabhat asks Raven who she is. Raven answers about herself and her background in Wasaga Beach.'),
+          'previous_question_prompt':dict(vad_filter=False,condition_on_previous_text=False,temperature=0.0,initial_prompt='Who is Raven, if you help me understand that?'),
+          'permissive_vad':dict(vad_filter=True,vad_parameters={'min_silence_duration_ms':100,'speech_pad_ms':400},condition_on_previous_text=False,temperature=0.0),
+        }
+        for name,kwargs in configs.items():
             try: attempts[name]=run(**kwargs)
             except Exception as exc: attempts[name]={'error':str(exc)}
-        print(json.dumps({'engine':engine,'attempts':attempts},indent=2))
+        print(json.dumps({'engine':'cpu-int8','attempts':attempts},indent=2))
         PY
       args:
         executable: /bin/bash
-      register: forced_transcript
+      register: recovered
       changed_when: false
 
-    - name: Report Raven gap diagnosis
+    - name: Report recovered Raven gap speech
       ansible.builtin.debug:
-        msg:
-          audio: "{{ audio_diag.stdout }}"
-          forced_transcript: "{{ forced_transcript.stdout }}"
+        msg: "{{ recovered.stdout }}"
