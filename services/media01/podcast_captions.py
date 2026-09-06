@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Create speaker-aware ASS captions for fixed left/right two-person podcasts.
+"""Create speaker-aware ASS captions for a fixed left/right two-person podcast.
 
-Speaker colour is assigned once per transcript/speaker turn, then inherited by every caption chunk
-inside that turn. This prevents a hand gesture from changing colour halfway through one sentence.
-Optional transcript insertions and speaker overrides provide an auditable human-correction path for
-speech that ASR skipped or a turn that was visually ambiguous.
+For long-form runs, speaker attribution combines screen-side motion with a stereo audio signature
+calibrated from reviewed speaker windows. Colour is assigned per detected speaker turn and inherited
+by all caption chunks in that turn. Reviewed overrides remain available for known ambiguous windows.
 """
-import argparse,copy,json,subprocess
+import argparse,copy,json,math,subprocess
 from pathlib import Path
 import numpy as np
 
@@ -18,40 +17,45 @@ def ass_time(seconds):
 def ass_escape(text):return str(text).replace('\\','\\\\').replace('{','\\{').replace('}','\\}').replace('\n','\\N')
 
 
-def insertion_words(start,end,text):
-    tokens=str(text).split();dur=max(float(end)-float(start),0.1);out=[]
-    for i,token in enumerate(tokens):
-        a=float(start)+dur*i/max(len(tokens),1);b=float(start)+dur*(i+1)/max(len(tokens),1)
-        out.append({'start':a,'end':b,'word':(' ' if i else '')+token,'probability':1.0,'recovered':True})
-    return out
-
-
 def prepare_transcript(transcript,cfg):
-    t=copy.deepcopy(transcript);segments=list(t.get('segments',[]))
-    for patch in cfg.get('transcript_insertions',[]):
-        start=float(patch['start']);end=float(patch['end']);text=str(patch['text']).strip()
-        if not text or end<=start:continue
-        # Do not duplicate a patch if a future ASR pass already covers most of this window.
-        overlap=sum(max(0,min(end,float(s['end']))-max(start,float(s['start']))) for s in segments)
-        if overlap >= 0.65*(end-start):continue
-        segments.append({'start':start,'end':end,'text':text,'words':insertion_words(start,end,text),'recovered':True,'recovery_source':patch.get('source','manual-reviewed-audio')})
-    segments.sort(key=lambda s:(float(s['start']),float(s['end'])))
+    t=copy.deepcopy(transcript);segments=sorted(list(t.get('segments',[])),key=lambda s:(float(s['start']),float(s['end'])))
     for i,s in enumerate(segments):s['_segment_index']=i
     t['segments']=segments
     return t
 
 
-def chunks(transcript,maximum=12):
-    out=[]
+def build_turns(transcript,cfg):
+    split_gap=float(cfg.get('turn_gap_split_seconds',0.55));turns=[];tid=0
     for seg in transcript.get('segments',[]):
-        si=int(seg.get('_segment_index',0));ws=seg.get('words') or []
+        ws=list(seg.get('words') or [])
+        if not ws:
+            if seg.get('text'):
+                turns.append({'turn_id':tid,'start':float(seg['start']),'end':float(seg['end']),'text':seg['text'].strip(),'words':[],'recovered':bool(seg.get('recovered'))});tid+=1
+            continue
+        groups=[];current=[]
+        for w in ws:
+            if current and float(w['start'])-float(current[-1]['end'])>=split_gap:
+                groups.append(current);current=[]
+            current.append(w)
+        if current:groups.append(current)
+        for group in groups:
+            text=' '.join(w['word'].strip() for w in group).strip()
+            if text:
+                turns.append({'turn_id':tid,'start':float(group[0]['start']),'end':float(group[-1]['end']),'text':text,'words':group,'recovered':bool(seg.get('recovered'))});tid+=1
+    return turns
+
+
+def chunks(turns,maximum=8):
+    out=[]
+    for turn in turns:
+        ws=turn.get('words') or []
         if ws:
             for i in range(0,len(ws),maximum):
                 p=ws[i:i+maximum];text=' '.join(x['word'].strip() for x in p).strip()
-                if text:out.append({'start':float(p[0]['start']),'end':float(p[-1]['end']),'text':text,'segment_index':si,'recovered':bool(seg.get('recovered'))})
-        elif seg.get('text'):
-            out.append({'start':float(seg['start']),'end':float(seg['end']),'text':seg['text'].strip(),'segment_index':si,'recovered':bool(seg.get('recovered'))})
-    return [x for x in out if x['end']>x['start'] and x['text']]
+                if text:out.append({'start':float(p[0]['start']),'end':float(p[-1]['end']),'text':text,'turn_id':turn['turn_id'],'recovered':turn.get('recovered',False)})
+        elif turn.get('text'):
+            out.append({'start':turn['start'],'end':turn['end'],'text':turn['text'],'turn_id':turn['turn_id'],'recovered':turn.get('recovered',False)})
+    return out
 
 
 def roi_pixels(spec,w,h):
@@ -60,7 +64,7 @@ def roi_pixels(spec,w,h):
 
 
 def motion_series(video,cfg):
-    fps=float(cfg.get('analysis_fps',5.0));w=int(cfg.get('analysis_width',640));h=int(round(w*9/16));frame_bytes=w*h
+    fps=float(cfg.get('analysis_fps',3.0));w=int(cfg.get('analysis_width',480));h=int(round(w*9/16));frame_bytes=w*h
     left=roi_pixels(cfg.get('left_roi',[0.08,0.10,0.47,0.67]),w,h);right=roi_pixels(cfg.get('right_roi',[0.53,0.10,0.92,0.67]),w,h)
     cmd=['ffmpeg','-nostdin','-v','error','-i',str(video),'-vf',f'fps={fps},scale={w}:{h},format=gray','-f','rawvideo','-pix_fmt','gray','pipe:1']
     p=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE);prev=None;series=[];index=0
@@ -79,14 +83,37 @@ def motion_series(video,cfg):
     err=p.stderr.read().decode('utf-8','replace') if p.stderr else '';rc=p.wait()
     if rc:raise RuntimeError('ffmpeg motion analysis failed: '+err[-1200:])
     if len(series)<10:raise RuntimeError('Too few motion samples for speaker analysis')
-    return series,{'mode':'fixed-left-right-turn-motion','left_roi':left,'right_roi':right,'fps':fps}
+    return series,{'mode':'calibrated-audio-visual-turns','left_roi':left,'right_roi':right,'fps':fps}
 
 
-def score_range(start,end,series,pad=.10):
-    a=max(0,float(start)-pad);b=float(end)+pad;rows=[x for x in series if a<=x['t']<=b]
-    if not rows:return None,0.0,0.0,0.0
-    l=float(np.median([x['left'] for x in rows]));r=float(np.median([x['right'] for x in rows]));conf=abs(l-r)/(l+r+1e-6)
-    return ('left' if l>=r else 'right'),conf,l,r
+def load_audio(video,cfg):
+    sr=int(cfg.get('audio_analysis_rate',8000))
+    raw=subprocess.check_output(['ffmpeg','-nostdin','-v','error','-i',str(video),'-vn','-ac','2','-ar',str(sr),'-f','s16le','pipe:1'])
+    x=np.frombuffer(raw,dtype=np.int16)
+    if len(x)<sr*2:raise RuntimeError('Too little audio for speaker calibration')
+    return x[:len(x)//2*2].reshape(-1,2).astype(np.float32)/32768.0,sr
+
+
+def feature_range(start,end,motion,audio,sr):
+    rows=[x for x in motion if float(start)-.10<=x['t']<=float(end)+.10]
+    ml=float(np.median([x['left'] for x in rows])) if rows else 0.0;mr=float(np.median([x['right'] for x in rows])) if rows else 0.0
+    vr=math.log((ml+0.02)/(mr+0.02))
+    a=max(0,int(float(start)*sr));b=min(len(audio),int(float(end)*sr));chunk=audio[a:b]
+    if len(chunk):
+        rms=np.sqrt(np.mean(chunk*chunk,axis=0)+1e-12);db=20*np.log10(rms+1e-12);ar=float(db[0]-db[1]);ldb=float(db[0]);rdb=float(db[1])
+    else:ar=0.0;ldb=rdb=-120.0
+    return {'visual_ratio':vr,'audio_lr_db':ar,'motion_left':ml,'motion_right':mr,'audio_left_db':ldb,'audio_right_db':rdb}
+
+
+def calibration(cfg,motion,audio,sr):
+    spans=cfg.get('speaker_calibration',{});centroids={}
+    for side in ('left','right'):
+        feats=[]
+        for span in spans.get(side,[]):
+            feats.append(feature_range(float(span['start']),float(span['end']),motion,audio,sr))
+        if feats:
+            centroids[side]={'visual_ratio':float(np.median([f['visual_ratio'] for f in feats])),'audio_lr_db':float(np.median([f['audio_lr_db'] for f in feats])),'samples':len(feats)}
+    return centroids
 
 
 def override_for(start,end,cfg):
@@ -97,38 +124,37 @@ def override_for(start,end,cfg):
     return None,None
 
 
-def classify_turns(transcript,cues,series,cfg):
-    by_segment={}
-    for cue in cues:by_segment.setdefault(cue['segment_index'],[]).append(cue)
-    previous=cfg.get('initial_speaker');previous_end=-999.0
-    switch_conf=float(cfg.get('turn_switch_confidence',0.28));close_switch_conf=float(cfg.get('close_turn_switch_confidence',0.38));close_gap=float(cfg.get('close_turn_gap_seconds',1.0));low=float(cfg.get('confidence_threshold',0.055))
-    turns=[]
-    for seg in transcript.get('segments',[]):
-        si=int(seg['_segment_index']);start=float(seg['start']);end=float(seg['end']);raw,conf,l,r=score_range(start,end,series)
-        side=raw;repair=None;ov,ov_reason=override_for(start,end,cfg)
-        if ov:
-            side=ov;repair='speaker-override: '+ov_reason
-        elif previous:
-            gap=start-previous_end
-            if raw is None or conf<low:
-                side=previous;repair='low-confidence turn continuity'
-            elif raw!=previous and (conf<switch_conf or (gap<close_gap and conf<close_switch_conf)):
-                side=previous;repair='speaker-turn continuity'
-        elif side is None:
-            side='right'
-        turn={'segment_index':si,'start':start,'end':end,'side':side,'raw_side':raw,'speaker_confidence':round(float(conf),3),'motion_left':round(float(l),3),'motion_right':round(float(r),3),'recovered':bool(seg.get('recovered'))}
-        if repair:turn['speaker_repair']=repair
-        turns.append(turn)
-        for cue in by_segment.get(si,[]):
-            cue.update({'side':side,'raw_side':raw,'speaker_confidence':turn['speaker_confidence'],'motion_left':turn['motion_left'],'motion_right':turn['motion_right']})
+def classify_turns(turns,cues,motion,audio,sr,cfg):
+    by_turn={}
+    for cue in cues:by_turn.setdefault(cue['turn_id'],[]).append(cue)
+    cents=calibration(cfg,motion,audio,sr);previous=cfg.get('initial_speaker');previous_end=-999.0
+    uncertain_threshold=float(cfg.get('uncertain_confidence',0.16));close_gap=float(cfg.get('close_turn_gap_seconds',0.9));close_conf=float(cfg.get('close_turn_switch_confidence',0.28));audio_weight=float(cfg.get('audio_weight',0.68));visual_weight=1-audio_weight
+    if set(cents)!= {'left','right'}:raise RuntimeError('Both left and right speaker calibration windows are required')
+    vscale=max(abs(cents['left']['visual_ratio']-cents['right']['visual_ratio']),0.25);ascale=max(abs(cents['left']['audio_lr_db']-cents['right']['audio_lr_db']),1.5)
+    out=[]
+    for turn in turns:
+        f=feature_range(turn['start'],turn['end'],motion,audio,sr);dist={}
+        for side in ('left','right'):
+            dv=abs(f['visual_ratio']-cents[side]['visual_ratio'])/vscale;da=abs(f['audio_lr_db']-cents[side]['audio_lr_db'])/ascale
+            dist[side]=visual_weight*dv+audio_weight*da
+        raw=min(dist,key=dist.get);conf=abs(dist['left']-dist['right'])/(dist['left']+dist['right']+1e-6);side=raw;repair=None
+        ov,reason=override_for(turn['start'],turn['end'],cfg)
+        if ov:side=ov;repair='speaker-override: '+reason;conf=1.0
+        elif previous and side!=previous and (conf<uncertain_threshold or (turn['start']-previous_end<close_gap and conf<close_conf)):
+            side=previous;repair='calibrated-turn continuity'
+        rec={**turn,'side':side,'raw_side':raw,'speaker_confidence':round(float(conf),3),'distance_left':round(float(dist['left']),3),'distance_right':round(float(dist['right']),3),'visual_ratio':round(f['visual_ratio'],3),'audio_lr_db':round(f['audio_lr_db'],2)}
+        if repair:rec['speaker_repair']=repair
+        if conf<uncertain_threshold and not ov:rec['uncertain']=True
+        out.append(rec)
+        for cue in by_turn.get(turn['turn_id'],[]):
+            cue.update({'side':side,'raw_side':raw,'speaker_confidence':rec['speaker_confidence'],'audio_lr_db':rec['audio_lr_db'],'visual_ratio':rec['visual_ratio']})
             if repair:cue['speaker_repair']=repair
-        previous=side;previous_end=end
-    return turns,cues
+        previous=side;previous_end=turn['end']
+    return out,cues,cents
 
 
 def pad_caption_timing(cues,cfg):
-    bridge=float(cfg.get('bridge_caption_gap_seconds',0.55));tail=float(cfg.get('caption_tail_pad_seconds',0.12));lead=float(cfg.get('caption_lead_pad_seconds',0.04))
-    cues.sort(key=lambda c:(c['start'],c['end']))
+    bridge=float(cfg.get('bridge_caption_gap_seconds',0.55));tail=float(cfg.get('caption_tail_pad_seconds',0.12));lead=float(cfg.get('caption_lead_pad_seconds',0.04));cues.sort(key=lambda c:(c['start'],c['end']))
     for i,cue in enumerate(cues):
         cue['start']=max(0.0,float(cue['start'])-lead);original_end=float(cue['end']);target=original_end+tail
         if i+1<len(cues):
@@ -160,11 +186,13 @@ def write_ass(path,cues,cfg,width=3840,height=2160):
 
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('video',type=Path);ap.add_argument('--transcript',type=Path,required=True);ap.add_argument('--manifest',type=Path,required=True);ap.add_argument('--ass',type=Path,required=True);ap.add_argument('--assignments',type=Path,required=True);args=ap.parse_args()
-    manifest=json.loads(args.manifest.read_text());cfg=manifest.get('podcast_captions',{});transcript=prepare_transcript(json.loads(args.transcript.read_text()),cfg);cues=chunks(transcript,int(cfg.get('words_per_caption',8)));series,regions=motion_series(args.video,cfg);turns,cues=classify_turns(transcript,cues,series,cfg);cues=pad_caption_timing(cues,cfg)
+    manifest=json.loads(args.manifest.read_text());cfg=manifest.get('podcast_captions',{});transcript=prepare_transcript(json.loads(args.transcript.read_text()),cfg);turns=build_turns(transcript,cfg);cues=chunks(turns,int(cfg.get('words_per_caption',8)))
+    motion,regions=motion_series(args.video,cfg);audio,sr=load_audio(args.video,cfg);turns,cues,cents=classify_turns(turns,cues,motion,audio,sr,cfg);cues=pad_caption_timing(cues,cfg)
     args.ass.parent.mkdir(parents=True,exist_ok=True);write_ass(args.ass,cues,cfg);gaps=[]
     for a,b in zip(cues,cues[1:]):
         gap=float(b['start'])-float(a['end'])
         if gap>0.60:gaps.append({'start':round(float(a['end']),2),'end':round(float(b['start']),2),'seconds':round(gap,2)})
-    payload={'mode':'fixed-left-right-speaker-turn-motion','analysis_regions':regions,'turns':turns,'caption_gaps_over_0_60s':gaps,'cues':cues};args.assignments.write_text(json.dumps(payload,indent=2))
-    print(json.dumps({'captions':len(cues),'turns':len(turns),'left':sum(x['side']=='left' for x in cues),'right':sum(x['side']=='right' for x in cues),'recovered_captions':sum(bool(x.get('recovered')) for x in cues),'speaker_overrides':sum(str(t.get('speaker_repair','')).startswith('speaker-override') for t in turns),'caption_gaps_over_0_60s':len(gaps),'analysis_mode':regions.get('mode'),'ass':str(args.ass)},indent=2))
+    uncertain=[t for t in turns if t.get('uncertain')]
+    payload={'mode':'calibrated-audio-visual-speaker-turns','analysis_regions':regions,'calibration':cents,'turns':turns,'uncertain_turns':uncertain,'caption_gaps_over_0_60s':gaps,'cues':cues};args.assignments.write_text(json.dumps(payload,indent=2))
+    print(json.dumps({'captions':len(cues),'turns':len(turns),'left':sum(x['side']=='left' for x in cues),'right':sum(x['side']=='right' for x in cues),'uncertain_turns':len(uncertain),'recovered_captions':sum(bool(x.get('recovered')) for x in cues),'caption_gaps_over_0_60s':len(gaps),'calibration':cents,'analysis_mode':regions.get('mode'),'ass':str(args.ass)},indent=2))
 if __name__=='__main__':main()
