@@ -12,4 +12,4 @@ echo "P2_HOME_OS_REQUEST=${request_id}"
 echo "P2_HOME_OS_OPERATION=${operation}"
 echo "P2_HOME_OS_TARGET=${target}"
 cd "${ROOT_DIR}/ansible"
-exec ansible-playbook playbooks/ssh-transfer-fabric.yml --limit 'control_nodes:compute_nodes'
+exec ansible-playbook playbooks/ssh-transfer-fabric.yml --limit compute_nodes
