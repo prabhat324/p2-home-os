@@ -9,16 +9,42 @@
     asset_driver: /home/p2ops/openmontage-lab/run_asset_request.py
     om_python: /home/p2ops/openmontage-lab/OpenMontage/.venv/bin/python
   tasks:
-    - name: Check whether permanent V6.1 standard is already installed
-      ansible.builtin.stat:
-        path: "{{ verification_path }}"
-      register: standard_marker
+    - name: Check whether permanent V6.1 benchmark and worker hook are fully installed
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test -s '{{ verification_path }}'
+        test "$(stat -c %s '{{ standard_root }}/reference/wasaga-report-2026-V6.1-youtube-master.mp4')" = '3051279914'
+        test -s '{{ standard_path }}'
+        grep -q 'def knowledge_gate' /home/p2ops/media01/media_worker.py
+        jq -e '.editing_standard.id == "besquare-knowledge-v1"' /home/p2ops/media01/quality-profile.json >/dev/null
+      args:
+        executable: /bin/bash
+      register: standard_state
+      changed_when: false
+      failed_when: false
 
-    - name: Install exact V6.1 benchmark and permanent worker guardrails on first run
+    - name: Install or repair exact V6.1 benchmark and permanent worker guardrails
       ansible.builtin.include_tasks: tasks/media01-besquare-standard-install.yml
-      when: not standard_marker.stat.exists
+      when: standard_state.rc != 0
 
-    - name: Keep canonical standard and asset-only driver synchronized with control repo
+    - name: Check detailed inherited style-reference package
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test -s '{{ standard_root }}/support-files.sha256'
+        test "$(find '{{ standard_root }}/support/v6/motion' -maxdepth 1 -type f -name '*.mp4' | wc -l)" -ge 20
+        test -s '{{ standard_root }}/support/toolchain/WasagaV6.tsx'
+        test -s '{{ standard_root }}/support/toolchain/WasagaV61.tsx'
+      args:
+        executable: /bin/bash
+      register: detailed_reference_state
+      changed_when: false
+      failed_when: false
+
+    - name: Install or repair inherited V6 motion and design-source references
+      ansible.builtin.include_tasks: tasks/media01-besquare-reference-extras.yml
+      when: detailed_reference_state.rc != 0
+
+    - name: Keep canonical standard and asset-only tools synchronized with control repo
       ansible.builtin.copy:
         src: "{{ item.src }}"
         dest: "{{ item.dest }}"
@@ -33,6 +59,9 @@
         - src: "{{ playbook_dir }}/../files/BESQUARE_EDITING_STANDARD_V1.md"
           dest: "{{ standard_root }}/BESQUARE_EDITING_STANDARD_V1.md"
           mode: '0644'
+        - src: "{{ playbook_dir }}/../files/OPENMONTAGE_ASSET_REQUEST_EXAMPLE.json"
+          dest: "{{ standard_root }}/OPENMONTAGE_ASSET_REQUEST_EXAMPLE.json"
+          mode: '0644'
         - src: "{{ playbook_dir }}/../files/besquare_guardrail.py"
           dest: /home/p2ops/media01/besquare_guardrail.py
           mode: '0755'
@@ -46,11 +75,15 @@
         test -s '{{ verification_path }}'
         test -s '{{ standard_path }}'
         test -s '{{ asset_driver }}'
+        test -s '{{ standard_root }}/support/v61/work/camera-plan-v61.csv'
+        test -s '{{ standard_root }}/support/v61/work/v61-timeline.tsv'
+        test -s '{{ standard_root }}/support/v6/qc/V6-YOUTUBE-READY-RUBRIC.md'
         jq -e '.standard_id == "besquare-knowledge-v1"' '{{ standard_path }}' >/dev/null
         jq -e '.openmontage.production_role == "asset_only" and .openmontage.full_timeline_render_allowed == false' '{{ standard_path }}' >/dev/null
         grep -q 'def knowledge_gate' /home/p2ops/media01/media_worker.py
         echo 'BESQUARE_STANDARD=besquare-knowledge-v1'
         echo 'OPENMONTAGE_ROLE=asset_only'
+        echo 'V61_REFERENCE={{ standard_root }}/reference/wasaga-report-2026-V6.1-youtube-master.mp4'
       args:
         executable: /bin/bash
       register: policy_check
