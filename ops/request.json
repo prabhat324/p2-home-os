@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-network-discover-20260906-0803",
-  "operation": "media01-network-discover",
-  "target": "core-01"
+  "request_id": "media01-post-cable-verify-20260906-0818",
+  "operation": "media01-status",
+  "target": "media-01"
 }
