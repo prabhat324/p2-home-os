@@ -1,0 +1,95 @@
+---
+- name: Resume Raven podcast from approved caption artifacts
+  hosts: media-01
+  gather_facts: false
+  vars:
+    source: /srv/media-production/inbox/raven-podcast-01/master.mp4
+    gap_report: /srv/media-production/work/raven-podcast-01-full/gap-recovery.json
+    ass: /srv/media-production/review/raven-podcast-01/Raven-full-captions.ass
+    assignments: /srv/media-production/review/raven-podcast-01/Raven-full-speaker-assignments.json
+    output: /srv/media-production/review/raven-podcast-01/Raven-Podcast-YouTube-Captioned-V1.mp4
+  tasks:
+    - name: Verify approved full-run artifacts survived cancellation
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ source }}"
+        - "{{ gap_report }}"
+        - "{{ ass }}"
+        - "{{ assignments }}"
+      register: required
+      failed_when: not required.stat.exists or required.stat.size | int < 100
+
+    - name: Re-enforce saved pre-render caption QA
+      ansible.builtin.shell: |
+        set -euo pipefail
+        unresolved="$(jq '.unresolved_suspect_gaps | length' "{{ gap_report }}")"
+        turns="$(jq '.turns | length' "{{ assignments }}")"
+        uncertain="$(jq '.uncertain_turns | length' "{{ assignments }}")"
+        left="$(jq '[.cues[] | select(.side=="left")] | length' "{{ assignments }}")"
+        right="$(jq '[.cues[] | select(.side=="right")] | length' "{{ assignments }}")"
+        echo "unresolved_suspect_gaps=$unresolved turns=$turns uncertain=$uncertain raven_cues=$left prabhat_cues=$right"
+        test "$unresolved" -eq 0
+        test "$turns" -ge 50
+        test "$left" -gt 0
+        test "$right" -gt 0
+        python3 - "$turns" "$uncertain" <<'PY'
+        import sys
+        turns=max(1,int(sys.argv[1]));unc=int(sys.argv[2]);ratio=unc/turns
+        print(f'uncertain_turn_ratio={ratio:.4f}')
+        if ratio>0.20: raise SystemExit('too many uncertain speaker turns')
+        PY
+        jq -e '([.cues[] | select(.start < 23.2 and .side != "right")] | length) == 0' "{{ assignments }}" >/dev/null
+        jq -e '([.cues[] | select(.start >= 23.5 and .start < 60.3 and .side != "left")] | length) == 0' "{{ assignments }}" >/dev/null
+        grep -q '^Style: Left,.*&H00000000,&H00000000,' "{{ ass }}"
+        grep -q '^Style: Right,.*&H00000000,&H00000000,' "{{ ass }}"
+      args:
+        executable: /bin/bash
+      register: preflight
+      changed_when: false
+
+    - name: Remove stale cancelled partial encode only
+      ansible.builtin.file:
+        path: "{{ output }}.partial.mp4"
+        state: absent
+
+    - name: Burn approved captions into complete 4K podcast
+      ansible.builtin.shell: |
+        set -euo pipefail
+        ffmpeg -nostdin -hide_banner -loglevel warning -y -i "{{ source }}" \
+          -vf "ass='{{ ass }}'" \
+          -map 0:v:0 -map 0:a:0 -map_metadata 0 \
+          -c:v h264_nvenc -preset p6 -tune hq -rc vbr -cq 18 -b:v 30M -maxrate 45M -bufsize 90M -profile:v high \
+          -c:a copy -movflags +faststart "{{ output }}.partial.mp4"
+        mv "{{ output }}.partial.mp4" "{{ output }}"
+      args:
+        executable: /bin/bash
+      register: render
+      changed_when: true
+
+    - name: Validate resumed final podcast output
+      ansible.builtin.shell: |
+        set -euo pipefail
+        src_d="$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "{{ source }}")"
+        out_d="$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "{{ output }}")"
+        python3 - "$src_d" "$out_d" <<'PY'
+        import sys
+        a=float(sys.argv[1]);b=float(sys.argv[2]);print(f'source_duration={a:.3f} output_duration={b:.3f} delta={b-a:.3f}')
+        if abs(a-b)>0.35: raise SystemExit('duration mismatch')
+        PY
+        ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,width,height,r_frame_rate -of json "{{ output }}"
+        ffprobe -v error -select_streams a:0 -show_entries stream=codec_name,sample_rate,channels,channel_layout -of json "{{ output }}"
+        ffmpeg -nostdin -v error -t 5 -i "{{ output }}" -f null -
+        ffmpeg -nostdin -v error -sseof -5 -i "{{ output }}" -f null -
+        du -h "{{ output }}"
+      args:
+        executable: /bin/bash
+      register: final_validation
+      changed_when: false
+
+    - name: Report resumed Raven result
+      ansible.builtin.debug:
+        msg:
+          preflight: "{{ preflight.stdout }}"
+          final: "{{ final_validation.stdout }}"
+          output: "{{ output }}"
