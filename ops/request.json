@@ -1,5 +1,5 @@
 {
-  "request_id": "media01-raven-final-encode-resume-20260905-2132",
-  "operation": "media01-debug-podcast",
-  "target": "media-01"
+  "request_id": "p2-dashboard-media01-diagnose-20260905-2135",
+  "operation": "dashboard-diagnose",
+  "target": "compute-02"
 }
