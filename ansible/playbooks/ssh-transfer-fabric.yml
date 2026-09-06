@@ -1,0 +1,180 @@
+---
+- name: Build direct passwordless SSH transfer fabric
+  hosts: "control_nodes:compute_nodes"
+  gather_facts: true
+  become: true
+  vars:
+    transfer_user: p2ops
+    transfer_home: /home/p2ops
+    transfer_key: /home/p2ops/.ssh/id_ed25519_p2transfer
+    transfer_known_hosts: /home/p2ops/.ssh/known_hosts_p2transfer
+    fabric_hosts: "{{ (groups['control_nodes'] + groups['compute_nodes']) | unique | list }}"
+
+  tasks:
+    - name: Ensure transfer prerequisites are installed
+      ansible.builtin.package:
+        name:
+          - openssh-client
+          - openssh-server
+          - rsync
+        state: present
+
+    - name: Ensure SSH host keys exist
+      ansible.builtin.command: ssh-keygen -A
+      changed_when: false
+
+    - name: Ensure SSH service is enabled and started
+      ansible.builtin.service:
+        name: ssh
+        state: started
+        enabled: true
+
+    - name: Ensure p2ops SSH directory exists
+      ansible.builtin.file:
+        path: "{{ transfer_home }}/.ssh"
+        state: directory
+        owner: "{{ transfer_user }}"
+        group: "{{ transfer_user }}"
+        mode: "0700"
+
+    - name: Generate one dedicated transfer key per host
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -q
+          - -t
+          - ed25519
+          - -N
+          - ""
+          - -C
+          - "p2transfer@{{ inventory_hostname }}"
+          - -f
+          - "{{ transfer_key }}"
+      args:
+        creates: "{{ transfer_key }}"
+      become_user: "{{ transfer_user }}"
+
+    - name: Read each host transfer public key
+      ansible.builtin.slurp:
+        src: "{{ transfer_key }}.pub"
+      register: transfer_pubkey
+
+    - name: Read each SSH server Ed25519 host key
+      ansible.builtin.slurp:
+        src: /etc/ssh/ssh_host_ed25519_key.pub
+      register: ssh_host_pubkey
+
+    - name: Authorize managed transfer keys from LAN only
+      ansible.builtin.blockinfile:
+        path: "{{ transfer_home }}/.ssh/authorized_keys"
+        create: true
+        owner: "{{ transfer_user }}"
+        group: "{{ transfer_user }}"
+        mode: "0600"
+        marker: "# {mark} P2 HOME OS DIRECT TRANSFER FABRIC"
+        block: |
+          {% for h in fabric_hosts %}
+          restrict,from="192.168.0.0/24" {{ hostvars[h].transfer_pubkey.content | b64decode | trim }}
+          {% endfor %}
+
+    - name: Pin exact server host keys for every transfer alias
+      ansible.builtin.copy:
+        dest: "{{ transfer_known_hosts }}"
+        owner: "{{ transfer_user }}"
+        group: "{{ transfer_user }}"
+        mode: "0644"
+        content: |
+          {% for h in fabric_hosts %}
+          {{ h }} {{ hostvars[h].ssh_host_pubkey.content | b64decode | trim }}
+          {% endfor %}
+
+    - name: Install managed SSH aliases without replacing existing config
+      ansible.builtin.blockinfile:
+        path: "{{ transfer_home }}/.ssh/config"
+        create: true
+        owner: "{{ transfer_user }}"
+        group: "{{ transfer_user }}"
+        mode: "0600"
+        marker: "# {mark} P2 HOME OS DIRECT TRANSFER ALIASES"
+        block: |
+          {% for h in fabric_hosts %}
+          Host {{ h }}
+            HostName {{ hostvars[h].ansible_default_ipv4.address }}
+            HostKeyAlias {{ h }}
+            User {{ transfer_user }}
+            IdentityFile {{ transfer_key }}
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile {{ transfer_known_hosts }}
+            ControlMaster auto
+            ControlPersist 10m
+            ControlPath {{ transfer_home }}/.ssh/cm-%C
+            ServerAliveInterval 30
+            ServerAliveCountMax 3
+            Compression no
+            IPQoS throughput
+
+          {% endfor %}
+
+    - name: Verify passwordless SSH to every other managed node
+      ansible.builtin.command:
+        argv:
+          - ssh
+          - -F
+          - "{{ transfer_home }}/.ssh/config"
+          - "{{ item }}"
+          - "printf 'P2_SSH_OK source=%s target=%s\\n' '{{ inventory_hostname }}' '{{ item }}'"
+      become_user: "{{ transfer_user }}"
+      loop: "{{ fabric_hosts | difference([inventory_hostname]) }}"
+      register: ssh_matrix
+      changed_when: false
+
+    - name: Create tiny rsync smoke-test payload
+      ansible.builtin.copy:
+        dest: "/tmp/p2-transfer-smoke-{{ inventory_hostname }}.txt"
+        content: "source={{ inventory_hostname }}\n"
+        owner: "{{ transfer_user }}"
+        group: "{{ transfer_user }}"
+        mode: "0600"
+
+    - name: Verify rsync file transfer to every other managed node
+      ansible.builtin.command:
+        argv:
+          - rsync
+          - -a
+          - -e
+          - "ssh -F {{ transfer_home }}/.ssh/config"
+          - "/tmp/p2-transfer-smoke-{{ inventory_hostname }}.txt"
+          - "{{ item }}:/tmp/p2-transfer-smoke-{{ inventory_hostname }}-to-{{ item }}.txt"
+      become_user: "{{ transfer_user }}"
+      loop: "{{ fabric_hosts | difference([inventory_hostname]) }}"
+      register: rsync_matrix
+      changed_when: true
+
+    - name: Verify transferred payload remotely and clean it up
+      ansible.builtin.command:
+        argv:
+          - ssh
+          - -F
+          - "{{ transfer_home }}/.ssh/config"
+          - "{{ item }}"
+          - "test -s /tmp/p2-transfer-smoke-{{ inventory_hostname }}-to-{{ item }}.txt && rm -f /tmp/p2-transfer-smoke-{{ inventory_hostname }}-to-{{ item }}.txt"
+      become_user: "{{ transfer_user }}"
+      loop: "{{ fabric_hosts | difference([inventory_hostname]) }}"
+      changed_when: true
+
+    - name: Remove local smoke-test payload
+      ansible.builtin.file:
+        path: "/tmp/p2-transfer-smoke-{{ inventory_hostname }}.txt"
+        state: absent
+
+    - name: Report direct transfer fabric result
+      ansible.builtin.debug:
+        msg:
+          host: "{{ inventory_hostname }}"
+          direct_peers: "{{ fabric_hosts | difference([inventory_hostname]) }}"
+          ssh_checks: "{{ ssh_matrix.results | map(attribute='stdout') | list }}"
+          transfer_key: "{{ transfer_key }}"
+          ssh_config: "{{ transfer_home }}/.ssh/config"
+          known_hosts: "{{ transfer_known_hosts }}"
