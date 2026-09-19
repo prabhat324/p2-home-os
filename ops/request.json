@@ -1,5 +1,5 @@
 {
-  "request_id": "core01-media-status-20260918-2218",
+  "request_id": "core01-reboot-20260918-2220",
   "operation": "status",
   "target": "core-01"
 }
