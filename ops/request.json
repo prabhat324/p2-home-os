@@ -1,5 +1,5 @@
 {
-  "request_id": "core01-media-diagnose-20260918-2215",
-  "operation": "home-dashboard-inventory",
-  "target": "all"
+  "request_id": "core01-media-status-20260918-2218",
+  "operation": "status",
+  "target": "core-01"
 }
