@@ -1,5 +1,5 @@
 {
-  "request_id": "core01-media-safe-recover-20260906-1000",
-  "operation": "status",
-  "target": "core-01"
+  "request_id": "core01-media-diagnose-20260918-2215",
+  "operation": "home-dashboard-inventory",
+  "target": "all"
 }
